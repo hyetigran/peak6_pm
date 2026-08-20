@@ -37,7 +37,7 @@ Date: 2026-08-19 evening.
 | PRD v0.7 / ARCHITECTURE v1.1 reconciliation | Done in working tree; **unstaged** |
 | Design mockups | Present; untracked |
 | Memory Bank | Updated to current freeze |
-| M0 G1–G12 | Started 2026-08-19. **G2, G3, G4, G8, G9, G10 green on localnet (34 tests)**. G1 identity resolved by ADR-0030; golden-test items open. G3 M1-dependent bullets (mint gates, add_strike windows, abandonment) tracked by go/no-go. G5–G12 pending; #12 G5 and #13 G6 unblocked by G4 |
+| M0 G1–G12 | Started 2026-08-19. **G2, G3, G4, G8, G9, G10 green on localnet (36 tests)**. G1 identity resolved by ADR-0030; golden-test items open. G3 M1-dependent bullets (mint gates, add_strike windows, abandonment) tracked by go/no-go. G5–G12 pending; #12 G5 and #13 G6 unblocked by G4 |
 | M1 program core | Blocked on signed M0 go/no-go |
 | M2 OpenBook integration | Blocked |
 | M3 oracle/settlement | Blocked; provider unchosen |

@@ -27,6 +27,13 @@ pub const VENUE_GATE_SEED: &[u8] = b"venue_gate";
 /// (no private key can exist) and the System Program has no `invoke_signed`
 /// path, so NOTHING can ever produce this signature. G9-proven.
 pub const FEE_ADMIN_SENTINEL_SEED: &[u8] = b"meridian_fee_admin_sentinel";
+/// The derived sentinel, fixed forever: PDA(FEE_ADMIN_SENTINEL_SEED, System).
+/// G9.2 asserts this constant equals the live derivation.
+pub const FEE_ADMIN_SENTINEL: Pubkey =
+    anchor_lang::solana_program::pubkey!("EhAss6gbDU57Cmwwyeq3RwHBVRvBK4CkzLS8yvddFZ1E");
+/// OracleConfigParams.conf_filter forwarded at creation (oracles are None;
+/// the value is inert but part of the pinned wire image).
+pub const PINNED_CONF_FILTER: f32 = 0.1;
 /// V1 production lot scheme (G10): one whole Yes Token per base lot,
 /// one cent per price lot.
 pub const PINNED_BASE_LOT_SIZE: i64 = 1_000_000;
@@ -59,14 +66,11 @@ pub mod m0_harness {
         time_expiry: i64,
     ) -> Result<()> {
         let ob = ctx.accounts.openbook_program.key();
-        let (sentinel, _) = Pubkey::find_program_address(
-            &[FEE_ADMIN_SENTINEL_SEED],
-            &anchor_lang::system_program::ID,
-        );
+        let sentinel = FEE_ADMIN_SENTINEL;
         // borsh args: name, OracleConfigParams{conf_filter f32, staleness None},
         // quote_lot, base_lot, maker_fee, taker_fee, time_expiry
         let mut data = DISC_CREATE_MARKET.to_vec();
-        (name, 0.1f32, Option::<u32>::None).serialize(&mut data)?;
+        (name, PINNED_CONF_FILTER, Option::<u32>::None).serialize(&mut data)?;
         (
             PINNED_QUOTE_LOT_SIZE,
             PINNED_BASE_LOT_SIZE,
@@ -579,9 +583,9 @@ pub struct CreateVenueMarket<'info> {
     pub associated_token_program: UncheckedAccount<'info>,
     /// CHECK: OpenBook #[event_cpi] authority PDA.
     pub event_authority: UncheckedAccount<'info>,
-    /// CHECK: the provably unsignable sentinel; address re-derived here so a
-    /// wrong account fails closed before the CPI.
-    #[account(address = Pubkey::find_program_address(&[FEE_ADMIN_SENTINEL_SEED], &anchor_lang::system_program::ID).0 @ HarnessError::HeaderVerificationFailed)]
+    /// CHECK: the provably unsignable sentinel; wrong account fails closed
+    /// before the CPI.
+    #[account(address = FEE_ADMIN_SENTINEL @ HarnessError::WrongSentinel)]
     pub fee_admin_sentinel: UncheckedAccount<'info>,
     /// CHECK: fail closed on any program identity mismatch.
     #[account(executable, address = config.openbook_program @ HarnessError::WrongOpenbookProgram)]
@@ -772,4 +776,6 @@ pub enum HarnessError {
     OrderNotPosted,
     #[msg("post-create Venue Market header verification failed")]
     HeaderVerificationFailed,
+    #[msg("fee-admin account is not the pinned unsignable sentinel")]
+    WrongSentinel,
 }

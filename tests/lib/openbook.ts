@@ -413,8 +413,19 @@ export function settleFundsIx(opts: {
 }
 
 /** Pinned Market byte offsets (state/market.rs field order; OracleConfig = 88). */
+export const MARKET_TIME_EXPIRY_OFFSET = 48;
+export const MARKET_COLLECT_FEE_ADMIN_OFFSET = 56;
+export const MARKET_OPEN_ORDERS_ADMIN_OFFSET = 88;
+export const MARKET_CONSUME_EVENTS_ADMIN_OFFSET = 120;
+export const MARKET_CLOSE_MARKET_ADMIN_OFFSET = 152;
 export const MARKET_QUOTE_LOT_SIZE_OFFSET = 448;
 export const MARKET_BASE_LOT_SIZE_OFFSET = 456;
+export const MARKET_MAKER_FEE_OFFSET = 480;
+export const MARKET_TAKER_FEE_OFFSET = 488;
+export const MARKET_FEES_ACCRUED_OFFSET = 496;      // u128
+export const MARKET_FEES_TO_REFERRERS_OFFSET = 512; // u128
+export const MARKET_REFERRER_REBATES_OFFSET = 528;  // u64
+export const MARKET_FEES_AVAILABLE_OFFSET = 536;    // u64
 /** Market.time_expiry lives at offset 48: 8 disc + bump,base_dec,quote_dec,padding1[5] (=8) + market_authority (32). */
 export const readTimeExpiry = (marketData: Buffer): bigint => marketData.readBigInt64LE(48);
 

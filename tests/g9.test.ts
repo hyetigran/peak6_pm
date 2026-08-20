@@ -113,20 +113,23 @@ before(async () => {
   ], [payer, bids, asks, heap]);
 });
 
+let creationSig: string;
 test("G9.1 create_venue_market pins every safety field; on-chain header proven", async () => {
-  // the wrapper takes ONLY name + expiry; everything else is compiled in
-  await send([harnessCreateVenueMarketIx({ name: "G9-YES/USD", timeExpiry: 0n })], [payer, market]);
+  // the wrapper takes ONLY name + expiry; everything else is compiled in.
+  // No fee parameter EXISTS in the interface — 'rejects any non-zero fee
+  // argument' is satisfied by construction, verified by the wire golden below.
+  creationSig = await send([harnessCreateVenueMarketIx({ name: "G9-YES/USD", timeExpiry: 0n })], [payer, market]);
   const auth = ob.marketAuthorityPda(market.publicKey);
   baseVault = ob.ataFor(baseMint, auth);
   quoteVault = ob.ataFor(quoteMint, auth);
   const d = (await conn.getAccountInfo(market.publicKey))!.data;
   const pk = (off: number) => new PublicKey(d.subarray(off, off + 32));
-  assert.ok(pk(56).equals(SENTINEL), "collect_fee_admin == unsignable sentinel");
-  assert.ok(pk(88).equals(ob.venueAuthorityPda()), "open_orders_admin == venue_authority");
-  assert.ok(pk(120).equals(PublicKey.default), "consume_events_admin == None (permissionless)");
-  assert.ok(pk(152).equals(ob.venueAuthorityPda()), "close_market_admin == venue_authority");
-  assert.equal(d.readBigInt64LE(480), 0n, "maker_fee == 0");
-  assert.equal(d.readBigInt64LE(488), 0n, "taker_fee == 0");
+  assert.ok(pk(ob.MARKET_COLLECT_FEE_ADMIN_OFFSET).equals(SENTINEL), "collect_fee_admin == unsignable sentinel");
+  assert.ok(pk(ob.MARKET_OPEN_ORDERS_ADMIN_OFFSET).equals(ob.venueAuthorityPda()), "open_orders_admin == venue_authority");
+  assert.ok(pk(ob.MARKET_CONSUME_EVENTS_ADMIN_OFFSET).equals(PublicKey.default), "consume_events_admin == None (permissionless)");
+  assert.ok(pk(ob.MARKET_CLOSE_MARKET_ADMIN_OFFSET).equals(ob.venueAuthorityPda()), "close_market_admin == venue_authority");
+  assert.equal(d.readBigInt64LE(ob.MARKET_MAKER_FEE_OFFSET), 0n, "maker_fee == 0");
+  assert.equal(d.readBigInt64LE(ob.MARKET_TAKER_FEE_OFFSET), 0n, "taker_fee == 0");
   assert.equal(d.readBigInt64LE(ob.MARKET_QUOTE_LOT_SIZE_OFFSET), QUOTE_LOT, "quote lot pinned");
   assert.equal(d.readBigInt64LE(ob.MARKET_BASE_LOT_SIZE_OFFSET), BASE_LOT, "base lot pinned");
   // gate + OO plumbing for the session test
@@ -184,21 +187,81 @@ test("G9.4 maker + Market Action session leaves every fee counter zero", async (
   })], [taker]);
   assert.equal((await getAccount(conn, takerQuoteAta)).amount - q0, 50n * QUOTE_LOT, "taker received exactly 50 cents — zero fees");
   const d = (await conn.getAccountInfo(market.publicKey))!.data;
-  // fees_accrued u128@496, fees_to_referrers u128@512, referrer_rebates u64@528, fees_available u64@536
-  assert.equal(d.readBigUInt64LE(496), 0n); assert.equal(d.readBigUInt64LE(504), 0n);
-  assert.equal(d.readBigUInt64LE(512), 0n); assert.equal(d.readBigUInt64LE(520), 0n);
-  assert.equal(d.readBigUInt64LE(528), 0n, "referrer_rebates_accrued == 0");
-  assert.equal(d.readBigUInt64LE(536), 0n, "fees_available == 0");
+  const F = ob.MARKET_FEES_ACCRUED_OFFSET, R = ob.MARKET_FEES_TO_REFERRERS_OFFSET;
+  assert.equal(d.readBigUInt64LE(F), 0n); assert.equal(d.readBigUInt64LE(F + 8), 0n);
+  assert.equal(d.readBigUInt64LE(R), 0n); assert.equal(d.readBigUInt64LE(R + 8), 0n);
+  assert.equal(d.readBigUInt64LE(ob.MARKET_REFERRER_REBATES_OFFSET), 0n, "referrer_rebates_accrued == 0");
+  assert.equal(d.readBigUInt64LE(ob.MARKET_FEES_AVAILABLE_OFFSET), 0n, "fees_available == 0");
 });
 
-test("G9.5 header-mutation enumeration goldens: exactly two safety-field writers at the pin", () => {
-  // protected facts (source-scanned across all 24 instruction files at 796a470):
-  //   set_market_expired -> market.time_expiry = -1   (close_market_admin only)
-  //   sweep_fees         -> market.fees_available = 0 (collect_fee_admin only)
-  // no instruction can set admins, fees, lots, or oracles after create.
+test("G9.5 create-CPI byte golden: actual inner instruction accounts + data verified", async () => {
+  const info = await conn.getTransaction(creationSig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+  const keys = info!.transaction.message.getAccountKeys();
+  const inner = info!.meta!.innerInstructions![0].instructions.find(ix =>
+    keys.get(ix.programIdIndex)!.equals(ob.OPENBOOK_PID) && ix.accounts.length === 21);
+  assert.ok(inner, "create_market CPI found in inner instructions");
+  const acc = inner!.accounts.map(i => keys.get(i)!.toBase58());
+  const auth = ob.marketAuthorityPda(market.publicKey);
+  // exact pinned account order (IDL createMarket)
+  assert.deepEqual(acc, [
+    market.publicKey, auth, bids.publicKey, asks.publicKey, heap.publicKey,
+    payer.publicKey, ob.ataFor(baseMint, auth), ob.ataFor(quoteMint, auth),
+    baseMint, quoteMint, SystemProgram.programId, ob.TOKEN_PID, ob.ATA_PID,
+    ob.OPENBOOK_PID, ob.OPENBOOK_PID, // oracles: None placeholders
+    SENTINEL, ob.venueAuthorityPda(), ob.OPENBOOK_PID, ob.venueAuthorityPda(),
+    ob.eventAuthorityPda(), ob.OPENBOOK_PID,
+  ].map(k => k.toBase58()), "account order matches the pinned IDL exactly");
+  // exact argument bytes: disc + name + conf_filter 0.1f32 + staleness None
+  //   + quote_lot 10,000 + base_lot 1,000,000 + maker 0 + taker 0 + expiry 0
+  const name = Buffer.from("G9-YES/USD");
+  const expect = Buffer.concat([
+    ob.disc("create_market"),
+    (() => { const b = Buffer.alloc(4); b.writeUInt32LE(name.length); return b; })(), name,
+    (() => { const b = Buffer.alloc(4); b.writeFloatLE(0.1); return b; })(), Buffer.from([0]),
+    (() => { const b = Buffer.alloc(40);
+      b.writeBigInt64LE(10_000n, 0); b.writeBigInt64LE(1_000_000n, 8);
+      b.writeBigInt64LE(0n, 16); b.writeBigInt64LE(0n, 24); b.writeBigInt64LE(0n, 32); return b; })(),
+  ]);
+  const bs58mod = await import("bs58");
+  const actual = Buffer.from(bs58mod.default.decode(inner!.data));
+  assert.equal(actual.toString("hex"), expect.toString("hex"), "creation argument bytes match the pinned wire image");
+});
+
+test("G9.7 negative vectors: wrong sentinel, non-admin, discriminator goldens", async () => {
+  const m2 = Keypair.generate();
+  const bad = harnessCreateVenueMarketIx({ name: "bad", timeExpiry: 0n });
+  // swap the sentinel account for an attacker key
+  const badKeys = bad.keys.map(k => k.pubkey.equals(SENTINEL) ? { ...k, pubkey: taker.publicKey } : k);
+  await expectFail(send([new TransactionInstruction({ programId: bad.programId, keys: badKeys, data: bad.data })], [payer, market]),
+    "WrongSentinel", "non-sentinel fee-admin account");
+  // non-admin caller
+  const asTaker = harnessCreateVenueMarketIx({ name: "bad2", timeExpiry: 0n });
+  const takerKeys = asTaker.keys.map(k => k.pubkey.equals(payer.publicKey) ? { ...k, pubkey: taker.publicKey } : k);
+  await expectFail(send([new TransactionInstruction({ programId: asTaker.programId, keys: takerKeys, data: asTaker.data })], [taker, market]),
+    "NotAdmin", "non-admin creation");
+  void m2;
+  // discriminator goldens protecting the enumeration facts
   assert.deepEqual([...ob.disc("set_market_expired")], [219, 82, 219, 236, 60, 115, 197, 64]);
   assert.deepEqual([...ob.disc("sweep_fees")], [175, 225, 98, 71, 118, 66, 34, 148]);
   assert.deepEqual([...ob.disc("create_market")], [103, 226, 97, 235, 200, 188, 251, 254]);
+});
+
+test("G9.8 machine-checked enumeration from the pinned IDL", () => {
+  const idl = JSON.parse(fs.readFileSync("fixtures/openbook_v2_idl.json", "utf8"));
+  const names = idl.instructions.map((i: any) => i.name).sort();
+  // the full pinned instruction surface — any change to this list is a pin break
+  assert.deepEqual(names, ["cancelAllAndPlaceOrders", "cancelAllOrders", "cancelOrder",
+    "cancelOrderByClientOrderId", "closeMarket", "closeOpenOrdersAccount", "closeOpenOrdersIndexer",
+    "consumeEvents", "consumeGivenEvents", "createMarket", "createOpenOrdersAccount",
+    "createOpenOrdersIndexer", "deposit", "editOrder", "editOrderPegged", "placeOrder",
+    "placeOrderPegged", "placeOrders", "placeTakeOrder", "pruneOrders", "refill", "setDelegate",
+    "setMarketExpired", "settleFunds", "settleFundsExpired", "stubOracleClose", "stubOracleCreate",
+    "stubOracleSet", "sweepFees"]);
+  // the two safety-field writers carry exactly the expected signer requirement
+  const byName = Object.fromEntries(idl.instructions.map((i: any) => [i.name, i]));
+  const signerOf = (ix: any) => ix.accounts.filter((a: any) => a.isSigner).map((a: any) => a.name);
+  assert.deepEqual(signerOf(byName.setMarketExpired), ["closeMarketAdmin"]);
+  assert.deepEqual(signerOf(byName.sweepFees), ["collectFeeAdmin"]);
 });
 
 test("G9.6 harness exposes no fee/treasury/collection instruction", () => {
