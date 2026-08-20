@@ -1,17 +1,17 @@
 {
-  "inline_take_latency_ms": 569,
+  "inline_take_latency_ms": 574,
   "practical_inline_fill_capacity": 11,
-  "match_plus_heap_latency_ms": 541,
+  "match_plus_heap_latency_ms": 539,
   "heap_event_latency_ms_note": "event lifetime = keeper poll interval + one consume tx; consume tx latency measured below",
   "consume_cu_1_event": 9639,
-  "consume_cu_7_events": 31255,
-  "consume_cu_marginal_per_event": 3603,
-  "prepend_composite_latency_ms": 539,
+  "consume_cu_7_events": 31264,
+  "consume_cu_marginal_per_event": 3605,
+  "prepend_composite_latency_ms": 531,
   "chained_consume": {
     "instructions": 12,
     "events_drained": 96,
-    "cu": 465538,
-    "latency_ms": 544
+    "cu": 465646,
+    "latency_ms": 508
   },
   "measured_events_per_max_cu_tx": 288,
   "event_heap_capacity_empirical": 600

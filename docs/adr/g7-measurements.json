@@ -29,7 +29,7 @@
       "bytes": 957,
       "fits_1232": true,
       "accounts": 24,
-      "cu": 152443,
+      "cu": 143443,
       "wallet_sim_ok": true,
       "executed": true,
       "signers": 2
@@ -40,7 +40,7 @@
       "bytes": 993,
       "fits_1232": true,
       "accounts": 23,
-      "cu": 145789,
+      "cu": 147289,
       "wallet_sim_ok": true,
       "executed": false,
       "signers": 1
@@ -51,7 +51,7 @@
       "bytes": 995,
       "fits_1232": true,
       "accounts": 23,
-      "cu": 145789,
+      "cu": 147289,
       "wallet_sim_ok": true,
       "executed": false,
       "signers": 1
@@ -62,7 +62,7 @@
       "bytes": 936,
       "fits_1232": true,
       "accounts": 23,
-      "cu": 145789,
+      "cu": 147289,
       "wallet_sim_ok": true,
       "executed": true,
       "signers": 1
@@ -73,7 +73,7 @@
       "bytes": 666,
       "fits_1232": true,
       "accounts": 16,
-      "cu": 74708,
+      "cu": 79208,
       "wallet_sim_ok": true,
       "executed": true,
       "signers": 1
@@ -84,7 +84,7 @@
       "bytes": 1169,
       "fits_1232": true,
       "accounts": 34,
-      "cu": 133686,
+      "cu": 133695,
       "wallet_sim_ok": false,
       "executed": false,
       "signers": 1
@@ -95,7 +95,7 @@
       "bytes": 1136,
       "fits_1232": true,
       "accounts": 33,
-      "cu": 150999,
+      "cu": 151008,
       "wallet_sim_ok": true,
       "executed": true,
       "signers": 1
@@ -106,7 +106,7 @@
       "bytes": 700,
       "fits_1232": true,
       "accounts": 18,
-      "cu": 112610,
+      "cu": 115571,
       "wallet_sim_ok": true,
       "executed": true,
       "signers": 1

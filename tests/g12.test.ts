@@ -19,6 +19,8 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import crypto from "node:crypto";
+import os from "node:os";
+import path from "node:path";
 import {
   Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction,
   TransactionMessage, sendAndConfirmTransaction,
@@ -46,6 +48,7 @@ async function send(ixs: TransactionInstruction[], signers: Keypair[]) {
   return sendAndConfirmTransaction(conn, tx, signers, { commitment: "confirmed" });
 }
 async function expectFail(p: Promise<unknown>, needle: string, label: string) {
+  assert.ok(needle.length > 0, `${label}: empty needle would always pass — give a real marker`);
   try { await p; } catch (e: any) {
     const text = `${e.message}\n${(e.transactionLogs ?? e.logs ?? []).join("\n")}`;
     assert.ok(text.includes(needle), `${label}: failed but without "${needle}":\n${text}`);
@@ -84,7 +87,19 @@ test("G12.1 quote-mint validation and pin", async () => {
   // a non-mint account rejected
   await expectFail(send([ob.harnessInitializeIx(payer.publicKey, seller.publicKey)], [payer]),
     "WrongQuoteMint", "non-mint account at initialize");
-  // the pinned 6-decimal mint accepted
+  // wrong TOKEN PROGRAM: a Token-2022 mint is rejected (owner mismatch)
+  const TOKEN_2022 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+  const t22 = Keypair.generate();
+  const mintLen = 82;
+  const rent = await conn.getMinimumBalanceForRentExemption(mintLen);
+  const { createInitializeMint2Instruction } = await import("@solana/spl-token");
+  await send([
+    SystemProgram.createAccount({ fromPubkey: payer.publicKey, newAccountPubkey: t22.publicKey, lamports: rent, space: mintLen, programId: TOKEN_2022 }),
+    createInitializeMint2Instruction(t22.publicKey, 6, payer.publicKey, null, TOKEN_2022),
+  ], [payer, t22]);
+  await expectFail(send([ob.harnessInitializeIx(payer.publicKey, t22.publicKey)], [payer]),
+    "WrongQuoteMint", "Token-2022 mint (wrong token program)");
+  // the pinned 6-decimal classic mint accepted
   await send([ob.harnessInitializeIx(payer.publicKey, quoteMint)], [payer]);
 
   // venue creation with a DIFFERENT 6-decimal mint must fail on the pin
@@ -150,23 +165,36 @@ test("G12.2 metadata must exist before any mint (ADR-0016 ordering)", async () =
   assert.ok(pv.subarray(8 + 32 * 4 + 8, 8 + 32 * 4 + 8 + 32).equals(mh), "bound metadata hash stored");
 });
 
-test("G12.3 recovery aggregate drill: paused + fused, everything still recoverable", async () => {
+test("G12.3 recovery works in EACH failed state: pause-only, expired-only, and both", async () => {
   await send([ob.createOoIndexerIx(payer.publicKey, seller.publicKey),
     ob.createOoAccountIx(payer.publicKey, seller.publicKey, 1, market.publicKey)], [payer, seller]);
   sellerOo = ob.ooAccountPda(seller.publicKey, 1);
-  const q0 = (await getAccount(conn, sellerQuote)).amount;
-  // rest an ask, then pause AND fire the one-way fuse
-  await send([ob.harnessPlaceLimitOrderIx({
+  const restAsk = (id: bigint) => ob.harnessPlaceLimitOrderIx({
     user: seller.publicKey, ooAccount: sellerOo, userTokenAccount: sellerYes,
     market: market.publicKey, bids: bids.publicKey, asks: asks.publicKey,
     eventHeap: heap.publicKey, marketVault: baseVault,
     args: { side: ob.Side.Ask, priceLots: 50n, maxBaseLots: 1n, maxQuoteLotsIncludingFees: 50n,
-      clientOrderId: 1n, orderType: ob.PlaceOrderType.PostOnly, expiryTimestamp: 0n,
+      clientOrderId: id, orderType: ob.PlaceOrderType.PostOnly, expiryTimestamp: 0n,
       selfTradeBehavior: ob.SelfTradeBehavior.AbortTransaction, limit: 16 },
-  })], [seller]);
+  });
+  const ownerRecover = async () => {
+    await send([ob.cancelAllOrdersIx(seller.publicKey, sellerOo, market.publicKey, bids.publicKey, asks.publicKey)], [seller]);
+    await send([ob.settleFundsIx({
+      owner: seller.publicKey, ooAccount: sellerOo, market: market.publicKey,
+      marketBaseVault: baseVault, marketQuoteVault: quoteVault,
+      userBaseAccount: sellerYes, userQuoteAccount: sellerQuote,
+    })], [seller]);
+  };
+
+  // STATE 1: pause-only — cancel + settle recover the resting order's lock
+  await send([restAsk(1n)], [seller]);
   await send([ob.harnessSetPausedIx(payer.publicKey, market.publicKey, true)], [payer]);
+  await ownerRecover();
+  await send([ob.harnessSetPausedIx(payer.publicKey, market.publicKey, false)], [payer]);
+
+  // STATE 2: expired-only — one-way fuse, then admin prune + owner settle
+  await send([restAsk(2n)], [seller]);
   await send([ob.harnessExpireMarketIx(payer.publicKey, market.publicKey)], [payer]);
-  // recovery under the worst state: admin prune, owner settle, direct redemption
   await send([ob.harnessPruneOrdersIx(payer.publicKey, {
     ooAccount: sellerOo, market: market.publicKey, bids: bids.publicKey, asks: asks.publicKey, limit: 8,
   })], [payer]);
@@ -175,15 +203,34 @@ test("G12.3 recovery aggregate drill: paused + fused, everything still recoverab
     marketBaseVault: baseVault, marketQuoteVault: quoteVault,
     userBaseAccount: sellerYes, userQuoteAccount: sellerQuote,
   })], [seller]);
+
+  // STATE 3: paused AND expired combined — direct Pair Redemption still works
+  await send([ob.harnessSetPausedIx(payer.publicKey, market.publicKey, true)], [payer]);
+  const q0 = (await getAccount(conn, sellerQuote)).amount;
   await send([ob.harnessRedeemPairDirectIx(seller.publicKey, market.publicKey, 5n * LOT, {
     yesMint, noMint, quoteVault: collateralVault,
     userQuote: sellerQuote, userYes: sellerYes, userNo: sellerNo,
   })], [seller]);
-  assert.equal((await getAccount(conn, sellerQuote)).amount, q0 + 5n * LOT, "full recovery: all 5 pairs of collateral back");
-  assert.equal((await getAccount(conn, collateralVault)).amount, 0n, "vault empty after full direct redemption");
+  assert.equal((await getAccount(conn, sellerQuote)).amount, q0 + 5n * LOT, "direct redemption returns all 5 pairs even paused+expired");
+  assert.equal((await getAccount(conn, collateralVault)).amount, 0n, "vault empty after full redemption");
+
+  // Rent Refund Address (ADR-0027): closing the fused, empty Venue Market
+  // returns rent ONLY to the snapshotted refund address (payer here)
+  const refundBefore = (await conn.getAccountInfo(payer.publicKey))!.lamports;
+  const mktRent = (await conn.getAccountInfo(market.publicKey))!.lamports
+    + (await conn.getAccountInfo(bids.publicKey))!.lamports
+    + (await conn.getAccountInfo(asks.publicKey))!.lamports
+    + (await conn.getAccountInfo(heap.publicKey))!.lamports;
+  await send([ob.harnessCloseVenueMarketIx(payer.publicKey, {
+    market: market.publicKey, bids: bids.publicKey, asks: asks.publicKey,
+    eventHeap: heap.publicKey, solDestination: payer.publicKey,
+  })], [payer]);
+  const refundAfter = (await conn.getAccountInfo(payer.publicKey))!.lamports;
+  assert.ok(refundAfter > refundBefore, "venue rent refunded to the snapshotted address on close");
+  void mktRent; void sellerNo;
 });
 
-test("G12.4 Squads V4 loader drill: 1-of-2 cannot execute, 2-of-3 moves real upgrade authority", async () => {
+test("G12.4 Squads V4 loader drill: 1 approval cannot execute, 2-of-3 moves real upgrade authority", async () => {
   // fixture identity
   const sq = fs.readFileSync("fixtures/squads_v4.so");
   assert.equal(crypto.createHash("sha256").update(sq).digest("hex"),
@@ -207,9 +254,9 @@ test("G12.4 Squads V4 loader drill: 1-of-2 cannot execute, 2-of-3 moves real upg
   })], [payer, createKey]);
 
   // a dummy UPGRADEABLE program whose authority the vault will control
-  const scratch = "/private/tmp/claude-501/-Users-tig-Desktop-gauntlet-peak6-pm/1051f57b-1906-420e-9bb2-a94ac09c9bdc/scratchpad";
-  const payerFile = `${scratch}/g12-payer.json`;
-  const progKeyFile = `${scratch}/g12-dummy-program.json`;
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "meridian-g12-"));
+  const payerFile = path.join(scratch, "g12-payer.json");
+  const progKeyFile = path.join(scratch, "g12-dummy-program.json");
   fs.writeFileSync(payerFile, JSON.stringify([...payer.secretKey]));
   const progKp = Keypair.generate();
   fs.writeFileSync(progKeyFile, JSON.stringify([...progKp.secretKey]));
@@ -244,11 +291,21 @@ test("G12.4 Squads V4 loader drill: 1-of-2 cannot execute, 2-of-3 moves real upg
   await send([multisig.instructions.proposalCreate({ multisigPda, transactionIndex: 1n, creator: a.publicKey })], [a]);
   await send([multisig.instructions.proposalApprove({ multisigPda, transactionIndex: 1n, member: a.publicKey })], [a]);
 
-  // ONE approval must not execute
+  // ONE approval must not execute. Capture the error (must be non-empty) AND
+  // prove the authority did NOT move — semantic threshold enforcement, not a
+  // string match on an incidental error.
   const exec1 = await multisig.instructions.vaultTransactionExecute({
     connection: conn, multisigPda, transactionIndex: 1n, member: a.publicKey,
   });
-  await expectFail(send([exec1.instruction], [a]), "", "execute with one approval");
+  let oneApprovalErr = "";
+  try { await send([exec1.instruction], [a]); }
+  catch (e: any) { oneApprovalErr = `${e.message}\n${(e.transactionLogs ?? e.logs ?? []).join("\n")}`; }
+  assert.ok(oneApprovalErr.length > 0, "one-approval execute must fail");
+  {
+    const pd = (await conn.getAccountInfo(programDataPda))!.data;
+    assert.ok(new PublicKey(pd.subarray(13, 45)).equals(vaultPda),
+      "after one approval the upgrade authority is STILL the vault — threshold not met, nothing executed");
+  }
 
   // second approval executes; the loader instruction runs signed by the vault PDA
   await send([multisig.instructions.proposalApprove({ multisigPda, transactionIndex: 1n, member: b.publicKey })], [b]);

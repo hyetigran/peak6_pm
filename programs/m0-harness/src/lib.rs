@@ -56,7 +56,8 @@ pub mod m0_harness {
         );
         {
             let d = ctx.accounts.quote_mint.try_borrow_data()?;
-            require!(d.len() == 82 && d[44] == 6, HarnessError::WrongQuoteMint);
+            // len==82 (classic Mint), decimals@44 == 6, is_initialized@45 == 1
+            require!(d.len() == 82 && d[44] == 6 && d[45] == 1, HarnessError::WrongQuoteMint);
         }
         let config = &mut ctx.accounts.config;
         config.admin = ctx.accounts.admin.key();

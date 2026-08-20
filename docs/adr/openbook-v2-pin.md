@@ -351,9 +351,17 @@ mainnet build loaded as a fixture (`tests/g12.test.ts`, `make g12`).
 | Fact | Evidence |
 | --- | --- |
 | Quote-mint validation | `initialize` rejects a 9-decimal mint and a non-mint account (`WrongQuoteMint`), accepts the pinned 6-decimal mint, and stores it in Config; `create_venue_market` rejects any other 6-decimal mint (`WrongQuoteMint`). The exact Circle Devnet USDC address `4zMMC9sr…` is the stored pin — re-verified against the real mint on devnet under issue #8 |
-| Metadata-before-mint (ADR-0016) | `init_pair` rejects a zero metadata hash (`MetadataUnset`) — a pair cannot bind, so `mint_pair` can never precede published metadata; the bound hash is stored and read back. Real Arweave publish + two-gateway verify + Metaplex CPI is the M1 implementation of this same ordering gate |
-| Recovery aggregate drill | under the WORST combined state — Venue Market both Paused and one-way-fused (`set_market_expired`) — admin `prune_orders` + owner `settle_funds` + direct Pair Redemption all succeed and return 100% of collateral; vault empties exactly |
+| Metadata-before-mint ORDERING (ADR-0016) | `init_pair` rejects a zero metadata hash (`MetadataUnset`) — a pair cannot bind, so `mint_pair` can never precede a **nonzero bound hash**; the hash is stored and read back. This proves the ORDERING invariant only. The substantive parts — real Arweave publish, two-gateway verification, `MERIDIAN_METADATA_V1` root re-derivation, Metaplex mint/metadata relationship + immutable-flag checks — are M1 work, not proven here |
+| Recovery in each failed state | recovery is proven under **pause-only** (cancel+settle), **expired-only** (admin prune + owner settle), and **paused+expired combined** (direct Pair Redemption returns 100% collateral, vault empties). Closing the fused empty market refunds venue rent to the snapshotted Rent Refund Address (ADR-0027) |
 | **Squads V4 loader drill** | fixture is the immutable mainnet build (SHA-256 `dec8d3e0…`, authority `none`, slot 302582236). A 2-of-3 multisig is created (`@sqds/multisig@2.1.4`), the vault PDA derived, a dummy upgradeable program's authority handed to the vault, and a raw BPF-loader `SetAuthority` wrapped as a vault transaction: **one approval cannot execute; two approvals execute** the loader instruction signed by the vault PDA, and the authority move is verified in ProgramData on-chain. This is the M6 upgrade-authority-transfer mechanism proven end to end on an isolated fixture — no real member keys needed |
 
-M6 (the real 2-of-3 over Meridian's own ProgramData) still needs the three
-member pubkeys (issue #11); the mechanism itself is now proven.
+**G12 scope note.** The harness-provable subset above is green. These G12
+bullets require M1 program state or the final demo and are NOT proven here —
+they are carried by the go/no-go issue (#17): golden PDA/digest vectors for
+every canonical identity/enum/schema-version; two-step role rotation;
+genesis-hash + explicit-program-ID fail-closed deployment checks; two
+independent multisig-derivation implementations; direct-member-fails against a
+Meridian Override Authority fixture; and final-demo acceptance (the real 2-of-3
+over Meridian's own ProgramData, needing the #11 member keys). The Squads
+mechanism and the identity/metadata/quote/recovery invariants are proven; the
+M1/M6 bindings are not.
