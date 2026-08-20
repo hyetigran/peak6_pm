@@ -275,11 +275,22 @@ per ADR-0002).
 | Fact | Evidence |
 | --- | --- |
 | Only the correct collateral vault funds quote | account pinned to `pair_vault.quote_vault` — foreign vault → `WrongCollateralVault` |
-| User must sign the No burn | the burn's authority is the user `Signer`; collateral cannot move without it |
+| User must sign the No burn | the burn's authority is the user `Signer`, and negatively proven: an attacker naming the victim's No account under their own signature fails at the token program (owner mismatch) |
 | Program Yes-trade ATA exact | address re-derived as ATA(yes_mint, PairVault) — any other → `WrongTradeAta` |
 | Exact `q_atoms` Yes acquired | G4-style postcondition on the trade ATA; partial → `PartialFillReverted` with vault, liability, and user tokens all untouched |
 | Vault/liability invariant | `vault_delta == liability_delta == −q` asserted **on-chain** after every redemption (`VaultInvariantViolated` otherwise); proven at $0.40 and the 99-cent corner (proceeds exactly 1 cent/token, zero fees) |
-| Knowing self-cross prevention | builder-side `wouldKnowinglySelfCross` scans the user's own OpenOrders (40-byte `OpenOrder` records: `locked_price` at +24, `is_free` +32, `side_and_tree` +33; asks odd) — detection proven with no false positive one tick below |
+| Knowing self-cross prevention | builder-side `wouldKnowinglySelfCross` scans the user's own OpenOrders (40-byte `OpenOrder` records per `state/open_orders_account.rs:426-438`, tail-anchored array; asks odd) — detection proven with no false positive one tick below, and `chooseSellNoRoute` routes to direct Pair Redemption, which executes green as the chosen alternative |
 | Raced self-cross = Internal Unwind | forcing the redemption against the user's own resting ask still satisfies the exact vault invariant; the user's maker proceeds settle normally — solvent, classified Internal Unwind |
 | `penalty_payer` never collateral | the USER is the venue penalty payer; collateral-vault and PairVault lamports proven byte-identical across every flow |
 | Solvency | `vault raw >= Collateral Liability` holds at the end of the suite |
+
+Post-review hardening: token CPIs are pinned to the classic SPL Token program
+in every account struct (`WrongTokenProgram` otherwise) — a foreign "token
+program" could otherwise no-op transfers while liability mutated; `init_pair`
+now validates both mint authorities (= PairVault PDA, zero supply) and vault
+ownership before binding; `mint_pair`/`redeem_pair_direct` assert
+`vault >= liability` on-chain after every mutation. Ordering note for the
+payout math: at the pin, `place_take_order` never credits the taker's quote
+account on the Bid side beyond unspent limit (maker proceeds go to OpenOrders
+positions, not ATAs), and the final `vault_before − vault_after == q` check
+backstops the decomposition regardless.

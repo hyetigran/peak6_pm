@@ -434,6 +434,27 @@ pub mod m0_harness {
     /// Both outcome mints must already have the PairVault PDA as their sole
     /// mint authority; the quote vault is the PDA's ATA.
     pub fn init_pair(ctx: Context<InitPair>) -> Result<()> {
+        // fail closed at binding time: both mints must have the PairVault PDA
+        // as their sole mint authority with zero supply, and the vault token
+        // account must be owned by the PDA. SPL Mint layout: COption tag u32
+        // at 0, authority at 4..36, supply u64 at 36, decimals at 44.
+        // SPL Account layout: mint at 0..32, owner at 32..64.
+        let pda = ctx.accounts.pair_vault.key();
+        for mint in [&ctx.accounts.yes_mint, &ctx.accounts.no_mint] {
+            require!(*mint.owner == TOKEN_PROGRAM_ID, HarnessError::WrongPairAccount);
+            let d = mint.try_borrow_data()?;
+            require!(
+                u32::from_le_bytes(d[0..4].try_into().unwrap()) == 1
+                    && read_pubkey(&d, 4) == pda
+                    && read_u64(&d, 36) == 0,
+                HarnessError::WrongPairAccount
+            );
+        }
+        require!(*ctx.accounts.quote_vault.owner == TOKEN_PROGRAM_ID, HarnessError::WrongCollateralVault);
+        {
+            let d = ctx.accounts.quote_vault.try_borrow_data()?;
+            require!(read_pubkey(&d, 32) == pda, HarnessError::WrongCollateralVault);
+        }
         let pv = &mut ctx.accounts.pair_vault;
         pv.market = ctx.accounts.market.key();
         pv.yes_mint = ctx.accounts.yes_mint.key();
@@ -476,6 +497,10 @@ pub mod m0_harness {
         }
         let pv = &mut ctx.accounts.pair_vault;
         pv.liability_atoms = pv.liability_atoms.checked_add(q_atoms).ok_or(HarnessError::AmountOverflow)?;
+        require!(
+            token_amount(&ctx.accounts.quote_vault.to_account_info())? >= pv.liability_atoms,
+            HarnessError::VaultInvariantViolated
+        );
         Ok(())
     }
 
@@ -509,7 +534,11 @@ pub mod m0_harness {
             ctx.accounts.pair_vault.to_account_info(),
         ], Some((PAIR_VAULT_SEED, &market, bump)))?;
         let pv = &mut ctx.accounts.pair_vault;
-        pv.liability_atoms = pv.liability_atoms.checked_sub(q_atoms).ok_or(HarnessError::AmountOverflow)?;
+        pv.liability_atoms = pv.liability_atoms.checked_sub(q_atoms).ok_or(HarnessError::LiabilityUnderflow)?;
+        require!(
+            token_amount(&ctx.accounts.quote_vault.to_account_info())? >= pv.liability_atoms,
+            HarnessError::VaultInvariantViolated
+        );
         Ok(())
     }
 
@@ -645,7 +674,7 @@ pub mod m0_harness {
             HarnessError::VaultInvariantViolated
         );
         let pv = &mut ctx.accounts.pair_vault;
-        pv.liability_atoms = pv.liability_atoms.checked_sub(q_atoms).ok_or(HarnessError::AmountOverflow)?;
+        pv.liability_atoms = pv.liability_atoms.checked_sub(q_atoms).ok_or(HarnessError::LiabilityUnderflow)?;
         Ok(())
     }
 }
@@ -709,7 +738,8 @@ pub struct PlaceLimitOrder<'info> {
     /// CHECK: fail closed on any program identity mismatch.
     #[account(executable, address = config.openbook_program @ HarnessError::WrongOpenbookProgram)]
     pub openbook_program: UncheckedAccount<'info>,
-    /// CHECK: validated by OpenBook
+    /// CHECK: pinned; OpenBook also type-checks it.
+    #[account(address = TOKEN_PROGRAM_ID @ HarnessError::WrongTokenProgram)]
     pub token_program: UncheckedAccount<'info>,
 }
 
@@ -757,7 +787,8 @@ pub struct PlaceTakeOrderCpi<'info> {
     /// CHECK: fail closed on any program identity mismatch.
     #[account(executable, address = config.openbook_program @ HarnessError::WrongOpenbookProgram)]
     pub openbook_program: UncheckedAccount<'info>,
-    /// CHECK: validated by OpenBook
+    /// CHECK: pinned; OpenBook also type-checks it.
+    #[account(address = TOKEN_PROGRAM_ID @ HarnessError::WrongTokenProgram)]
     pub token_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -796,7 +827,8 @@ pub struct CreateVenueMarket<'info> {
     /// CHECK: validated by OpenBook
     pub quote_mint: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
-    /// CHECK: validated by OpenBook
+    /// CHECK: pinned; OpenBook also type-checks it.
+    #[account(address = TOKEN_PROGRAM_ID @ HarnessError::WrongTokenProgram)]
     pub token_program: UncheckedAccount<'info>,
     /// CHECK: validated by OpenBook
     pub associated_token_program: UncheckedAccount<'info>,
@@ -883,7 +915,8 @@ pub struct CloseVenueMarket<'info> {
     /// CHECK: must equal the snapshotted `venue_gate.rent_refund`.
     #[account(mut)]
     pub sol_destination: UncheckedAccount<'info>,
-    /// CHECK: validated by OpenBook
+    /// CHECK: pinned; OpenBook also type-checks it.
+    #[account(address = TOKEN_PROGRAM_ID @ HarnessError::WrongTokenProgram)]
     pub token_program: UncheckedAccount<'info>,
     /// CHECK: fail closed on any program identity mismatch.
     #[account(executable, address = config.openbook_program @ HarnessError::WrongOpenbookProgram)]
@@ -1007,6 +1040,10 @@ pub enum HarnessError {
     InsolventRedeem,
     #[msg("vault delta does not equal the released collateral; reverting")]
     VaultInvariantViolated,
+    #[msg("token CPIs may only target the classic SPL Token program")]
+    WrongTokenProgram,
+    #[msg("liability would underflow; reverting")]
+    LiabilityUnderflow,
 }
 
 // --- G5: pair collateral model -----------------------------------------
@@ -1034,11 +1071,11 @@ pub struct InitPair<'info> {
         bump,
     )]
     pub pair_vault: Account<'info, PairVault>,
-    /// CHECK: outcome mint; authority must be the PairVault PDA (probed by first mint_pair).
+    /// CHECK: authority/supply validated in the handler before binding.
     pub yes_mint: UncheckedAccount<'info>,
-    /// CHECK: outcome mint; authority must be the PairVault PDA.
+    /// CHECK: authority/supply validated in the handler before binding.
     pub no_mint: UncheckedAccount<'info>,
-    /// CHECK: quote ATA owned by the PairVault PDA.
+    /// CHECK: ownership validated in the handler before binding.
     pub quote_vault: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -1070,7 +1107,8 @@ pub struct MintPair<'info> {
     /// CHECK: validated by the token program.
     #[account(mut)]
     pub user_no: UncheckedAccount<'info>,
-    /// CHECK: validated against known token program id by CPI target.
+    /// CHECK: pinned — token CPIs may only target the classic SPL Token program.
+    #[account(address = TOKEN_PROGRAM_ID @ HarnessError::WrongTokenProgram)]
     pub token_program: UncheckedAccount<'info>,
 }
 
@@ -1101,7 +1139,8 @@ pub struct RedeemPairDirect<'info> {
     /// CHECK: validated by the token program.
     #[account(mut)]
     pub user_no: UncheckedAccount<'info>,
-    /// CHECK: validated against known token program id by CPI target.
+    /// CHECK: pinned — token CPIs may only target the classic SPL Token program.
+    #[account(address = TOKEN_PROGRAM_ID @ HarnessError::WrongTokenProgram)]
     pub token_program: UncheckedAccount<'info>,
 }
 
@@ -1124,7 +1163,7 @@ pub struct RedeemNoViaMarket<'info> {
         mut,
         seeds = [PAIR_VAULT_SEED, pair_vault.market.as_ref()],
         bump = pair_vault.bump,
-        constraint = pair_vault.market == market.key() @ HarnessError::WrongGate,
+        constraint = pair_vault.market == market.key() @ HarnessError::WrongPairAccount,
     )]
     pub pair_vault: Account<'info, PairVault>,
     /// CHECK: pinned to the bound mint.
@@ -1174,11 +1213,15 @@ pub struct RedeemNoViaMarket<'info> {
     /// CHECK: fail closed on any program identity mismatch.
     #[account(executable, address = config.openbook_program @ HarnessError::WrongOpenbookProgram)]
     pub openbook_program: UncheckedAccount<'info>,
-    /// CHECK: validated by the token program CPI target.
+    /// CHECK: pinned — token CPIs may only target the classic SPL Token program.
+    #[account(address = TOKEN_PROGRAM_ID @ HarnessError::WrongTokenProgram)]
     pub token_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
+/// Classic SPL Token program id — the ONLY program token CPIs may target.
+pub const TOKEN_PROGRAM_ID: Pubkey =
+    anchor_lang::solana_program::pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 /// Associated Token Program id (for exact trade-ATA derivation).
 pub const ATA_PROGRAM_ID: Pubkey =
     anchor_lang::solana_program::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");

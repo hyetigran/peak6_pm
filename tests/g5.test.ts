@@ -1,5 +1,6 @@
 /**
- * G5 — Sell-No / redeem_pair_via_market (PRD v0.7.1 §15).
+ * G5 — Sell-No via `redeem_no_via_market` (the PRD's redeem_pair_via_market
+ * family member for the No side; PRD v0.7.1 §15).
  *
  * The pair-collateral model binds a PairVault PDA (mint authority of both
  * outcome mints, owner of the quote collateral vault) to the Venue Market.
@@ -244,9 +245,16 @@ test("G5.7 knowing self-cross: builder refuses; raced self-cross stays solvent (
   await send([restAskIx(seller.publicKey, sellerOo, sellerYes, 30n, 1n, 5n)], [seller]);
   const ooData = (await conn.getAccountInfo(sellerOo))!.data;
   assert.equal(ob.wouldKnowinglySelfCross(ooData, "buy", 30n), true,
-    "builder detects the knowing self-cross and must route to cancel/settle/direct Pair Redemption");
+    "builder detects the knowing self-cross");
   assert.equal(ob.wouldKnowinglySelfCross(ooData, "buy", 29n), false,
     "no false positive below the resting price");
+  // the builder rule ROUTES: chosen alternative is direct Pair Redemption,
+  // and that route executes green
+  assert.equal(ob.chooseSellNoRoute(ooData, 30n), "direct-pair-redemption");
+  const l0r = await liability();
+  await send([ob.harnessRedeemPairDirectIx(seller.publicKey, market.publicKey, 1n * LOT,
+    pairOpts({ quote: sellerQuote, yes: sellerYes, no: sellerNo }))], [seller]);
+  assert.equal(l0r - await liability(), LOT, "routed direct Pair Redemption executed");
   // adversarial/raced path: force it anyway — solvency must hold
   const v0 = await bal(collateralVault), l0 = await liability();
   await send([redeemIx(1n, 30n, [sellerOo])], [seller]);
@@ -258,7 +266,27 @@ test("G5.7 knowing self-cross: builder refuses; raced self-cross stays solvent (
     userBaseAccount: sellerYes, userQuoteAccount: sellerQuote })], [seller]);
 });
 
-test("G5.8 no lamport path debits collateral", async () => {
+test("G5.8 user signature is REQUIRED for the No burn (negative)", async () => {
+  // an attacker cannot burn the victim's No: the burn authority is the user
+  // Signer, so naming the victim's No account under an attacker signer fails
+  // at the token program with an owner mismatch
+  await send([restAskIx(maker.publicKey, makerOo, makerYes, 40n, 1n, 9n)], [maker]);
+  const ix = ob.harnessRedeemNoViaMarketIx(maker.publicKey, { // maker signs...
+    market: market.publicKey, yesMint, noMint, quoteVault: collateralVault,
+    tradeYesAta, userQuote: makerQuote,
+    userNo: sellerNo, // ...but names the SELLER's No account
+    bids: bids.publicKey, asks: asks.publicKey, eventHeap: heap.publicKey,
+    marketBaseVault: baseVault, marketQuoteVault: quoteVault,
+    makerOoAccounts: [makerOo], qLots: 1n, priceLots: 40n,
+  });
+  await expectFail(send([ix], [maker]), "owner does not match", "burning someone else's No");
+  await send([ob.cancelAllOrdersIx(maker.publicKey, makerOo, market.publicKey, bids.publicKey, asks.publicKey),
+    ob.settleFundsIx({ owner: maker.publicKey, ooAccount: makerOo, market: market.publicKey,
+      marketBaseVault: baseVault, marketQuoteVault: quoteVault,
+      userBaseAccount: makerYes, userQuoteAccount: makerQuote })], [maker]);
+});
+
+test("G5.9 no lamport path debits collateral", async () => {
   assert.equal((await conn.getAccountInfo(collateralVault))!.lamports, vaultLamports0,
     "collateral vault lamports unchanged through every flow");
   assert.equal((await conn.getAccountInfo(pairPda))!.lamports, pdaLamports0,

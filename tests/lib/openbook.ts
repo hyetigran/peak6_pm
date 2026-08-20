@@ -599,14 +599,15 @@ export function harnessRedeemNoViaMarketIx(user: PublicKey, opts: {
 }
 
 /** Builder-side knowing-self-cross check (G5): scan the user's own OpenOrders
- * for resting asks at or below the intended buy price. Meridian's builder must
- * refuse and route to cancel/settle/direct Pair Redemption instead. */
+ * for resting asks at or below the intended buy price.
+ *
+ * OpenOrder layout at the pin (state/open_orders_account.rs:426-438, size
+ * assert 40): id u128 @0, client_id u64 @16, locked_price i64 @24,
+ * is_free u8 @32, side_and_tree u8 @33, padding[6]. `open_orders[24]` is the
+ * LAST field of OpenOrdersAccount (line 36), so the array is tail-anchored.
+ * Asks have odd side_and_tree (AskFixed=1, AskOraclePegged=3); V1 builders
+ * never place pegged orders, and both variants are odd regardless. */
 export function wouldKnowinglySelfCross(ooData: Buffer, side: "buy", priceLots: bigint): boolean {
-  // OpenOrdersAccount: 8 disc + owner 32 + market 32 + name 32 + delegate 32
-  //   + account_num 4 + bump 1 + padding 3 -> Position, then open_orders[24]
-  // Each OpenOrder: id u128 (16) + client_id u64 (8) + locked_price i64 (8)
-  //   + is_free u8 + side_and_tree u8 + padding[6] => 40 bytes? verify by scan:
-  // we detect resting asks by side_and_tree odd values with locked_price <= price.
   const OO_ARRAY_TAIL = ooData.length - 24 * 40;
   for (let i = 0; i < 24; i++) {
     const off = OO_ARRAY_TAIL + i * 40;
@@ -616,4 +617,10 @@ export function wouldKnowinglySelfCross(ooData: Buffer, side: "buy", priceLots: 
     if (isFree === 0 && (sideAndTree & 1) === 1 && lockedPrice <= priceLots) return true;
   }
   return false;
+}
+
+/** The G5 builder rule made executable: detect a knowing self-cross and route
+ * to direct Pair Redemption instead of the market-assisted path. */
+export function chooseSellNoRoute(ooData: Buffer, priceLots: bigint): "market" | "direct-pair-redemption" {
+  return wouldKnowinglySelfCross(ooData, "buy", priceLots) ? "direct-pair-redemption" : "market";
 }
