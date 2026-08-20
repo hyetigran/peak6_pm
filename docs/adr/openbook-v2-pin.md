@@ -180,3 +180,43 @@ account bytes before and after the CPI in the same instruction.
 Note for M1: the production `take_full` should verify the quote-side bound as
 well (`Worst Execution Price`); the base-side exactness proven here is the
 full-fill invariant.
+
+## 10. G8 evidence — rent and the daily market budget
+
+Measured from real localnet accounts against the pinned bytes
+(`tests/g8.test.ts`, `make g8`; full table in
+`docs/adr/g8-rent-measurements.json`). Rent parameters are cluster defaults —
+re-verify on devnet under issue #8.
+
+| Account class | Bytes | Lamports |
+| --- | ---: | ---: |
+| OpenBook market | 840 | 6,792,960 |
+| bids / asks (each) | 90,952 | 633,916,800 |
+| EventHeap | 91,288 | 636,255,360 |
+| market vault ATA (each) | 165 | 2,039,280 |
+| OpenOrders account | 1,264 | 9,688,320 |
+| OO indexer (1 entry) | 49 | 1,231,920 |
+| SPL mint | 82 | 1,461,600 |
+| SettlementRecord (frozen layout, 524 B) | 524 | 4,537,920 |
+| SettlementTransportVersion (frozen layout) | 306 | 2,881,440 |
+| Metaplex metadata (standard 679 B) | 679 | 5,616,720 |
+
+Budget (49 Outcome Markets/day + 7 Settlement Records/day, five Trading
+Days, +20% reserve): **567.4 SOL**, dominated by
+bids/asks/EventHeap (~1.90 SOL per Venue Market). Worst-case locked
+(vault ATAs, mints, metadata, Settlement Records — no close path at the pin)
+is only **0.93 SOL/day**; **93.6 SOL/day** is reclaimable via
+`close_market` once markets are settled and empty. A same-week recycling
+strategy (close yesterday's markets before funding today's) cuts the float to
+roughly one day of venue rent plus accumulated locked rent; the headline
+number assumes no recycling. This quantifies the PRD risk-register item
+"OpenBook large-account rent".
+
+Refund-path proof (ADR-0027): the harness `close_venue_market` wrapper
+refuses any `sol_destination` other than the Rent Refund Address snapshotted
+at gate creation (`WrongRefundDestination`), and the successful close paid
+exactly market+bids+asks+heap rent to that address. Owner-path
+`close_open_orders_account` refunds OO rent **plus the indexer's 32-byte
+shrink delta** to the owner's destination — a pin fact discovered by exact
+assertion. Pending M1: Meridian Outcome Market and Config allocations and
+their 64-byte reserved-padding verification.

@@ -298,8 +298,9 @@ export const venueGatePda = (market: PublicKey) =>
 
 export function harnessCreateVenueGateIx(
   admin: PublicKey, market: PublicKey, tradeOpenTs: bigint, closeTs: bigint,
+  rentRefund: PublicKey = admin, // ADR-0027 snapshot; defaults to admin
 ): TransactionInstruction {
-  const data = Buffer.concat([disc("create_venue_gate"), i64le(tradeOpenTs), i64le(closeTs)]);
+  const data = Buffer.concat([disc("create_venue_gate"), i64le(tradeOpenTs), i64le(closeTs), rentRefund.toBuffer()]);
   return new TransactionInstruction({
     programId: HARNESS_PID,
     keys: [
@@ -430,5 +431,43 @@ export function harnessPruneOrdersIx(admin: PublicKey, opts: {
       { pubkey: OPENBOOK_PID, isSigner: false, isWritable: false },
     ],
     data: Buffer.concat([disc("prune_orders"), Buffer.from([opts.limit])]),
+  });
+}
+
+export function harnessCloseVenueMarketIx(admin: PublicKey, opts: {
+  market: PublicKey; bids: PublicKey; asks: PublicKey; eventHeap: PublicKey;
+  solDestination: PublicKey;
+}): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: HARNESS_PID,
+    keys: [
+      { pubkey: admin, isSigner: true, isWritable: false },
+      { pubkey: harnessConfigPda(), isSigner: false, isWritable: false },
+      { pubkey: venueGatePda(opts.market), isSigner: false, isWritable: false },
+      { pubkey: venueAuthorityPda(), isSigner: false, isWritable: false },
+      { pubkey: opts.market, isSigner: false, isWritable: true },
+      { pubkey: opts.bids, isSigner: false, isWritable: true },
+      { pubkey: opts.asks, isSigner: false, isWritable: true },
+      { pubkey: opts.eventHeap, isSigner: false, isWritable: true },
+      { pubkey: opts.solDestination, isSigner: false, isWritable: true },
+      { pubkey: TOKEN_PID, isSigner: false, isWritable: false },
+      { pubkey: OPENBOOK_PID, isSigner: false, isWritable: false },
+    ],
+    data: disc("close_venue_market"),
+  });
+}
+
+/** Owner-signed OO cleanup: rent back to the owner's chosen destination. */
+export function closeOoAccountIx(owner: PublicKey, indexer: PublicKey, ooAccount: PublicKey, solDestination: PublicKey): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: OPENBOOK_PID,
+    keys: [
+      { pubkey: owner, isSigner: true, isWritable: false },
+      { pubkey: indexer, isSigner: false, isWritable: true },
+      { pubkey: ooAccount, isSigner: false, isWritable: true },
+      { pubkey: solDestination, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: disc("close_open_orders_account"),
   });
 }

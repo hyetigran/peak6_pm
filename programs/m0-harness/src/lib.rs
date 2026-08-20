@@ -43,6 +43,7 @@ pub mod m0_harness {
         ctx: Context<CreateVenueGate>,
         trade_open_ts: i64,
         close_ts: i64,
+        rent_refund: Pubkey,
     ) -> Result<()> {
         require!(trade_open_ts < close_ts, HarnessError::InvalidGateWindow);
         let gate = &mut ctx.accounts.venue_gate;
@@ -50,6 +51,7 @@ pub mod m0_harness {
         gate.trade_open_ts = trade_open_ts;
         gate.close_ts = close_ts;
         gate.paused = false;
+        gate.rent_refund = rent_refund;
         Ok(())
     }
 
@@ -118,6 +120,48 @@ pub mod m0_harness {
                 ctx.accounts.market.to_account_info(),
                 ctx.accounts.bids.to_account_info(),
                 ctx.accounts.asks.to_account_info(),
+                ctx.accounts.openbook_program.to_account_info(),
+            ],
+            &[seeds],
+        )?;
+        Ok(())
+    }
+
+    /// Close an expired, empty Venue Market (G8 / ADR-0027). Admin-only;
+    /// `venue_authority` signs as `close_market_admin`. Rent for the market,
+    /// books, and EventHeap may go ONLY to the Rent Refund Address that was
+    /// snapshotted at gate creation — never a caller-supplied account.
+    pub fn close_venue_market(ctx: Context<CloseVenueMarket>) -> Result<()> {
+        require!(
+            ctx.accounts.sol_destination.key() == ctx.accounts.venue_gate.rent_refund,
+            HarnessError::WrongRefundDestination
+        );
+        let metas = vec![
+            AccountMeta::new_readonly(ctx.accounts.venue_authority.key(), true),
+            AccountMeta::new(ctx.accounts.market.key(), false),
+            AccountMeta::new(ctx.accounts.bids.key(), false),
+            AccountMeta::new(ctx.accounts.asks.key(), false),
+            AccountMeta::new(ctx.accounts.event_heap.key(), false),
+            AccountMeta::new(ctx.accounts.sol_destination.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.token_program.key(), false),
+        ];
+        let ix = Instruction {
+            program_id: ctx.accounts.openbook_program.key(),
+            accounts: metas,
+            data: DISC_CLOSE_MARKET.to_vec(),
+        };
+        let bump = [ctx.accounts.config.venue_authority_bump];
+        let seeds: &[&[u8]] = &[VENUE_AUTHORITY_SEED, &bump];
+        invoke_signed(
+            &ix,
+            &[
+                ctx.accounts.venue_authority.to_account_info(),
+                ctx.accounts.market.to_account_info(),
+                ctx.accounts.bids.to_account_info(),
+                ctx.accounts.asks.to_account_info(),
+                ctx.accounts.event_heap.to_account_info(),
+                ctx.accounts.sol_destination.to_account_info(),
+                ctx.accounts.token_program.to_account_info(),
                 ctx.accounts.openbook_program.to_account_info(),
             ],
             &[seeds],
@@ -430,6 +474,39 @@ pub struct ExpireMarket<'info> {
 }
 
 #[derive(Accounts)]
+pub struct CloseVenueMarket<'info> {
+    #[account(address = config.admin @ HarnessError::NotAdmin)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump)]
+    pub config: Account<'info, Config>,
+    #[account(seeds = [VENUE_GATE_SEED, market.key().as_ref()], bump)]
+    pub venue_gate: Account<'info, VenueGate>,
+    /// CHECK: the close_market_admin PDA; OpenBook enforces the exact match.
+    #[account(seeds = [VENUE_AUTHORITY_SEED], bump = config.venue_authority_bump)]
+    pub venue_authority: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    #[account(mut)]
+    pub market: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    #[account(mut)]
+    pub bids: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    #[account(mut)]
+    pub asks: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    #[account(mut)]
+    pub event_heap: UncheckedAccount<'info>,
+    /// CHECK: must equal the snapshotted `venue_gate.rent_refund`.
+    #[account(mut)]
+    pub sol_destination: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    pub token_program: UncheckedAccount<'info>,
+    /// CHECK: fail closed on any program identity mismatch.
+    #[account(executable, address = config.openbook_program @ HarnessError::WrongOpenbookProgram)]
+    pub openbook_program: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
 pub struct PruneOrders<'info> {
     #[account(address = config.admin @ HarnessError::NotAdmin)]
     pub admin: Signer<'info>,
@@ -473,6 +550,8 @@ pub struct VenueGate {
     pub trade_open_ts: i64,
     pub close_ts: i64,
     pub paused: bool,
+    /// ADR-0027: the only account venue close paths may refund rent to.
+    pub rent_refund: Pubkey,
 }
 
 #[account]
@@ -507,4 +586,6 @@ pub enum HarnessError {
     AmountOverflow,
     #[msg("Market Action did not fill fully; reverting (no partial exposure)")]
     PartialFillReverted,
+    #[msg("rent may only go to the snapshotted Rent Refund Address")]
+    WrongRefundDestination,
 }

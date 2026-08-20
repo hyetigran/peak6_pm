@@ -1,0 +1,89 @@
+{
+  "method": "measured on localnet against the pinned bytes; rent parameters are cluster defaults (verify on devnet in issue #8)",
+  "measured": [
+    {
+      "name": "openbook_market",
+      "bytes": 848,
+      "lamports": 6792960
+    },
+    {
+      "name": "bids",
+      "bytes": 90952,
+      "lamports": 633916800
+    },
+    {
+      "name": "asks",
+      "bytes": 90952,
+      "lamports": 633916800
+    },
+    {
+      "name": "event_heap",
+      "bytes": 91288,
+      "lamports": 636255360
+    },
+    {
+      "name": "market_base_vault_ata",
+      "bytes": 165,
+      "lamports": 2039280
+    },
+    {
+      "name": "market_quote_vault_ata",
+      "bytes": 165,
+      "lamports": 2039280
+    },
+    {
+      "name": "venue_gate",
+      "bytes": 89,
+      "lamports": 1510320
+    },
+    {
+      "name": "oo_indexer_1_entry",
+      "bytes": 49,
+      "lamports": 1231920
+    },
+    {
+      "name": "oo_account",
+      "bytes": 1264,
+      "lamports": 9688320
+    },
+    {
+      "name": "spl_mint",
+      "bytes": 82,
+      "lamports": 1461600
+    },
+    {
+      "name": "user_ata",
+      "bytes": 165,
+      "lamports": 2039280
+    },
+    {
+      "name": "settlement_record_frozen_layout",
+      "bytes": 524,
+      "lamports": 4537920
+    },
+    {
+      "name": "settlement_transport_version_frozen_layout",
+      "bytes": 286,
+      "lamports": 2881440
+    },
+    {
+      "name": "metaplex_metadata_standard",
+      "bytes": 679,
+      "lamports": 5616720
+    }
+  ],
+  "budget_lamports": {
+    "per_market_venue_side": 1914960480,
+    "per_market_meridian_known_side": "14156640",
+    "per_day_49_markets_7_records": "94558504320",
+    "five_days": "472792521600",
+    "five_days_plus_20pct_reserve": "567351025920",
+    "worst_case_locked_per_day": "925290240",
+    "best_case_reclaimable_per_day": "93633214080"
+  },
+  "pending_m1": [
+    "meridian_outcome_market_account",
+    "meridian_config",
+    "64-byte reserved padding verification in allocations"
+  ]
+}

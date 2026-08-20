@@ -16,6 +16,8 @@ pub const DISC_PLACE_TAKE_ORDER: [u8; 8] = [3, 44, 71, 3, 26, 199, 203, 85];
 pub const DISC_SET_MARKET_EXPIRED: [u8; 8] = [219, 82, 219, 236, 60, 115, 197, 64];
 /// `sha256("global:prune_orders")[..8]`
 pub const DISC_PRUNE_ORDERS: [u8; 8] = [27, 213, 159, 191, 12, 116, 112, 121];
+/// `sha256("global:close_market")[..8]`
+pub const DISC_CLOSE_MARKET: [u8; 8] = [88, 154, 248, 186, 48, 14, 123, 244];
 
 /// IDL `Side`
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
