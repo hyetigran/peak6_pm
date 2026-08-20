@@ -13,7 +13,7 @@
 
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
-use anchor_lang::solana_program::program::invoke_signed;
+use anchor_lang::solana_program::program::{get_return_data, invoke_signed};
 
 pub mod openbook;
 use openbook::*;
@@ -163,6 +163,12 @@ pub mod m0_harness {
             args.order_type == PlaceOrderType::PostOnly,
             HarnessError::LimitOrdersMustBePostOnly
         );
+        // G10: self-trade behavior is pinned; the wrapper never forwards a
+        // caller-chosen value other than AbortTransaction.
+        require!(
+            args.self_trade_behavior == SelfTradeBehavior::AbortTransaction,
+            HarnessError::SelfTradeMustAbort
+        );
         check_gate(&ctx.accounts.venue_gate)?;
         let ob = ctx.accounts.openbook_program.key();
         // IDL account order for place_order. Optional accounts follow the
@@ -200,6 +206,19 @@ pub mod m0_harness {
             ix_data(DISC_PLACE_ORDER, &args),
             ctx.accounts.config.venue_authority_bump,
         )?;
+        // G10: at the pin, a PostOnly order that would cross — or an order
+        // whose expiry already passed — is a SILENT no-op (book.rs:166-170,
+        // order.rs:52-54): the venue returns success with no resting order.
+        // Meridian fails closed instead: the returned Option<u128> order id
+        // must be Some. The id is logged for client-side cancel-by-id.
+        let (from, data) = get_return_data().ok_or(HarnessError::OrderNotPosted)?;
+        require!(
+            from == ctx.accounts.openbook_program.key(),
+            HarnessError::WrongOpenbookProgram
+        );
+        require!(data.first() == Some(&1) && data.len() >= 17, HarnessError::OrderNotPosted);
+        let id = u128::from_le_bytes(data[1..17].try_into().unwrap());
+        msg!("order_id={}", id);
         Ok(())
     }
 
@@ -585,4 +604,8 @@ pub enum HarnessError {
     PartialFillReverted,
     #[msg("rent may only go to the snapshotted Rent Refund Address")]
     WrongRefundDestination,
+    #[msg("limit wrapper pins SelfTradeBehavior to AbortTransaction")]
+    SelfTradeMustAbort,
+    #[msg("order was not posted (PostOnly would cross, or expiry already passed); failing closed")]
+    OrderNotPosted,
 }

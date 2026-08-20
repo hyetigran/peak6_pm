@@ -24,6 +24,7 @@ Re-read from the pinned v1.7 release in M0, not from `master`:
 - `open_orders_admin` must sign order creation including `place_take_order`.
 - Expiry predicate is strict: `time_expiry != 0 && time_expiry < now`. Meridian sets `time_expiry = close_ts - 1`.
 - `place_take_order` has no referrer account; `settle_funds` optionally does (wrapper forces none).
+- **PostOnly-cross and past-expiry placements are venue silent no-ops (success, no order)** — order paths MUST require the returned `Option<u128>` order id (G10). Per-order TIF is u16 seconds (~18.2h clamp).
 - Inline maker fills: up to 15 remaining OpenOrders accounts; otherwise EventHeap. At the pinned v1.7 commit `PENALTY_EVENT_HEAP = 0` (`state/market.rs:16`) — heap entries charge **nothing**; the 500-lamport figure is from a later revision. `penalty_heap_count` still increments; golden-test the constant stays 0.
 - `consume_events_admin = None` → permissionless consume.
 - `close_market_admin` controls `set_market_expired` / prune / close. `set_market_expired` requires not-yet-expired and sets `time_expiry = -1`: a true one-way fuse (G3-proven).

@@ -1,4 +1,4 @@
-.PHONY: build fixture-verify localnet g2 g3 g4 g8 m0
+.PHONY: build fixture-verify localnet g2 g3 g4 g8 g10 m0
 
 fixture-verify:
 	@echo "a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8  fixtures/openbook_v2-v1.7.so" | shasum -a 256 -c -
@@ -21,6 +21,9 @@ g4: build
 g8: build
 	./scripts/run-suite.sh tests/g8.test.ts
 
+g10: build
+	./scripts/run-suite.sh tests/g10.test.ts
+
 # one validator per suite: node --test runs files concurrently, and the
 # suites would race on the harness config PDA init against a shared validator
 m0: build
@@ -28,3 +31,4 @@ m0: build
 	./scripts/run-suite.sh tests/g3.test.ts
 	./scripts/run-suite.sh tests/g4.test.ts
 	./scripts/run-suite.sh tests/g8.test.ts
+	./scripts/run-suite.sh tests/g10.test.ts

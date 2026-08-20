@@ -221,3 +221,24 @@ exactly market+bids+asks+heap rent to that address. Owner-path
 shrink delta** to the owner's destination — a pin fact discovered by exact
 assertion. Pending M1: Meridian Outcome Market and Config allocations and
 their 64-byte reserved-padding verification.
+
+## 11. G10 evidence — lot/price/order semantics
+
+Production lot scheme proven with golden vectors (`tests/g10.test.ts`,
+`make g10`): `base_lot_size = 1,000,000` (one whole Yes Token == one base
+lot), `quote_lot_size = 10,000` (one price lot == one cent), prices 1..99 ==
+$0.01..$0.99.
+
+| Fact | Evidence |
+| --- | --- |
+| Price vectors exact | bids at P ∈ {1, 50, 99} lock exactly P×10,000 quote atoms; fills at P move exactly P cents per whole token, zero fees |
+| **PostOnly crossing is a venue silent no-op** | `book.rs:166–170`: the pinned build logs "Order could not be placed due to PostOnly" and returns **success** with no resting order. The wrapper converts this to a fail-closed revert by requiring the venue-returned order id (`OrderNotPosted`) |
+| **Past-expiry placement is a venue silent no-op** | `order.rs:52–54` returns `None` TIF ⇒ order silently ignored; same wrapper check reverts it |
+| Returned order ID semantics | `place_order` returns `Option<u128>` in CPI return data; the wrapper requires `Some`, logs it, and the logged id cancels via `cancel_order` — proven round-trip |
+| Per-order expiry granularity | TIF is **u16 seconds** (`order.rs:47–61`): `expiry − now` clamped to 65,535 s (~18.2 h) — ample for same-day Outcome Markets; expired makers are skipped by takes (proven: take against an expired order reverts full-fill) |
+| SelfTradeBehavior pinned | wrapper rejects anything but `AbortTransaction` (`SelfTradeMustAbort`); wire golden: `PlaceOrderArgs` is 44 bytes with STB at offset 42 == 2. Note: `place_take_order` has no STB field at the pin — self-trade prevention on the take path is the G5 no-knowing-self-cross work |
+
+The two silent no-op behaviors are the notable pin findings: **the venue
+reports success for orders it never posted**. Any Meridian order path that
+does not verify the returned order id would silently strand user intent;
+the wrapper's `OrderNotPosted` check is therefore load-bearing for M1.
