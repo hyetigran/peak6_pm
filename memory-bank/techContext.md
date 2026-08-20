@@ -14,7 +14,7 @@
 - **Tokens:** classic SPL Token, 6 decimals. Metadata JSON is RFC 8785 canonical UTF-8, hashed, uploaded to production Arweave, verified through two gateways **before** immutable Metaplex metadata (ADR-0016). IPFS only as explicit fallback with raw CID and ≥2 independent pins.
 - **Frontend:** Next.js under `frontend/` + Metaplex Umi + wallet-adapter. Codama-generated Umi client for Meridian.
 - **Automation / indexer:** TypeScript / Node.js. SQLite indexer. Calendar: NYSE published schedule is authoritative; Alpaca Calendar API is operational; annual cache vs checked-in NYSE fixtures; fail loudly on disagreement.
-- **Upgrade / override (M6 / non-demo):** Squads Protocol V4 `SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf`, audited commit `64af7330413d5c85cbbccfd8c27a05d45b6e666f`, exact `@sqds/multisig@2.1.4`. Research: `docs/agents/squads-v4-multisig-research.md`.
+- **Upgrade / override (M6 / non-demo):** Squads Protocol V4 `SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf`, audited commit `64af7330413d5c85cbbccfd8c27a05d45b6e666f`, exact `@sqds/multisig@2.1.4`. Research: `docs/agents/squads-v4-multisig-research.md`. G12-proven: immutable mainnet fixture (SHA `dec8d3e0…`) drives a 2-of-3 loader drill on localnet (1 approval fails, 2 execute a real SetAuthority via the vault PDA). Quote mint pinned in Config; metadata-before-mint gate on init_pair.
 - **Issue tracker:** GitLab on `labs.gauntletai.com`. CLI: `glab`. Labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
 
 ## OpenBook facts that load-bearing code depends on

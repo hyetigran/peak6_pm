@@ -13,4 +13,6 @@ FIXTURE="${FIXTURE:-fixtures/openbook_v2-v1.7.so}"
 exec solana-test-validator --reset --quiet \
   --bpf-program "$OPENBOOK_ID" "$FIXTURE" \
   --bpf-program 3MmdMxRUF4NWPNdwoQcLhoqfmiKReoaSQR9GwSeQEpRr target/deploy/m0_harness.so \
+  --bpf-program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf fixtures/squads_v4.so \
+  --account BSTq9w3kZwNwpBXJEvTZz2G9ZTNyKBvoSeXMvwb4cNZr fixtures/squads_program_config.json \
   "$@"

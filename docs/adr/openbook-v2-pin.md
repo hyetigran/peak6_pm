@@ -342,3 +342,18 @@ instructions with a re-measure obligation (go/no-go tracked):
 `create_strike_market` first/later (Metaplex + SettlementRecord CPIs, the
 issue-#14 metadata-CPI AC re-scoped there), batched settlement, intraday
 add-strike attach sequence.
+
+## 16. G12 evidence — identities, metadata, quote, recovery
+
+Proven on localnet against the pinned bytes plus the immutable Squads V4
+mainnet build loaded as a fixture (`tests/g12.test.ts`, `make g12`).
+
+| Fact | Evidence |
+| --- | --- |
+| Quote-mint validation | `initialize` rejects a 9-decimal mint and a non-mint account (`WrongQuoteMint`), accepts the pinned 6-decimal mint, and stores it in Config; `create_venue_market` rejects any other 6-decimal mint (`WrongQuoteMint`). The exact Circle Devnet USDC address `4zMMC9sr…` is the stored pin — re-verified against the real mint on devnet under issue #8 |
+| Metadata-before-mint (ADR-0016) | `init_pair` rejects a zero metadata hash (`MetadataUnset`) — a pair cannot bind, so `mint_pair` can never precede published metadata; the bound hash is stored and read back. Real Arweave publish + two-gateway verify + Metaplex CPI is the M1 implementation of this same ordering gate |
+| Recovery aggregate drill | under the WORST combined state — Venue Market both Paused and one-way-fused (`set_market_expired`) — admin `prune_orders` + owner `settle_funds` + direct Pair Redemption all succeed and return 100% of collateral; vault empties exactly |
+| **Squads V4 loader drill** | fixture is the immutable mainnet build (SHA-256 `dec8d3e0…`, authority `none`, slot 302582236). A 2-of-3 multisig is created (`@sqds/multisig@2.1.4`), the vault PDA derived, a dummy upgradeable program's authority handed to the vault, and a raw BPF-loader `SetAuthority` wrapped as a vault transaction: **one approval cannot execute; two approvals execute** the loader instruction signed by the vault PDA, and the authority move is verified in ProgramData on-chain. This is the M6 upgrade-authority-transfer mechanism proven end to end on an isolated fixture — no real member keys needed |
+
+M6 (the real 2-of-3 over Meridian's own ProgramData) still needs the three
+member pubkeys (issue #11); the mechanism itself is now proven.
