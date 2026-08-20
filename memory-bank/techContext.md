@@ -25,8 +25,8 @@ Re-read from the pinned v1.7 release in M0, not from `master`:
 - Expiry predicate is strict: `time_expiry != 0 && time_expiry < now`. Meridian sets `time_expiry = close_ts - 1`.
 - `place_take_order` has no referrer account; `settle_funds` optionally does (wrapper forces none).
 - **PostOnly-cross and past-expiry placements are venue silent no-ops (success, no order)** — order paths MUST require the returned `Option<u128>` order id (G10). Per-order TIF is u16 seconds (~18.2h clamp).
-- Inline maker fills: `FILL_EVENT_REMAINING_LIMIT = 15` theoretical, but **measured practical capacity is 10** — the venue's 32KB SBF heap OOMs beyond that and `requestHeapFrame` does NOT extend a CPI'd program's heap. Taker builders cap inline makers at 10; big takes need v0+ALT (legacy 1232B exceeded at 16 makers). `PENALTY_EVENT_HEAP = 0` at the pin.
-- consume_events: MAX 8 events/ix; events whose owner OO is not in remaining accounts are SKIPPED (keeper must enumerate owners); ~3.6k CU marginal/event → 600-event heap drains <1s. Full-heap fills PANIC (fail-closed).
+- Inline maker fills: `FILL_EVENT_REMAINING_LIMIT = 15` theoretical, but **measured practical capacity is 11** (contiguous probe) — the venue's 32KB SBF heap OOMs beyond that and `requestHeapFrame` does NOT extend a CPI'd program's heap. Taker builders cap inline makers at 11; big takes need v0+ALT (legacy 1232B exceeded at 16 makers). `PENALTY_EVENT_HEAP = 0` at the pin.
+- consume_events: MAX 8 events/ix; events whose owner OO is not in remaining accounts are SKIPPED (keeper must enumerate owners); ~3.6k CU marginal/event; measured chained tx: 96 events/465k CU → 600-heap drains in ~3 txs. Full-heap fills PANIC (proven empirically at exactly 600). Unconsumed fills LOCK maker OO slots (24/OO) — stalled keeper freezes maker capacity.
 - `consume_events_admin = None` → permissionless consume.
 - `close_market_admin` controls `set_market_expired` / prune / close. `set_market_expired` requires not-yet-expired and sets `time_expiry = -1`: a true one-way fuse (G3-proven).
 - `MAX_OPEN_ORDERS = 24` resting orders per OpenOrders account (`OpenOrdersFull` beyond).

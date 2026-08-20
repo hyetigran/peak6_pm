@@ -180,7 +180,7 @@ test("G3.2 pause rejects orders, preserves resting orders, keeps recovery open (
   // resting order untouched by pause
   assert.equal((await getAccount(conn, m.quoteVault)).amount, PRICE * QUOTE_LOT, "resting order survives pause");
   // recovery works WHILE paused: consume_events (permissionless crank) + cancel + settle
-  await send([ob.consumeEventsIx(m.market.publicKey, m.eventHeap, 8n)], [maker]);
+  await send([ob.consumeEventsIx(m.market.publicKey, m.eventHeap, 8n, [])], [maker]);
   await send(recoveryIxs(m), [maker]);
   assert.equal((await getAccount(conn, makerQuoteAta)).amount, quoteBefore, "funds recovered while paused");
 

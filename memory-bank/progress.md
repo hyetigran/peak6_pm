@@ -77,7 +77,7 @@ Will not protect `.env` or keypairs once they appear.
 
 ### M0 technical risks
 
-- **G6 measured:** inline capacity 10 (not 15; SBF heap bound), consume 8/ix + owner-OO-required, 600-heap drains <1s — keeper SLO trivially met. EventHeap-full fills panic (fail-closed).
+- **G6 measured:** inline capacity 11 (not 15; SBF heap bound, contiguous probe), consume 8/ix + owner-OO-required, 600-heap drains <1s — keeper SLO trivially met. EventHeap-full fills panic (fail-closed).
 - First-use Buy-No-limit exceeds tx limits (G7; only named waiver).
 - **G8 measured:** 5-day+20% budget ≈ 567 SOL, ~1.9 SOL/Venue Market in books/heap; locked only ~0.93 SOL/day; ~93.6 SOL/day reclaimable via close. Devnet faucet strategy or recycling needed.
 - **G1 REOPENED:** ADR-0029 copy (`923gYkFC…`) is inert — v1.7 declare_id check binds the artifact to canonical `opnb2LAf…` only; byte-patch unprovable (second inlined ID). 7.21 SOL sunk on the inert deployment. Resolved by ADR-0030: canonical deployment + monitored fail-closed checks; PRD v0.7.1 G1 clause revised.

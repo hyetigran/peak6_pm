@@ -2,14 +2,15 @@
  * G6 — EventHeap / inline maker policy (PRD v0.7.1 §15).
  *
  * Pin facts under test:
- *   - FILL_EVENT_REMAINING_LIMIT = 15 (book.rs:19): with 16 fills and all 16
- *     maker OOs supplied, exactly 15 settle inline and the 16th lands on the
- *     heap — the limit is a program constant, not an account-count bound
- *   - MAX_NUM_EVENTS = 600 (heap.rs:9); EventHeap 91,280 B
- *   - saturation: push_back asserts !is_full (heap.rs:77) — a fill against a
- *     full heap PANICS the transaction: new fills become impossible until
- *     consume_events runs (fail-closed; motivates the consume-prepend policy)
- *   - consume_events CU cost measured per event => keeper throughput budget
+ *   - FILL_EVENT_REMAINING_LIMIT = 15 (book.rs:19) is theoretical only: the
+ *     venue's 32KB SBF heap OOMs first — the MEASURED practical inline-fill
+ *     capacity is asserted below, and requestHeapFrame cannot raise it
+ *   - MAX_NUM_EVENTS = 600 (heap.rs:9): the heap is filled EMPIRICALLY and
+ *     the 601st fill panics (push_back asserts !is_full, heap.rs:77)
+ *   - consume_events: MAX_EVENTS_CONSUME = 8/ix; missing owner OO => skip;
+ *     chained consume instructions measured in one tx (keeper throughput)
+ *   - the consume-PREPEND composite (consume + take in one tx) is exercised
+ * Measurements land in docs/adr/g6-measurements.json and are ASSERTED here.
  */
 import { before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -23,6 +24,8 @@ import {
   getAssociatedTokenAddressSync, createAssociatedTokenAccount, mintTo, getAccount,
 } from "@solana/spl-token";
 import * as ob from "./lib/openbook.js";
+import { createAlt, sendV0 as sendV0raw } from "./lib/v0.js";
+import fs from "node:fs";
 
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
 let conn: Connection;
@@ -34,7 +37,7 @@ const market = Keypair.generate(), bids = Keypair.generate(), asks = Keypair.gen
 let baseMint: PublicKey, quoteMint: PublicKey;
 let baseVault: PublicKey, quoteVault: PublicKey;
 let takerBase: PublicKey, takerQuote: PublicKey;
-const makerBase: PublicKey[] = [], makerQuote: PublicKey[] = [], makerOo: PublicKey[] = [];
+const makerBase: PublicKey[] = [], makerQuote: PublicKey[] = [], makerOo: PublicKey[] = [], makerOo2: PublicKey[] = [];
 
 const BASE_LOT = 1_000_000n, QUOTE_LOT = 10_000n;
 
@@ -43,27 +46,16 @@ async function send(ixs: TransactionInstruction[], signers: Keypair[]) {
   return sendAndConfirmTransaction(conn, tx, signers, { commitment: "confirmed" });
 }
 let altAddress: PublicKey;
-/** v0 + ALT sender — the exact G7 composite mechanics (large taker txs need
- * requestHeapFrame AND a lookup table to fit). */
 async function sendV0(ixs: TransactionInstruction[], signers: Keypair[]) {
-  const alt = (await conn.getAddressLookupTable(altAddress)).value!;
-  const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
-  const msg = new TransactionMessage({
-    payerKey: signers[0].publicKey, recentBlockhash: blockhash, instructions: ixs,
-  }).compileToV0Message([alt]);
-  const tx = new VersionedTransaction(msg);
-  tx.sign(signers);
-  const sig = await conn.sendTransaction(tx);
-  await conn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
-  return sig;
+  return (await sendV0raw(conn, altAddress, ixs, signers)).sig;
 }
-const heapCount = async () => (await conn.getAccountInfo(heap.publicKey))!.data.readUInt16LE(8 + 4); // header: free u16, used u16, count u16
+const heapCount = async () => (await conn.getAccountInfo(heap.publicKey))!.data.readUInt16LE(ob.EVENT_HEAP_COUNT_OFFSET);
 async function cuOf(sig: string) {
   const info = await conn.getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
   return info!.meta!.computeUnitsConsumed!;
 }
-const restIx = (i: number, price: bigint, id: bigint) => ob.harnessPlaceLimitOrderIx({
-  user: makers[i].publicKey, ooAccount: makerOo[i], userTokenAccount: makerBase[i],
+const restIx = (i: number, price: bigint, id: bigint, oo?: PublicKey) => ob.harnessPlaceLimitOrderIx({
+  user: makers[i].publicKey, ooAccount: oo ?? makerOo[i], userTokenAccount: makerBase[i],
   market: market.publicKey, bids: bids.publicKey, asks: asks.publicKey,
   eventHeap: heap.publicKey, marketVault: baseVault,
   args: { side: ob.Side.Ask, priceLots: price, maxBaseLots: 1n, maxQuoteLotsIncludingFees: price,
@@ -140,25 +132,16 @@ before(async () => {
       ob.createOoAccountIx(payer.publicKey, makers[i].publicKey, 1, market.publicKey),
     ], [payer, makers[i]]);
     makerOo.push(ob.ooAccountPda(makers[i].publicKey, 1));
+    // a second OO per maker: heaped fills LOCK OO slots until consumed, so
+    // saturating the 600-event heap needs >24 in-flight fills per maker
+    await send([ob.createOoAccountIx(payer.publicKey, makers[i].publicKey, 2, market.publicKey)], [payer, makers[i]]);
+    makerOo2.push(ob.ooAccountPda(makers[i].publicKey, 2));
   }
   // ALT with every static account of the big take (G7's frozen-ALT mechanics)
-  const slot = await conn.getSlot("finalized");
-  const [createIx, alt] = AddressLookupTableProgram.createLookupTable({
-    authority: payer.publicKey, payer: payer.publicKey, recentSlot: slot,
-  });
-  altAddress = alt;
-  await send([createIx], [payer]);
-  const addrs = [market.publicKey, bids.publicKey, asks.publicKey, heap.publicKey,
-    baseVault, quoteVault, ob.OPENBOOK_PID, ob.TOKEN_PID, SystemProgram.programId,
+  altAddress = await createAlt(conn, payer, [market.publicKey, bids.publicKey, asks.publicKey,
+    heap.publicKey, baseVault, quoteVault, ob.OPENBOOK_PID, ob.TOKEN_PID, SystemProgram.programId,
     ob.harnessConfigPda(), ob.venueGatePda(market.publicKey), ob.venueAuthorityPda(),
-    ...makerOo];
-  for (let i = 0; i < addrs.length; i += 20) {
-    await send([AddressLookupTableProgram.extendLookupTable({
-      lookupTable: alt, authority: payer.publicKey, payer: payer.publicKey,
-      addresses: addrs.slice(i, i + 20),
-    })], [payer]);
-  }
-  await new Promise(r => setTimeout(r, 1500)); // ALT activates next slot
+    ...makerOo, ...makerOo2]);
 });
 
 async function restAll(n: number, round: bigint) {
@@ -198,33 +181,41 @@ test("G6.1 KEY FINDING: the venue's SBF heap bounds inline fills below the 15-ac
   await cleanupMakers(16);
 });
 
-test("G6.1b measured practical inline capacity (the number that replaces the 15 policy)", async () => {
+const evidence: Record<string, unknown> = {};
+
+test("G6.1b measured practical inline capacity: contiguous probe, exact bound", async () => {
   let maxOk = 0;
-  for (const n of [4, 8, 10, 12, 14, 15]) {
+  for (const n of [4, 8, 9, 10, 11, 12, 13, 14, 15]) {
     await restAll(n, 10n + BigInt(n));
+    let t0 = Date.now(), ok = false;
     try {
       await sendV0([takeIx(BigInt(n), BigInt(40 + n - 1), makerOo.slice(0, n))], [taker]);
-      maxOk = n;
-      await send([ob.consumeEventsIx(market.publicKey, heap.publicKey, 8n, makerOo.slice(0, n))], [payer]).catch(() => {});
-      await cleanupMakers(n); // settle proceeds so the next round can rest again
-    } catch {
-      await cleanupMakers(n); // clear resting orders from the failed take
-      break;
+      ok = true; maxOk = n;
+      if (n === 10) evidence.inline_take_latency_ms = Date.now() - t0;
+    } catch { /* the OOM bound */ }
+    if (ok && await heapCount() > 0) {
+      await send([ob.consumeEventsIx(market.publicKey, heap.publicKey, 8n, makerOo.slice(0, n))], [payer]);
+      assert.equal(await heapCount(), 0, "post-probe consume drained");
     }
+    await cleanupMakers(n);
+    if (!ok) break;
   }
-  console.error(`G6 MEASURED practical inline-fill capacity: ${maxOk} (policy said 15; heap-bounded below that)`);
-  assert.ok(maxOk >= 4, "a meaningful inline batch works");
-  assert.ok(maxOk < 16, "the 16th can never settle inline anyway (FILL_EVENT_REMAINING_LIMIT)");
+  evidence.practical_inline_fill_capacity = maxOk;
+  console.error(`G6 MEASURED practical inline-fill capacity: ${maxOk} (contiguous probe; policy said 15)`);
+  assert.equal(maxOk, ob.PRACTICAL_INLINE_FILLS,
+    "the published capacity constant matches the measured bound exactly");
 });
 
 test("G6.2 consume_events batch CU: marginal cost per event and keeper budget", async () => {
   // settle any maker proceeds; rest 8 fresh asks and take with NO maker OOs
   // supplied so all 8 fills heap (heap frame for the take's own allocations)
   await restAll(8, 2n);
+  const tMatch = Date.now();
   await send([takeIx(8n, 47n, [])], [taker]);
+  evidence.match_plus_heap_latency_ms = Date.now() - tMatch; // owner-less: pure match + heap push
   assert.equal(await heapCount(), 8, "all 8 fills heaped without remaining accounts");
   // an owner-less consume SKIPS everything (events need their OO accounts)
-  await send([ob.consumeEventsIx(market.publicKey, heap.publicKey, 8n)], [payer]);
+  await send([ob.consumeEventsIx(market.publicKey, heap.publicKey, 8n, [])], [payer]);
   assert.equal(await heapCount(), 8, "consume without owner OOs consumes nothing (skip semantics)");
   const sig1 = await send([ob.consumeEventsIx(market.publicKey, heap.publicKey, 1n, makerOo.slice(0, 8))], [payer]);
   const cu1 = await cuOf(sig1);
@@ -232,28 +223,97 @@ test("G6.2 consume_events batch CU: marginal cost per event and keeper budget", 
   const sig7 = await send([ob.consumeEventsIx(market.publicKey, heap.publicKey, 7n, makerOo.slice(0, 8))], [payer]);
   const cu7 = await cuOf(sig7);
   assert.equal(await heapCount(), 0, "batch consume with owner OOs drains the heap");
+  evidence.heap_event_latency_ms_note = "event lifetime = keeper poll interval + one consume tx; consume tx latency measured below";
   const marginal = Math.ceil((cu7 - cu1) / 6);
-  // MAX_EVENTS_CONSUME = 8 caps a single instruction; a 1.4M-CU tx chains
-  // multiple consume instructions
-  const perIx = 8;
-  const cuPerIx = cu7 + marginal; // ~8-event instruction cost
-  const ixPerTx = Math.floor(1_400_000 / cuPerIx);
-  console.error(`G6 consume CU: 1-event=${cu1}, 7-event=${cu7}, marginal/event≈${marginal}; ` +
-    `MAX_EVENTS_CONSUME=8/ix; ~${ixPerTx} consume ixs per 1.4M-CU tx => ${perIx * ixPerTx} events/tx; ` +
-    `at 2 keeper tx/s => ${2 * perIx * ixPerTx} events/s vs heap capacity 600 => full drain < ${Math.ceil(600 / (2 * perIx * ixPerTx))}s`);
+  evidence.consume_cu_1_event = cu1;
+  evidence.consume_cu_7_events = cu7;
+  evidence.consume_cu_marginal_per_event = marginal;
   assert.ok(marginal < 30_000, "consuming an event costs a small, bounded CU amount");
-  assert.ok(perIx * ixPerTx >= 40, "one tx can drain a meaningful batch");
+
+  // the consume-PREPEND composite (the actual builder policy): consume + take
+  // in ONE transaction
+  await restAll(8, 3n);
+  await send([takeIx(8n, 47n, [])], [taker]); // heap 8 events
+  assert.equal(await heapCount(), 8);
+  await restAll(4, 4n);
+  const t0 = Date.now();
+  await sendV0([
+    ob.consumeEventsIx(market.publicKey, heap.publicKey, 8n, makerOo.slice(0, 8)),
+    takeIx(4n, 43n, makerOo.slice(0, 4)),
+  ], [taker]);
+  evidence.prepend_composite_latency_ms = Date.now() - t0;
+  assert.equal(await heapCount(), 0, "prepended consume drained the backlog AND the take filled inline");
+  await cleanupMakers(8);
 });
 
-test("G6.3 saturation is fail-closed at the pin (source-anchored)", async () => {
-  // heap.rs:77 push_back asserts !is_full(): a fill against a FULL heap
-  // panics, reverting the order transaction — new fills are impossible until
-  // consume_events runs. Empirical full-heap fill (600 unsettled events) is
-  // impractical in-suite; the discriminator golden + the G6.1/G6.2 heap
-  // accounting anchor the behavior to the scanned source.
+test("G6.3 EMPIRICAL saturation: heap filled to 600; the next fill panics; chained consume drains", async () => {
   assert.equal(await heapCount(), 0);
-  assert.deepEqual([...ob.disc("consume_events")], [221, 145, 177, 52, 31, 47, 63, 201]);
-  // additional consume facts pinned by G6.2: MAX_EVENTS_CONSUME = 8 per
-  // instruction (consume_events.rs:11) and skip-without-owner semantics
-  // (consume_events.rs load_open_orders_account! macro)
+  // fill: each maker rests 12 asks in one tx; owner-less 16-lot takes heap
+  // 16 events each, until one slot short of capacity
+  const restManyIx = (i: number, count: number, round: bigint, oo: PublicKey) => {
+    const ixs: TransactionInstruction[] = [];
+    for (let k = 0; k < count; k++) ixs.push(restIx(i, BigInt(40 + i), round * 100n + BigInt(k), oo));
+    return ixs;
+  };
+  // heaped fills lock OO slots until consumed (OpenOrdersFull observed at
+  // 24 in-flight per OO) — a saturation fact of its own: a stalled keeper
+  // freezes maker capacity long before the heap fills. Two OO accounts per
+  // maker (768 slots) with EXPLICIT slot budgeting reach true heap capacity.
+  const ooUsed = new Map<string, number>();
+  const pickOo = (i: number, n: number): PublicKey => {
+    for (const oo of [makerOo[i], makerOo2[i]]) {
+      const used = ooUsed.get(oo.toBase58()) ?? 0;
+      if (used + n <= 24) { ooUsed.set(oo.toBase58(), used + n); return oo; }
+    }
+    throw new Error(`maker ${i} out of OO slots`);
+  };
+  let round = 50n;
+  // exact rounds: rest 12 per maker (192), take all 192 (book empty after),
+  // so slots are held ONLY by heaped fills — no drift
+  const fillRound = async (perMaker: number, mks: number) => {
+    for (let i = 0; i < mks; i++) {
+      await sendV0(restManyIx(i, perMaker, round, pickOo(i, perMaker)), [makers[i]]);
+    }
+    const total = perMaker * mks;
+    for (let t = 0; t < Math.ceil(total / 16); t++) {
+      const lots = BigInt(Math.min(16, total - t * 16));
+      await send([takeIx(lots, 55n, [])], [taker]);
+    }
+    round += 1n;
+  };
+  await fillRound(12, 16); // 192
+  await fillRound(12, 16); // 384
+  await fillRound(12, 16); // 576
+  await fillRound(1, 16);  // 592
+  await fillRound(1, 8);   // 600
+  assert.equal(await heapCount(), ob.MAX_NUM_EVENTS, "heap EXACTLY full (600)");
+  await sendV0(restManyIx(8, 1, round, pickOo(8, 1)), [makers[8]]);
+  let text = "";
+  try { await send([takeIx(1n, 55n, [])], [taker]); }
+  catch (e: any) { text = `${e.message}\n${(e.transactionLogs ?? e.logs ?? []).join("\n")}`; }
+  assert.ok(text.includes("SBF program panicked") || text.includes("panicked"),
+    "a fill against the FULL heap panics (heap.rs:77) — saturation is fail-closed, empirically");
+  // measured chained-consume throughput: N consume ixs in ONE tx
+  const CHAIN = 12;
+  const t0 = Date.now();
+  const sig = await sendV0(
+    Array.from({ length: CHAIN }, () => ob.consumeEventsIx(market.publicKey, heap.publicKey, 8n, makerOo)),
+    [payer]);
+  const drained = ob.MAX_NUM_EVENTS - (await heapCount());
+  const cu = await cuOf(sig);
+  evidence.chained_consume = { instructions: CHAIN, events_drained: drained, cu, latency_ms: Date.now() - t0 };
+  assert.equal(drained, CHAIN * ob.MAX_EVENTS_CONSUME, "each chained ix consumed its full batch of 8");
+  const perTxCapacity = Math.floor(1_400_000 / (cu / CHAIN)) * ob.MAX_EVENTS_CONSUME;
+  evidence.measured_events_per_max_cu_tx = perTxCapacity;
+  console.error(`G6 chained consume MEASURED: ${CHAIN} ixs, ${drained} events, ${cu} CU in one tx; ` +
+    `=> ~${perTxCapacity} events per 1.4M-CU tx; full 600-heap drain in ` +
+    `${Math.ceil(600 / drained)} such txs`);
+  assert.ok(drained >= 40, "one tx drains a meaningful batch (measured, not extrapolated)");
+  // drain the remainder and finish clean
+  while (await heapCount() > 0) {
+    await sendV0([ob.consumeEventsIx(market.publicKey, heap.publicKey, 8n, [...makerOo, ...makerOo2])], [payer]);
+  }
+  await cleanupMakers(16);
+  evidence.event_heap_capacity_empirical = ob.MAX_NUM_EVENTS;
+  fs.writeFileSync("docs/adr/g6-measurements.json", JSON.stringify(evidence, null, 2) + "\n");
 });

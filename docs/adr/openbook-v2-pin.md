@@ -297,17 +297,19 @@ backstops the decomposition regardless.
 
 ## 14. G6 evidence — EventHeap / inline maker policy
 
-Measured on localnet against the pinned bytes (`tests/g6.test.ts`, `make g6`),
-16 independent makers, v0 + ALT transactions.
+Measured on localnet against the pinned bytes (`tests/g6.test.ts`, `make g6`;
+numbers in `docs/adr/g6-measurements.json`), 16 independent makers, v0 + ALT
+transactions.
 
 | Fact | Evidence |
 | --- | --- |
-| **Practical inline-fill capacity is 10, not 15** | `FILL_EVENT_REMAINING_LIMIT = 15` (`book.rs:19`) is the theoretical cap, but the venue program's 32 KB SBF heap OOMs first: 16 inline fills panic (`memory allocation failed` inside the venue), and the measured maximum that completes is **10**. The PRD's "up to 15 expected maker OpenOrders" anticipated verification — the verified number is 10; taker builders must cap inline makers at 10 and route the tail through the heap + consume |
-| `requestHeapFrame` does NOT rescue it | a 256 KB heap frame on the transaction leaves the CPI'd venue invocation at the default heap on Agave 3.1.13 — the bound is hard, not a budget knob |
-| Big takes need v0 + ALT | 16-maker takes exceed the 1232-byte legacy limit (1276 measured); the suite's ALT + v0 sender is the G7 composite mechanism working |
-| Heap capacity | `MAX_NUM_EVENTS = 600` (`heap.rs:9`); EventHeap 91,280 B |
-| Saturation is fail-closed | `push_back` asserts `!is_full()` (`heap.rs:77`): a fill against a full heap PANICS the transaction — new fills become impossible until consume runs, which is exactly why the consume-prepend policy exists |
-| Consume batch semantics | `MAX_EVENTS_CONSUME = 8` per instruction (`consume_events.rs:11`); an event whose owner's OpenOrders account is not in remaining accounts is **skipped, not consumed** — the keeper must enumerate owners (indexer-driven), proven empirically (owner-less consume left all 8 events) |
-| Consume cost | 1 event = 9,639 CU; 7 events = 31,255 CU; **marginal ≈ 3,603 CU/event**. ~40 chained consume instructions fit a 1.4M-CU tx ⇒ ~320 events/tx; at 2 keeper tx/s ⇒ ~640 events/s |
-| Keeper throughput SLO | full 600-event heap drains in **< 1 s** of keeper work — the ≥2× worst-case requirement is met with orders of magnitude to spare; worst-case generation is itself bounded by take throughput (≤10 events per take tx) |
-| Latency baselines (localnet) | 10-fill inline take ≈ sub-second wall clock; devnet re-baselines ride with issue #8 |
+| **Practical inline-fill capacity is 11, not 15** | `FILL_EVENT_REMAINING_LIMIT = 15` (`book.rs:19`) is theoretical; the venue's 32 KB SBF heap OOMs first. Contiguous probe (4…15): **11 completes, 12 panics** (`memory allocation failed` inside the venue). Taker builders must cap inline makers at 11 and route the tail through the heap + consume |
+| `requestHeapFrame` does NOT rescue it | a 256 KB frame leaves the CPI'd venue invocation at the default heap on Agave 3.1.13 — a hard bound, not a budget knob |
+| Big takes need v0 + ALT | 16-maker takes exceed the 1232-byte legacy limit; the suite's ALT + v0 sender is the G7 composite mechanism working |
+| **Heap capacity 600, empirically** | the heap was FILLED to exactly `MAX_NUM_EVENTS = 600`; the 601st fill **panics** (`push_back` asserts `!is_full`, `heap.rs:77`) — saturation is fail-closed, proven on-chain, and trading halts until consume runs |
+| **Unconsumed fills lock OO slots** | a heaped fill keeps the maker's OpenOrders slot occupied until consumed (`OpenOrdersFull` at 24 in-flight per OO) — a stalled keeper freezes maker capacity long before the heap fills; reaching 600 required two OO accounts per maker |
+| Consume batch semantics | `MAX_EVENTS_CONSUME = 8` per instruction (`consume_events.rs:11`); an event whose owner OO is not in remaining accounts is **skipped** (proven: owner-less consume left all 8); the keeper must enumerate owners |
+| Consume cost, measured | 1 event = 9,639 CU; 7 events = 31,255 CU; marginal ≈ 3,603 CU/event. **Chained tx measured**: 12 consume ixs drained 96 events in 465,538 CU ⇒ ~288 events per 1.4 M-CU tx — the full 600-event heap drains in ~3 such transactions |
+| Consume-prepend composite | consume(8) + inline take in ONE transaction proven green — the builder policy shape |
+| Keeper throughput SLO | worst-case generation is bounded by take throughput (≤11 events per take tx); one keeper tx clears ≈ 288 events — the ≥2× requirement holds with two orders of magnitude of margin, from measured numbers |
+| Latency baselines (localnet) | inline take 538 ms; match+heap take 1143 ms; prepend composite 539 ms; chained consume 532 ms. Devnet re-baselines ride with issue #8 |

@@ -434,7 +434,7 @@ export const readTimeExpiry = (marketData: Buffer): bigint => marketData.readBig
  * MAX_EVENTS_CONSUME = 8; each event's owner OpenOrders account MUST be in
  * remaining accounts or the event is SKIPPED (left on the heap); args carry a
  * trailing slots: Option<Vec<usize>> (None here). */
-export function consumeEventsIx(market: PublicKey, eventHeap: PublicKey, limit: bigint, ownerOos: PublicKey[] = []): TransactionInstruction {
+export function consumeEventsIx(market: PublicKey, eventHeap: PublicKey, limit: bigint, ownerOos: PublicKey[]): TransactionInstruction {
   const data = Buffer.alloc(17);
   disc("consume_events").copy(data);
   data.writeBigUInt64LE(limit, 8);
@@ -627,3 +627,9 @@ export function wouldKnowinglySelfCross(ooData: Buffer, side: "buy", priceLots: 
 export function chooseSellNoRoute(ooData: Buffer, priceLots: bigint): "market" | "direct-pair-redemption" {
   return wouldKnowinglySelfCross(ooData, "buy", priceLots) ? "direct-pair-redemption" : "market";
 }
+
+/** EventHeap header: free_head u16 @8, used_head u16 @10, count u16 @12. */
+export const EVENT_HEAP_COUNT_OFFSET = 12;
+export const MAX_NUM_EVENTS = 600;       // heap.rs:9
+export const MAX_EVENTS_CONSUME = 8;     // consume_events.rs:11
+export const PRACTICAL_INLINE_FILLS = 11; // G6-measured SBF-heap bound (contiguous probe)
