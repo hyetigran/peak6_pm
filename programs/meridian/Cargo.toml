@@ -1,0 +1,19 @@
+[package]
+name = "meridian"
+version = "0.1.0"
+edition = "2021"
+description = "Meridian — same-day MAG7 binary Outcome Markets on Solana (V1). Devnet only."
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "meridian"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+anchor-lang = "0.31.1"
+anchor-spl = "0.31.1"
