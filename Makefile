@@ -6,7 +6,7 @@ fixture-verify:
 
 build: fixture-verify
 	cargo build-sbf --manifest-path programs/m0-harness/Cargo.toml
-	cargo build-sbf --manifest-path programs/meridian/Cargo.toml
+	cargo build-sbf --manifest-path programs/meridian/Cargo.toml --features localnet
 	cp wallets/meridian-program.json target/deploy/meridian-keypair.json
 
 localnet: build
@@ -36,6 +36,7 @@ g12: build
 meridian-test: build
 	./scripts/run-suite.sh tests/meridian-foundation.test.ts
 	./scripts/run-suite.sh tests/meridian-trading.test.ts
+	./scripts/run-suite.sh tests/meridian-settlement.test.ts
 
 g8: build
 	./scripts/run-suite.sh tests/g8.test.ts

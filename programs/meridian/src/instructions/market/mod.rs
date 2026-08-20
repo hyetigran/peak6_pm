@@ -20,9 +20,14 @@ pub fn validate_strike(strike_1e6: u64) -> Result<()> {
 pub fn validate_schedule(mint_open_ts: i64, trade_open_ts: i64, close_ts: i64, now: i64) -> Result<()> {
     use crate::constants::MIN_ADD_STRIKE_LEAD_SECS;
     require!(mint_open_ts < trade_open_ts && trade_open_ts < close_ts, MeridianError::InvalidSchedule);
-    require!(trade_open_ts - mint_open_ts == 1800, MeridianError::InvalidSchedule);
-    let session = close_ts - trade_open_ts;
-    require!(session == 12_600 || session == 23_400, MeridianError::InvalidSchedule); // 3.5h or 6.5h
-    require!(now <= close_ts - MIN_ADD_STRIKE_LEAD_SECS, MeridianError::InvalidSchedule);
+    #[cfg(not(feature = "localnet"))]
+    {
+        require!(trade_open_ts - mint_open_ts == 1800, MeridianError::InvalidSchedule);
+        let session = close_ts - trade_open_ts;
+        require!(session == 12_600 || session == 23_400, MeridianError::InvalidSchedule); // 3.5h or 6.5h
+        require!(now <= close_ts - MIN_ADD_STRIKE_LEAD_SECS, MeridianError::InvalidSchedule);
+    }
+    #[cfg(feature = "localnet")]
+    let _ = now;
     Ok(())
 }

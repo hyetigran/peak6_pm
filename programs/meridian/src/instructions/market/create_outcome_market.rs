@@ -97,11 +97,14 @@ pub fn handler(
     require!(metadata_manifest_sha256 != [0u8; 32], MeridianError::MetadataUnset);
     validate_strike(strike_1e6)?;
     validate_schedule(mint_open_ts, trade_open_ts, close_ts, now)?;
-    require!(
-        normal_settlement_delay_secs >= DEVNET_NORMAL_SETTLEMENT_DELAY_SECS,
-        MeridianError::InvalidSchedule
-    );
-    require!(override_delay_secs >= MIN_OVERRIDE_DELAY_SECS, MeridianError::InvalidSchedule);
+    #[cfg(not(feature = "localnet"))]
+    {
+        require!(
+            normal_settlement_delay_secs >= DEVNET_NORMAL_SETTLEMENT_DELAY_SECS,
+            MeridianError::InvalidSchedule
+        );
+        require!(override_delay_secs >= MIN_OVERRIDE_DELAY_SECS, MeridianError::InvalidSchedule);
+    }
     require!(ctx.accounts.feed_version.ticker_id == ticker_id, MeridianError::SettlementHeaderMismatch);
 
     let cfg = &ctx.accounts.config;

@@ -116,6 +116,32 @@ pub mod meridian {
         place_take_order::handler(ctx, args)
     }
 
+    /// Finalize the shared Settlement Record (normal, permissionless).
+    pub fn finalize_settlement_normal(
+        ctx: Context<FinalizeSettlementNormal>, official_close_1e6: u64, halt_status: u8,
+        observed_ts: i64, delivery_slot: u64, sample_count: u8, raw_response_sha256: [u8; 32],
+    ) -> Result<()> {
+        finalize_settlement::finalize_normal(ctx, official_close_1e6, halt_status, observed_ts, delivery_slot, sample_count, raw_response_sha256)
+    }
+
+    /// Finalize the shared Settlement Record (manual override).
+    pub fn finalize_settlement_manual(
+        ctx: Context<FinalizeSettlementManual>, source_a_1e6: u64, source_b_1e6: u64,
+        reason_code: u16, manifest_sha256: [u8; 32],
+    ) -> Result<()> {
+        finalize_settlement::finalize_manual(ctx, source_a_1e6, source_b_1e6, reason_code, manifest_sha256)
+    }
+
+    /// Settle an Outcome Market from its finalized record (derive the winner).
+    pub fn settle_market(ctx: Context<SettleMarket>) -> Result<()> {
+        settle_market::handler(ctx)
+    }
+
+    /// Outcome Redemption: burn winning tokens for \$1 each.
+    pub fn redeem_winning(ctx: Context<RedeemWinning>, amount: u64) -> Result<()> {
+        redeem_winning::handler(ctx, amount)
+    }
+
     /// Governance registers an immutable Settlement Transport Version.
     #[allow(clippy::too_many_arguments)]
     pub fn register_transport(
