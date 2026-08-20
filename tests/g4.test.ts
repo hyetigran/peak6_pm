@@ -74,11 +74,13 @@ const takeIx = (side: ob.Side, lots: bigint) => ob.harnessPlaceTakeOrderIx({
     orderType: ob.PlaceOrderType.ImmediateOrCancel, limit: 16,
   },
 });
-/** All five balances that a failed Market Action must leave untouched. */
+/** Every token balance a failed Market Action must leave untouched. */
 async function snapshot() {
   return {
     takerBase: (await getAccount(conn, takerBaseAta)).amount,
     takerQuote: (await getAccount(conn, takerQuoteAta)).amount,
+    makerBase: (await getAccount(conn, makerBaseAta)).amount,
+    makerQuote: (await getAccount(conn, makerQuoteAta)).amount,
     baseVault: (await getAccount(conn, baseVault)).amount,
     quoteVault: (await getAccount(conn, quoteVault)).amount,
   };
@@ -150,8 +152,8 @@ before(async () => {
 
 test("G4.6 Market lot-size offsets golden-tested (offsets 448/456)", async () => {
   const data = (await conn.getAccountInfo(market.publicKey))!.data;
-  assert.equal(data.readBigInt64LE(448), QUOTE_LOT, "quote_lot_size at offset 448");
-  assert.equal(data.readBigInt64LE(456), BASE_LOT, "base_lot_size at offset 456");
+  assert.equal(data.readBigInt64LE(ob.MARKET_QUOTE_LOT_SIZE_OFFSET), QUOTE_LOT, "quote_lot_size at offset 448");
+  assert.equal(data.readBigInt64LE(ob.MARKET_BASE_LOT_SIZE_OFFSET), BASE_LOT, "base_lot_size at offset 456");
 });
 
 test("G4.1 exact-liquidity Buy fills fully with exact zero-fee arithmetic", async () => {
@@ -169,7 +171,12 @@ test("G4.2 insufficient-liquidity Buy reverts; every balance unchanged", async (
   const s0 = await snapshot();
   await expectFail(send([takeIx(ob.Side.Bid, 2n)], [taker]),
     "PartialFillReverted", "partial Buy must revert");
-  assert.deepEqual(await snapshot(), s0, "taker and vault balances unchanged after revert");
+  assert.deepEqual(await snapshot(), s0, "all balances unchanged after revert");
+  // functional rollback proof: the resting order SURVIVED the failed take —
+  // a 1-lot take against the very same order now fills fully
+  await send([takeIx(ob.Side.Bid, 1n)], [taker]);
+  const s1 = await snapshot();
+  assert.equal(s1.takerBase - s0.takerBase, ONE_LOT_BASE, "surviving order filled after the revert");
   await makerCleanup();
 });
 
@@ -188,7 +195,11 @@ test("G4.4 insufficient-liquidity Sell reverts; every balance unchanged", async 
   const s0 = await snapshot();
   await expectFail(send([takeIx(ob.Side.Ask, 2n)], [taker]),
     "PartialFillReverted", "partial Sell must revert");
-  assert.deepEqual(await snapshot(), s0, "taker and vault balances unchanged after revert");
+  assert.deepEqual(await snapshot(), s0, "all balances unchanged after revert");
+  // functional rollback proof for the Ask perspective too
+  await send([takeIx(ob.Side.Ask, 1n)], [taker]);
+  const s1 = await snapshot();
+  assert.equal(s1.takerQuote - s0.takerQuote, ONE_LOT_QUOTE, "surviving bid filled after the revert");
   await makerCleanup();
 });
 

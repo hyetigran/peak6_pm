@@ -171,7 +171,7 @@ account bytes before and after the CPI in the same instruction.
 | Fact | Evidence |
 | --- | --- |
 | Exact-liquidity Buy and Sell fill fully | taker base ±1 lot and quote ∓`price` exactly, zero fees, both perspectives |
-| Partial fill reverts everything | taker requests 2 lots against 1 resting: OpenBook fills 1 inline, the postcondition fails, and taker balances AND both market vaults are byte-identical afterward — the resting maker order and its collateral survive untouched |
+| Partial fill reverts everything | taker requests 2 lots against 1 resting: OpenBook fills 1 inline, the postcondition fails, and all six token balances (taker, maker, both vaults) are unchanged afterward; the resting maker order's survival is proven functionally — a subsequent 1-lot take fills against the very same order, both perspectives |
 | Empty-book take reverts | zero fill ≠ requested ⇒ `PartialFillReverted`, no state change |
 | No partial synthetic exposure | the postcondition runs inside the same instruction as the CPI; failure reverts the whole transaction, so no intermediate state is ever visible to a later instruction or block |
 | `Market` lot-size offsets | `quote_lot_size` at byte 448, `base_lot_size` at 456 (field order `state/market.rs:20–118`, `OracleConfig` 88 bytes per `state/oracle.rs:39`) — golden-tested against creation values |

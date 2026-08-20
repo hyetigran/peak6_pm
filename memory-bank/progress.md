@@ -63,7 +63,7 @@ Day 0 has not started. The schedule has no slack for an M0 failure that reopens 
 
 ## Ticket board (GitLab, 2026-08-20)
 
-M0 broken into issues #1–#17 (probe #7 closed). Frontier (#1 G3, #2 G4 done 2026-08-20):, #3 G8, #4 G10, #5 G9+residuals, #6 G12, #8 G2-devnet; humans: #9 provider, #10 webhook, #11 Squads members. Blocked: #12 G5←#2, #13 G6←#2, #14 G7←#13, #15 EE-decision←#1, #16 G11←#9, #17 go/no-go←all gates. Triage role is the first description line (bot cannot set labels); blocking edges live in descriptions.
+M0 broken into issues #1–#17 (probe #7 closed). Frontier (#1 G3, #2 G4 done 2026-08-20): #3 G8, #4 G10, #5 G9+residuals, #6 G12, #8 G2-devnet; humans: #9 provider, #10 webhook, #11 Squads members. Blocked: #12 G5←#2, #13 G6←#2, #14 G7←#13, #15 EE-decision←#1, #16 G11←#9, #17 go/no-go←all gates. Triage role is the first description line (bot cannot set labels); blocking edges live in descriptions.
 
 ## Known issues / risks to track
 

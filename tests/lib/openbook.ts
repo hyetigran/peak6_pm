@@ -392,6 +392,9 @@ export function settleFundsIx(opts: {
   });
 }
 
+/** Pinned Market byte offsets (state/market.rs field order; OracleConfig = 88). */
+export const MARKET_QUOTE_LOT_SIZE_OFFSET = 448;
+export const MARKET_BASE_LOT_SIZE_OFFSET = 456;
 /** Market.time_expiry lives at offset 48: 8 disc + bump,base_dec,quote_dec,padding1[5] (=8) + market_authority (32). */
 export const readTimeExpiry = (marketData: Buffer): bigint => marketData.readBigInt64LE(48);
 

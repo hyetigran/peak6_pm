@@ -195,6 +195,8 @@ pub mod m0_harness {
             &ctx.accounts.market.try_borrow_data()?,
             MARKET_BASE_LOT_SIZE_OFFSET,
         );
+        // fail closed on corrupt/hostile market bytes before any cast
+        require!(base_lot_size > 0, HarnessError::AmountOverflow);
         let expected_base_atoms = (args.max_base_lots as u64)
             .checked_mul(base_lot_size as u64)
             .ok_or(HarnessError::AmountOverflow)?;
