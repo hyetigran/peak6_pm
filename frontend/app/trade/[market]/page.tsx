@@ -118,107 +118,176 @@ export default function Trade() {
   });
 
   const noSellLimit = outcome === "NO" && side === "Sell"; // market-only
+  const noPx = yesPx != null ? 100 - yesPx : null;
+  const shareN = Math.max(0, Math.floor(Number(size || "0")));
+  const pxNum = Math.max(0, Math.floor(Number(price || "0")));
+  const buying = side === "Buy";
+  const unitCents = outcome === "YES"
+    ? (market ? (buying ? book?.best_ask ?? pxNum : book?.best_bid ?? pxNum) : pxNum)
+    : (buying ? 100 - pxNum : noPx != null ? 100 - (book?.best_ask ?? 100 - noPx) : pxNum);
+  const notional = (shareN * (unitCents || 0)) / 100;
+  const winClause = outcome === "YES" ? "at or above" : "below";
+
   return (
-    <div className="wrap" style={{ padding: "28px 24px", display: "grid", gridTemplateColumns: "1fr 360px", gap: 24 }}>
-      <div>
-        <div className="eyebrow">{m.ticker} · {m.trading_day}</div>
-        <h1 style={{ marginTop: 6 }}>Will {m.ticker} close at or above ${strikeUsd(m.strike_1e6)}?</h1>
-        <p className="sub">One share pays <b>$1.00</b> if the official close is at or above ${strikeUsd(m.strike_1e6)}, otherwise $0.</p>
-        <div style={{ display: "flex", gap: 24, marginTop: 14, flexWrap: "wrap" }}>
-          <Stat label="Phase" value={phase} />
-          {!settled && <Stat label="Settles in" value={countdown(m.close_ts)} mono />}
-          {yesPx != null && <Stat label="YES mark" value={`${yesPx}¢`} mono accent="yes" />}
-          {book?.no_prob != null && <Stat label="Implied prob" value={`${Math.round(book.yes_prob! * 100)}% / ${Math.round(book.no_prob! * 100)}%`} mono />}
-          {settled && <Stat label="Outcome" value={`${m.outcome_name} won`} accent={m.outcome_name === "Yes" ? "yes" : "no"} />}
+    <div className="wrap" style={{ padding: "24px 28px", display: "grid", gridTemplateColumns: "1fr 340px", gap: 22 }}>
+      <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 18 }}>
+        <div className="hd" style={{ alignItems: "flex-start", gap: 20 }}>
+          <div>
+            <div className="sub" style={{ fontSize: 14, marginBottom: 6 }}>{m.ticker} · 0DTE · settles 4:00 PM ET · {m.trading_day}</div>
+            <h1 style={{ fontSize: 30, maxWidth: 560 }}>Will {m.ticker} close at or above ${strikeUsd(m.strike_1e6)} today?</h1>
+          </div>
+          <div className="statpill" style={{ textAlign: "right" }}>
+            <div className="k">{settled ? "Outcome" : "Time to close"}</div>
+            <div className="v mono" style={{ fontSize: settled ? 18 : 24, color: settled ? (m.outcome_name === "Yes" ? "var(--yes)" : "var(--no)") : undefined }}>
+              {settled ? `${m.outcome_name} won` : countdown(m.close_ts)}
+            </div>
+          </div>
+        </div>
+
+        {/* YES / NO price hero */}
+        <div style={{ display: "flex", gap: 14 }}>
+          <PriceCard side="YES" price={yesPx} prob={book?.yes_prob} active={outcome === "YES"} onClick={() => setOutcome("YES")} />
+          <PriceCard side="NO" price={noPx} prob={book?.no_prob} active={outcome === "NO"} onClick={() => setOutcome("NO")} />
         </div>
 
         {/* mirrored order book */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 22 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <BookCol title="YES" accent="yes" bids={book?.bids ?? []} asks={book?.asks ?? []} mark={yesPx} mirror={false} yourBal={yesBal} />
           <BookCol title="NO" accent="no" bids={book?.bids ?? []} asks={book?.asks ?? []} mark={yesPx} mirror yourBal={noBal} />
         </div>
+        {book?.note && <div className="card-2" style={{ padding: "12px 16px" }}><span className="sub" style={{ fontSize: 13 }}>{book.note}</span></div>}
       </div>
 
       {/* action panel */}
-      <div className="card" style={{ padding: 18, height: "fit-content", position: "sticky", top: 76 }}>
+      <div className="card" style={{ padding: 18, height: "fit-content", position: "sticky", top: 84, display: "flex", flexDirection: "column", gap: 14 }}>
         {!settled ? (
           <>
-            <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-              {(["YES", "NO"] as Outcome[]).map((o) => (
-                <button key={o} onClick={() => setOutcome(o)} className="btn" style={{ flex: 1, padding: "8px", background: outcome === o ? `var(--${o === "YES" ? "yes" : "no"})` : "var(--card)", color: outcome === o ? "#fff" : "var(--ink-60)", border: "1px solid var(--line)" }}>{o}</button>
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+            {/* Buy / Sell segmented */}
+            <div style={{ display: "flex", gap: 3, padding: 3, borderRadius: 10, background: "var(--chip)" }}>
               {(["Buy", "Sell"] as Side[]).map((sd) => (
-                <button key={sd} onClick={() => setSide(sd)} className="btn btn-ghost" style={{ flex: 1, padding: "7px", borderColor: side === sd ? "var(--ink)" : "var(--line)", fontWeight: side === sd ? 700 : 500 }}>{sd}</button>
+                <button key={sd} onClick={() => setSide(sd)} style={seg(side === sd)}>{sd}</button>
               ))}
             </div>
-            {!noSellLimit && outcome === "YES" && (
-              <label className="sub" style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "center", marginBottom: 10 }}>
-                <input type="checkbox" checked={market} onChange={(e) => setMarketOrder(e.target.checked)} /> Market order (take best price)
-              </label>
+            {/* YES / NO tabs */}
+            <div style={{ display: "flex", gap: 10 }}>
+              {(["YES", "NO"] as Outcome[]).map((o) => {
+                const on = outcome === o, c = o === "YES" ? "yes" : "no";
+                return (
+                  <button key={o} onClick={() => setOutcome(o)} style={{ flex: 1, textAlign: "center", padding: "12px 0", borderRadius: 10, cursor: "pointer", background: on ? `var(--${c}-soft)` : "var(--chip)", border: `1px solid ${on ? `var(--${c}-border)` : "transparent"}`, color: "var(--ink)" }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: `var(--${c}-hi)` }}>{o}</div>
+                    <div className="mono" style={{ fontSize: 18, marginTop: 2 }}>{(o === "YES" ? yesPx : noPx) ?? "—"}¢</div>
+                  </button>
+                );
+              })}
+            </div>
+            {/* Market / Limit */}
+            {outcome === "YES" && (
+              <div style={{ display: "flex", gap: 16, fontSize: 14 }}>
+                {[["Market", market], ["Limit", !market]].map(([label, on]) => (
+                  <div key={label as string} onClick={() => setMarketOrder(label === "Market")} style={{ cursor: "pointer", paddingBottom: 5, color: on ? "var(--ink)" : "var(--ink-60)", borderBottom: `2px solid ${on ? "var(--accent)" : "transparent"}` }}>{label as string}</div>
+                ))}
+              </div>
             )}
-            {noSellLimit && <div className="sub" style={{ fontSize: 12, marginBottom: 10 }}>Sell No is market-only in V1 — it buys Yes and redeems the pair.</div>}
-            {(!market || outcome === "NO") && !(outcome === "NO" && side === "Sell") && (
-              <>
-                <label className="sub" style={{ fontSize: 12 }}>Limit price (¢)</label>
-                <input className="mono" value={price} onChange={(e) => setPrice(e.target.value)} style={inp} />
-              </>
+            {noSellLimit && <div className="sub" style={{ fontSize: 12 }}>Sell No is market-only in V1 — it buys Yes and redeems the pair.</div>}
+
+            {(!market || outcome === "NO") && !noSellLimit && (
+              <div>
+                <div className="sub" style={{ fontSize: 13, marginBottom: 6 }}>Limit price (¢)</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, ...fieldBox }}>
+                  <input className="mono" value={price} onChange={(e) => setPrice(e.target.value)} style={bareInput} />
+                  <span className="sub" style={{ fontSize: 15 }}>¢</span>
+                  <span className="sub" style={{ marginLeft: "auto", fontSize: 12 }}>expires 16:00 ET</span>
+                </div>
+              </div>
             )}
-            <label className="sub" style={{ fontSize: 12 }}>Size (shares)</label>
-            <input className="mono" value={size} onChange={(e) => setSize(e.target.value)} style={inp} />
-            <button className={`btn ${outcome === "YES" ? "btn-yes" : "btn-no"}`} style={full} disabled={busy || !tradeable} onClick={submit}>
-              {busy ? "…" : `${side} ${outcome} · ${size || 0} share${size === "1" ? "" : "s"}`}
+
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }} className="sub"><span>Shares</span><span>1 share pays $1.00</span></div>
+              <div style={fieldBox}><input className="mono" value={size} onChange={(e) => setSize(e.target.value)} style={{ ...bareInput, fontSize: 20 }} /></div>
+              <div style={{ display: "flex", gap: 7, marginTop: 8 }}>
+                {["5", "25", "100", "500"].map((p) => (
+                  <div key={p} onClick={() => setSize(p)} style={{ padding: "6px 13px", borderRadius: 16, fontSize: 13, cursor: "pointer", background: "var(--chip)", color: "var(--ink-70)" }}>{p}</div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ padding: 14, borderRadius: 11, background: "var(--accent-soft)", border: "1px solid var(--accent-border)", fontSize: 15, lineHeight: 1.55 }}>
+              {buying ? "You pay " : "You receive ~"}<b>${notional.toFixed(2)}</b> {buying ? "for" : "from"} {shareN} {outcome}.<br />
+              You win <b>${shareN.toFixed(2)}</b> if {m.ticker} closes {winClause} ${strikeUsd(m.strike_1e6)}.
+            </div>
+
+            <button className={`btn ${outcome === "NO" && side === "Sell" ? "btn-no" : "btn-yes"}`} style={{ padding: 15, fontSize: 16 }} disabled={busy || !tradeable} onClick={submit}>
+              {busy ? "…" : `${side} ${outcome} · ${shareN} share${shareN === 1 ? "" : "s"}`}
             </button>
-            {!tradeable && <div className="sub" style={{ fontSize: 12, marginBottom: 8 }}>Trading opens when the market is Active.</div>}
-            <div style={{ borderTop: "1px solid var(--line)", margin: "10px 0", paddingTop: 10 }}>
+            {!tradeable && <div className="sub" style={{ fontSize: 12 }}>Trading opens when the market is Active.</div>}
+
+            <div style={{ borderTop: "1px solid var(--line)", paddingTop: 12 }}>
               <div className="eyebrow" style={{ marginBottom: 8 }}>Mint / redeem</div>
-              <button className="btn btn-ghost" style={full} disabled={busy} onClick={mint}>Mint {size || 0} pairs · ${size || 0}</button>
-              <button className="btn btn-ghost" style={full} disabled={busy} onClick={redeemPair}>Redeem {size || 0} pairs → ${size || 0}</button>
+              <button className="btn btn-ghost" style={full} disabled={busy} onClick={mint}>Mint {shareN} pairs · ${shareN}</button>
+              <button className="btn btn-ghost" style={{ ...full, marginBottom: 0 }} disabled={busy} onClick={redeemPair}>Redeem {shareN} pairs → ${shareN}</button>
             </div>
           </>
         ) : (
-          <button className="btn btn-yes" style={full} disabled={busy || winBal === 0n} onClick={redeemWin}>Claim {usd(winBal.toString(), 0)} winning {m.outcome_name} → USDC</button>
+          <button className="btn btn-yes" style={{ padding: 15, fontSize: 16 }} disabled={busy || winBal === 0n} onClick={redeemWin}>Claim {usd(winBal.toString(), 0)} winning {m.outcome_name} → USDC</button>
         )}
-        {msg && <div className="mono" style={{ fontSize: 11, marginTop: 10, color: msg.includes("✓") ? "var(--pos)" : "var(--no)" }}>{msg}</div>}
-        {!pubkey && <div className="sub" style={{ fontSize: 12, marginTop: 8 }}>Connect a wallet to trade.</div>}
+        {msg && <div className="mono" style={{ fontSize: 11, color: msg.includes("✓") ? "var(--pos)" : "var(--no)" }}>{msg}</div>}
+        {!pubkey && <div className="sub" style={{ fontSize: 12 }}>Connect a wallet to trade.</div>}
       </div>
     </div>
   );
 }
 
-const inp: React.CSSProperties = { width: "100%", padding: "9px 11px", border: "1px solid var(--line)", borderRadius: 8, margin: "5px 0 12px", fontSize: 15, fontFamily: "var(--mono)" };
-const full: React.CSSProperties = { width: "100%", marginBottom: 8 };
+const seg = (on: boolean): React.CSSProperties => ({ flex: 1, textAlign: "center", padding: 9, borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer", border: "none", background: on ? "var(--accent)" : "transparent", color: on ? "var(--on-accent)" : "var(--ink-60)" });
+const fieldBox: React.CSSProperties = { padding: "12px 14px", borderRadius: 10, background: "var(--chip)", border: "1px solid var(--line)", display: "flex", alignItems: "center" };
+const bareInput: React.CSSProperties = { flex: 1, minWidth: 0, background: "transparent", border: "none", outline: "none", color: "var(--ink)", fontSize: 19, fontFamily: "var(--mono)", padding: 0 };
 
-function Stat({ label, value, mono, accent }: { label: string; value: string; mono?: boolean; accent?: "yes" | "no" }) {
-  return <div><div className="eyebrow">{label}</div><div className={mono ? "mono" : ""} style={{ fontSize: 17, fontWeight: 600, marginTop: 3, color: accent ? `var(--${accent})` : undefined }}>{value}</div></div>;
+function PriceCard({ side, price, prob, active, onClick }: { side: "YES" | "NO"; price: number | null; prob?: number | null; active: boolean; onClick: () => void }) {
+  const c = side === "YES" ? "yes" : "no";
+  return (
+    <div onClick={onClick} style={{ flex: 1, padding: "18px 20px", borderRadius: 13, cursor: "pointer", background: `var(--${c}-soft)`, border: `1px solid ${active ? `var(--${c})` : `var(--${c}-border)`}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: `var(--${c}-hi)` }}>{side}</div>
+        <div className="sub" style={{ fontSize: 13 }}>pays $1.00</div>
+      </div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 8 }}>
+        <div className="mono" style={{ fontSize: 38, fontWeight: 600, lineHeight: 1, letterSpacing: "-1px" }}>{price ?? "—"}¢</div>
+        {prob != null && <div style={{ fontSize: 16, color: `var(--${c})` }}>{Math.round(prob * 100)}% implied</div>}
+      </div>
+    </div>
+  );
 }
+
+const full: React.CSSProperties = { width: "100%", marginBottom: 8 };
 
 function BookCol({ title, accent, bids, asks, mark, mirror, yourBal }: {
   title: string; accent: "yes" | "no"; bids: { price: number; shares: number }[]; asks: { price: number; shares: number }[]; mark: number | null; mirror: boolean; yourBal: bigint;
 }) {
-  // YES view: asks (sellers) above, bids (buyers) below. NO view: mirror prices (100 - p) and swap sides.
+  // YES view: asks (sellers) above, bids (buyers) below. NO view mirrors prices (100 - p) and swaps sides.
   const px = (p: number) => (mirror ? 100 - p : p);
-  const rows = (arr: { price: number; shares: number }[], kind: "ask" | "bid") =>
-    arr.slice(0, 5).map((l, i) => (
-      <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "3px 0", color: kind === "ask" ? "var(--no)" : "var(--pos)" }}>
-        <span className="mono">{px(l.price)}¢</span><span className="mono sub">{l.shares}</span>
+  const topSide = (mirror ? bids : asks).slice(0, 5);   // sellers of this outcome (ask side)
+  const botSide = (mirror ? asks : bids).slice(0, 5);   // buyers of this outcome (bid side)
+  const maxSize = Math.max(1, ...topSide.map((l) => l.shares), ...botSide.map((l) => l.shares));
+  const row = (l: { price: number; shares: number }, i: number, kind: "ask" | "bid") => {
+    const bar = kind === "ask" ? "var(--no-soft)" : "var(--yes-soft)";
+    const txt = kind === "ask" ? "var(--no)" : "var(--pos)";
+    return (
+      <div key={`${kind}${i}`} style={{ display: "grid", gridTemplateColumns: "44px 1fr 44px", gap: 8, alignItems: "center", fontSize: 12.5, padding: "3px 0" }}>
+        <span className="mono" style={{ color: txt }}>{px(l.price)}¢</span>
+        <span style={{ height: 12, borderRadius: 3, background: bar, width: `${Math.round((l.shares / maxSize) * 100)}%` }} />
+        <span className="mono" style={{ textAlign: "right", color: "var(--ink-70)" }}>{l.shares}</span>
       </div>
-    ));
-  // for NO, a YES ask becomes a NO bid and vice versa
-  const topSide = mirror ? bids : asks;   // sellers of this outcome
-  const botSide = mirror ? asks : bids;   // buyers of this outcome
+    );
+  };
   return (
-    <div className="card" style={{ padding: 14, borderTop: `3px solid var(--${accent})` }}>
-      <div className="hd"><h2 style={{ color: `var(--${accent})`, fontSize: 16 }}>{title}</h2><span className={`pos-tag tag-${accent}`}>{usd(yourBal.toString(), 0)} held</span></div>
+    <div className="card-2" style={{ padding: 14, borderTop: `2px solid var(--${accent})` }}>
+      <div className="hd"><h2 style={{ color: `var(--${accent}-hi)`, fontSize: 15 }}>{title} book</h2><span className={`pos-tag tag-${accent}`}>{usd(yourBal.toString(), 0)} held</span></div>
       <div style={{ marginTop: 10 }}>
-        <div className="eyebrow" style={{ fontSize: 9 }}>Asks</div>
-        {topSide.length ? rows(topSide, mirror ? "bid" : "ask").reverse() : <div className="sub" style={{ fontSize: 11 }}>—</div>}
-        <div style={{ textAlign: "center", padding: "6px 0", borderTop: "1px solid var(--line)", borderBottom: "1px solid var(--line)", margin: "6px 0" }}>
-          <span className="mono" style={{ fontSize: 15, fontWeight: 700 }}>{mark != null ? `${mirror ? 100 - mark : mark}¢` : "—"}</span>
+        {topSide.length ? topSide.slice().reverse().map((l, i) => row(l, i, "ask")) : <div className="sub" style={{ fontSize: 11, padding: "3px 0" }}>no asks</div>}
+        <div style={{ textAlign: "center", padding: "7px 0", margin: "6px 0", borderRadius: 8, background: "var(--chip)" }}>
+          <span className="mono" style={{ fontSize: 14, fontWeight: 600 }}>{mark != null ? `${mirror ? 100 - mark : mark}¢` : "—"}</span>
+          <span className="sub" style={{ fontSize: 11, marginLeft: 8 }}>mark</span>
         </div>
-        <div className="eyebrow" style={{ fontSize: 9 }}>Bids</div>
-        {botSide.length ? rows(botSide, mirror ? "ask" : "bid") : <div className="sub" style={{ fontSize: 11 }}>—</div>}
+        {botSide.length ? botSide.map((l, i) => row(l, i, "bid")) : <div className="sub" style={{ fontSize: 11, padding: "3px 0" }}>no bids</div>}
       </div>
     </div>
   );
