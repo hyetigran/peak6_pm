@@ -45,6 +45,14 @@ Date: 2026-08-19 evening.
 | M5 indexer | Blocked |
 | M6 synthetic demo + Squads transfer | Blocked |
 
+## Services + frontend + localnet demo (NEW, 2026-08-20)
+
+- **Indexer** (`services/indexer`): polls `getProgramAccounts` for OutcomeMarket accounts, byte-decodes them, upserts into SQLite, serves a JSON API (`/markets`, `/markets/:pk`, `/portfolio/:wallet` live Position State, `/health` History Completeness). Proven decoding real on-chain markets.
+- **Frontend** (`frontend/`, Next.js 14 App Router): built to `design mockups/` — paper theme (`#faf9f5`/navy/YES-blue/NO-coral/green), Space Grotesk + IBM Plex Mono. Five pages (Landing, Markets, Trade with mirrored YES/NO + payoff sentence, Portfolio, History). Reads live indexer data; a managed localnet burner wallet makes mint/redeem/claim work. `next build` green; **browser-verified** against the mockup (docs/screenshots/).
+- **One-command demo**: `make demo` → validator (all programs) + seed 7 Active markets across AAPL/NVDA/MSFT + indexer (:8787) + frontend (:3100). `scripts/seed-demo.ts`, `scripts/demo.sh`.
+
+**Full stack is live on localnet**: create → mint → trade → settle → redeem, clickable in the browser. Remaining polish: market-assisted Sell-No, real Switchboard oracle, Metaplex metadata, automation/keeper + demo-source services, order-book depth in the Trade UI. M0 gate items #8/#9/#15/#16/#17 still open (human inputs / go-no-go).
+
 ## programs/meridian — the real V1 program (NEW, 2026-08-20)
 
 Per the user's direction (build the program → services → frontend, localnet first), the production Anchor program now EXISTS and is functionally complete for V1, built on the M0-validated OpenBook integration. 13/13 meridian tests green on localnet across three suites (`make meridian-test`):
