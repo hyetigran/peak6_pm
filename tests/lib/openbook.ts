@@ -220,7 +220,7 @@ export function directPlaceTakeOrderIx(opts: {
 }
 
 // --- Harness instructions ----------------------------------------------
-export function harnessInitializeIx(admin: PublicKey): TransactionInstruction {
+export function harnessInitializeIx(admin: PublicKey, quoteMint: PublicKey): TransactionInstruction {
   return new TransactionInstruction({
     programId: HARNESS_PID,
     keys: [
@@ -228,6 +228,7 @@ export function harnessInitializeIx(admin: PublicKey): TransactionInstruction {
       { pubkey: harnessConfigPda(), isSigner: false, isWritable: true },
       { pubkey: venueAuthorityPda(), isSigner: false, isWritable: false },
       { pubkey: OPENBOOK_PID, isSigner: false, isWritable: false },
+      { pubkey: quoteMint, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
     data: disc("initialize"),
@@ -511,7 +512,9 @@ export const pairVaultPda = (market: PublicKey) =>
 
 export function harnessInitPairIx(admin: PublicKey, opts: {
   market: PublicKey; yesMint: PublicKey; noMint: PublicKey; quoteVault: PublicKey;
+  metadataHash?: Buffer; // 32 bytes; defaults to a test-vector hash
 }): TransactionInstruction {
+  const mh = opts.metadataHash ?? Buffer.alloc(32, 7);
   return new TransactionInstruction({
     programId: HARNESS_PID,
     keys: [
@@ -524,7 +527,7 @@ export function harnessInitPairIx(admin: PublicKey, opts: {
       { pubkey: opts.quoteVault, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
-    data: disc("init_pair"),
+    data: Buffer.concat([disc("init_pair"), mh]),
   });
 }
 

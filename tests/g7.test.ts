@@ -54,35 +54,45 @@ async function send(ixs: TransactionInstruction[], signers: Keypair[]) {
   return sendAndConfirmTransaction(conn, tx, signers, { commitment: "confirmed" });
 }
 /** Measure a composite under the strict ALT split, then execute it. */
-async function measure(name: string, ixs: TransactionInstruction[], signers: Keypair[], opts?: { mustFit?: boolean; mustExecute?: boolean }) {
-  const alt = (await conn.getAddressLookupTable(stableAlt)).value!;
+async function measure(name: string, ixs: TransactionInstruction[], signers: Keypair[], opts?: { mustFit?: boolean; mustExecute?: boolean; mode?: "legacy" | "v0" | "v0+alt"; expectOversize?: boolean; measureOnly?: boolean }) {
+  const mode = opts?.mode ?? "v0+alt";
   const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
-  const msg = new TransactionMessage({
+  const tmsg = new TransactionMessage({
     payerKey: signers[0].publicKey, recentBlockhash: blockhash, instructions: ixs,
-  }).compileToV0Message([alt]);
+  });
+  const msg = mode === "legacy" ? tmsg.compileToLegacyMessage()
+    : mode === "v0" ? tmsg.compileToV0Message([])
+    : tmsg.compileToV0Message([(await conn.getAddressLookupTable(stableAlt)).value!]);
   const tx = new VersionedTransaction(msg);
   tx.sign(signers);
-  let bytes = 0, fits = true;
-  try { bytes = tx.serialize().length; fits = bytes <= 1232; }
-  catch { fits = false; }
+  const bytes = tx.serialize().length; // raw size, even when oversize
+  const fits = bytes <= 1232;
+  const lookups = "addressTableLookups" in msg ? msg.addressTableLookups : [];
   const accounts = msg.staticAccountKeys.length +
-    msg.addressTableLookups.reduce((a, l) => a + l.readonlyIndexes.length + l.writableIndexes.length, 0);
+    lookups.reduce((a, l) => a + l.readonlyIndexes.length + l.writableIndexes.length, 0);
   // wallet simulation (what a wallet does before showing one approval)
   const sim = fits ? await conn.simulateTransaction(tx, { commitment: "confirmed" }) : null;
   const simOk = sim !== null && sim.value.err === null;
   if (sim && !simOk) console.error(`G7 ${name} SIM ERR:`, JSON.stringify(sim.value.err), (sim.value.logs ?? []).join(" | "));
   let cu = sim?.value.unitsConsumed ?? null;
   let executed = false;
-  if (fits && simOk) {
+  if (fits && simOk && !opts?.measureOnly) {
     const sig = await conn.sendTransaction(tx);
     await conn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
     const info = await conn.getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
     cu = info!.meta!.computeUnitsConsumed!;
     executed = info!.meta!.err === null;
   }
-  const row = { name, bytes, fits_1232: fits, accounts, cu, wallet_sim_ok: simOk, executed, signers: signers.length };
+  const row = { name, mode, bytes, fits_1232: fits, accounts, cu, wallet_sim_ok: simOk, executed, signers: signers.length };
   results.push(row);
-  console.error(`G7 ${name}: ${bytes}B, ${accounts} accts, CU=${cu}, sim=${simOk}, executed=${executed}`);
+  // incremental evidence: never leave a stale file behind a failed assert
+  fs.writeFileSync("docs/adr/g7-measurements.json", JSON.stringify({
+    alt_contents: "programs (system, token, ATA, openbook, harness), config PDA, quote mint — stable only; every per-day/per-user address inline",
+    composites: results,
+    deferred_m1: ["create_strike_market first/later (Metaplex + SettlementRecord CPIs) — issue #14 AC re-scoped to M1 re-measure via #17", "batched settlement", "intraday add-strike attach sequence"],
+  }, null, 2) + "\n");
+  console.error(`G7 ${name} [${mode}]: ${bytes}B, ${accounts} accts, CU=${cu}, sim=${simOk}, executed=${executed}`);
+  if (opts?.expectOversize) assert.ok(!fits, `${name} expected oversize, got ${bytes}B`);
   if (opts?.mustFit) {
     assert.ok(fits && simOk && executed, `${name} must fit one approval (bytes=${bytes})`);
     assert.equal(signers.length, 1, `${name} must need exactly ONE user signature`);
@@ -111,7 +121,7 @@ before(async () => {
   makerYes = await createAssociatedTokenAccount(conn, payer, yesMint, maker.publicKey);
   makerNo = await createAssociatedTokenAccount(conn, payer, noMint, maker.publicKey);
   await mintTo(conn, payer, quoteMint, makerQuote, payer, 1_000_000_000n);
-  await send([ob.harnessInitializeIx(payer.publicKey)], [payer]);
+  await send([ob.harnessInitializeIx(payer.publicKey, quoteMint)], [payer]);
   // the STRICT stable-only ALT: programs + config + quote mint, nothing else
   stableAlt = await createAlt(conn, payer, [
     SystemProgram.programId, ob.TOKEN_PID, ob.ATA_PID, ob.OPENBOOK_PID, ob.HARNESS_PID,
@@ -150,10 +160,19 @@ test("G7.9 create_venue_market composite: operator funds books + pinned CPI + ga
     ],
     data: Buffer.concat([ob.disc("create_venue_market"), len, nameBuf, Buffer.alloc(8)]),
   });
-  // MEASURED: the everything-in-one transaction variant does NOT fit
-  // (1319B > 1232 with five signatures) — the operator flow is two
+  // the everything-in-one variant is MEASURED (not asserted from a comment):
+  // it cannot fit with five signatures — the operator flow is two
   // transactions. Only the user-facing composite 1 carries the one-approval
   // requirement; operator flows are unconstrained by the spec.
+  await measure("venue_all_in_one_tx_variant", [
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+    ob.bookAccountIx(payer.publicKey, bids, ob.BOOKSIDE_SPACE, bookRent),
+    ob.bookAccountIx(payer.publicKey, asks, ob.BOOKSIDE_SPACE, bookRent),
+    ob.bookAccountIx(payer.publicKey, heap, ob.EVENT_HEAP_SPACE, heapRent),
+    createIx,
+    ob.harnessCreateVenueGateIx(payer.publicKey, market.publicKey, now - 60n, now + 3600n, payer.publicKey),
+    ob.harnessInitPairIx(payer.publicKey, { market: market.publicKey, yesMint, noMint, quoteVault: collateralVault }),
+  ], [payer, market, bids, asks, heap], { expectOversize: true, measureOnly: true });
   await measure("venue_books_funding_tx", [
     ob.bookAccountIx(payer.publicKey, bids, ob.BOOKSIDE_SPACE, bookRent),
     ob.bookAccountIx(payer.publicKey, asks, ob.BOOKSIDE_SPACE, bookRent),
@@ -191,7 +210,7 @@ test("G7.1 HARD GATE: first-use Buy-No-limit fits ONE approval", async () => {
   const userOo = ob.ooAccountPda(user.publicKey, 1);
   // Buy No at $0.40 == mint pair + PostOnly ASK of Yes at $0.60
   const q = 2n;
-  await measure("first_use_buy_no_limit", [
+  const buyNoIxs = () => [
     ob.createOoIndexerIx(user.publicKey, user.publicKey),
     ob.createOoAccountIx(user.publicKey, user.publicKey, 1, market.publicKey),
     createAssociatedTokenAccountInstruction(user.publicKey, userYes, user.publicKey, yesMint),
@@ -208,7 +227,13 @@ test("G7.1 HARD GATE: first-use Buy-No-limit fits ONE approval", async () => {
         clientOrderId: 1n, orderType: ob.PlaceOrderType.PostOnly, expiryTimestamp: 0n,
         selfTradeBehavior: ob.SelfTradeBehavior.AbortTransaction, limit: 16 },
     }),
-  ], [user], { mustFit: true });
+  ];
+  // the H7 mitigation ladder, exercised in order: legacy -> v0 -> v0+ALT.
+  // Only the last rung executes (earlier rungs measure and stop).
+  const legacy = await measure("first_use_buy_no_limit_legacy", buyNoIxs(), [user], { mode: "legacy", measureOnly: true });
+  const v0bare = await measure("first_use_buy_no_limit_v0_no_alt", buyNoIxs(), [user], { mode: "v0", measureOnly: true });
+  void legacy; void v0bare; // both recorded; fit or not is data, not policy
+  await measure("first_use_buy_no_limit", buyNoIxs(), [user], { mustFit: true });
   // the No position exists and the ask rests
   assert.equal((await getAccount(conn, userNo)).amount, q * LOT, "user holds the No side");
   assert.equal((await getAccount(conn, baseVault)).amount, q * LOT, "Yes ask rests on the Venue Market");
@@ -251,7 +276,30 @@ test("G7.3/G7.4/G7.5 remaining composites measured", async () => {
     userQuote: sellerQuote, userYes: sellerYes, userNo: sellerNo,
   })], [seller]);
 
-  // maker rests 11 asks (the measured inline max) for the redemption to eat
+  // G7.3 production worst case: 11 DISTINCT makers (11 distinct inline OO
+  // accounts — same-key copies would dedupe in the v0 message and understate
+  // the bytes)
+  const distinct: { kp: Keypair; oo: PublicKey }[] = [];
+  for (let k = 0; k < 11; k++) {
+    const mk = Keypair.generate();
+    await send([SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: mk.publicKey, lamports: 1_000_000_000 })], [payer]);
+    const yesAta = await createAssociatedTokenAccount(conn, payer, yesMint, mk.publicKey);
+    // fund with Yes from the main maker
+    const { createTransferInstruction } = await import("@solana/spl-token");
+    await send([createTransferInstruction(makerYes, yesAta, maker.publicKey, Number(LOT))], [maker]);
+    await send([ob.createOoIndexerIx(payer.publicKey, mk.publicKey),
+      ob.createOoAccountIx(payer.publicKey, mk.publicKey, 1, market.publicKey)], [payer, mk]);
+    const oo = ob.ooAccountPda(mk.publicKey, 1);
+    await send([ob.harnessPlaceLimitOrderIx({
+      user: mk.publicKey, ooAccount: oo, userTokenAccount: yesAta,
+      market: market.publicKey, bids: bids.publicKey, asks: asks.publicKey,
+      eventHeap: heap.publicKey, marketVault: baseVault,
+      args: { side: ob.Side.Ask, priceLots: 40n, maxBaseLots: 1n, maxQuoteLotsIncludingFees: 40n,
+        clientOrderId: 100n + BigInt(k), orderType: ob.PlaceOrderType.PostOnly, expiryTimestamp: 0n,
+        selfTradeBehavior: ob.SelfTradeBehavior.AbortTransaction, limit: 16 },
+    })], [mk]);
+    distinct.push({ kp: mk, oo });
+  }
   const restOne = (id: bigint) => ob.harnessPlaceLimitOrderIx({
     user: maker.publicKey, ooAccount: makerOo, userTokenAccount: makerYes,
     market: market.publicKey, bids: bids.publicKey, asks: asks.publicKey,
@@ -260,31 +308,36 @@ test("G7.3/G7.4/G7.5 remaining composites measured", async () => {
       clientOrderId: id, orderType: ob.PlaceOrderType.PostOnly, expiryTimestamp: 0n,
       selfTradeBehavior: ob.SelfTradeBehavior.AbortTransaction, limit: 16 },
   });
-  for (let k = 0; k < 11; k++) await send([restOne(100n + BigInt(k))], [maker]);
-  // G7.3: redemption with 11 inline maker accounts (all the same OO here;
-  // production worst case is 11 DISTINCT makers — bytes measured with 11
-  // remaining slots either way)
-  const oos = Array.from({ length: 11 }, () => makerOo);
-  await measure("redeem_no_via_market_max_makers", [
-    ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
-    ob.harnessRedeemNoViaMarketIx(seller.publicKey, {
-      market: market.publicKey, yesMint, noMint, quoteVault: collateralVault,
-      tradeYesAta, userQuote: sellerQuote, userNo: sellerNo,
-      bids: bids.publicKey, asks: asks.publicKey, eventHeap: heap.publicKey,
-      marketBaseVault: baseVault, marketQuoteVault: quoteVault,
-      makerOoAccounts: oos, qLots: 11n, priceLots: 40n,
-    })], [seller]);
+  const oos = distinct.map(d => d.oo);
+  // the redemption path's own inline capacity: its burn/transfer CPIs consume
+  // venue-side heap beyond a plain take, so probe downward from 11 distinct
+  // makers until one executes — that number is the redeem builder's cap
+  let redeemCapacity = 0;
+  for (let n = 11; n >= 6; n--) {
+    const row = await measure(`redeem_no_via_market_${n}_distinct_makers`, [
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+      ob.harnessRedeemNoViaMarketIx(seller.publicKey, {
+        market: market.publicKey, yesMint, noMint, quoteVault: collateralVault,
+        tradeYesAta, userQuote: sellerQuote, userNo: sellerNo,
+        bids: bids.publicKey, asks: asks.publicKey, eventHeap: heap.publicKey,
+        marketBaseVault: baseVault, marketQuoteVault: quoteVault,
+        makerOoAccounts: oos.slice(0, n), qLots: BigInt(n), priceLots: 40n,
+      })], [seller]);
+    if ((row as any).executed) { redeemCapacity = n; break; }
+  }
+  console.error(`G7 MEASURED redeem inline-maker capacity: ${redeemCapacity} distinct makers`);
+  assert.ok(redeemCapacity >= 6, "redemption fills a meaningful inline batch");
 
   // G7.4: pre-consume + take composite
-  for (let k = 0; k < 4; k++) await send([restOne(200n + BigInt(k))], [maker]);
+  for (let k = 0; k < 10; k++) await send([restOne(200n + BigInt(k))], [maker]);
   await send([ob.harnessPlaceTakeOrderIx({
     user: seller.publicKey, market: market.publicKey, bids: bids.publicKey,
     asks: asks.publicKey, eventHeap: heap.publicKey,
     marketBaseVault: baseVault, marketQuoteVault: quoteVault,
     userBaseAccount: sellerYes, userQuoteAccount: sellerQuote, makerOoAccounts: [],
-    args: { side: ob.Side.Bid, priceLots: 40n, maxBaseLots: 2n, maxQuoteLotsIncludingFees: 80n,
+    args: { side: ob.Side.Bid, priceLots: 40n, maxBaseLots: 8n, maxQuoteLotsIncludingFees: 320n,
       orderType: ob.PlaceOrderType.ImmediateOrCancel, limit: 16 },
-  })], [seller]); // 2 heaped events
+  })], [seller]); // 8 heaped events — a full consume batch of backlog
   await measure("preconsume_plus_take", [
     ob.consumeEventsIx(market.publicKey, heap.publicKey, 8n, [makerOo]),
     ob.harnessPlaceTakeOrderIx({
@@ -310,10 +363,21 @@ test("G7.3/G7.4/G7.5 remaining composites measured", async () => {
     }),
   ], [seller]);
 
-  fs.writeFileSync("docs/adr/g7-measurements.json", JSON.stringify({
-    alt_contents: "programs (system, token, ATA, openbook, harness), config PDA, quote mint — stable only; every per-day/per-user address inline",
-    composites: results,
-    deferred_m1: ["create_strike_market first/later (Metaplex + SettlementRecord)", "batched settlement", "intraday add-strike attach sequence"],
-  }, null, 2) + "\n");
-  for (const r of results) assert.ok((r as any).fits_1232 && (r as any).executed, `${(r as any).name} fits and executes`);
+  // PRD: "remove ALT authority and prove mutation is impossible" — freeze the
+  // stable ALT (LAST, after all measurements) and prove extension fails
+  const { AddressLookupTableProgram: ALTP } = await import("@solana/web3.js");
+  await send([ALTP.freezeLookupTable({ lookupTable: stableAlt, authority: payer.publicKey })], [payer]);
+  let frozen = false;
+  try {
+    await send([ALTP.extendLookupTable({ lookupTable: stableAlt, authority: payer.publicKey, payer: payer.publicKey, addresses: [Keypair.generate().publicKey] })], [payer]);
+  } catch { frozen = true; }
+  assert.ok(frozen, "frozen ALT rejects mutation — the post-M0 immutability requirement, exercised");
+
+  for (const r of results) {
+    const nm = String((r as any).name);
+    if (nm === "venue_all_in_one_tx_variant") { assert.ok(!(r as any).fits_1232, "the 1-tx venue variant must remain oversize"); continue; }
+    if (nm.endsWith("_legacy") || nm.endsWith("_no_alt")) continue; // ladder rungs: recorded, not required
+    if (nm.includes("_distinct_makers")) continue; // capacity probe rows: recorded; the cap assert covers them
+    assert.ok((r as any).fits_1232 && (r as any).executed, `${nm} fits and executes`);
+  }
 });

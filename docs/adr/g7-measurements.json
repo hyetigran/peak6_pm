@@ -2,7 +2,19 @@
   "alt_contents": "programs (system, token, ATA, openbook, harness), config PDA, quote mint — stable only; every per-day/per-user address inline",
   "composites": [
     {
+      "name": "venue_all_in_one_tx_variant",
+      "mode": "v0+alt",
+      "bytes": 1351,
+      "fits_1232": false,
+      "accounts": 24,
+      "cu": null,
+      "wallet_sim_ok": false,
+      "executed": false,
+      "signers": 5
+    },
+    {
       "name": "venue_books_funding_tx",
+      "mode": "v0+alt",
       "bytes": 627,
       "fits_1232": true,
       "accounts": 5,
@@ -13,67 +25,106 @@
     },
     {
       "name": "venue_create_gate_pair_tx",
-      "bytes": 925,
+      "mode": "v0+alt",
+      "bytes": 957,
       "fits_1232": true,
       "accounts": 24,
-      "cu": 149205,
+      "cu": 149452,
       "wallet_sim_ok": true,
       "executed": true,
       "signers": 2
     },
     {
+      "name": "first_use_buy_no_limit_legacy",
+      "mode": "legacy",
+      "bytes": 993,
+      "fits_1232": true,
+      "accounts": 23,
+      "cu": 144289,
+      "wallet_sim_ok": true,
+      "executed": false,
+      "signers": 1
+    },
+    {
+      "name": "first_use_buy_no_limit_v0_no_alt",
+      "mode": "v0",
+      "bytes": 995,
+      "fits_1232": true,
+      "accounts": 23,
+      "cu": 144289,
+      "wallet_sim_ok": true,
+      "executed": false,
+      "signers": 1
+    },
+    {
       "name": "first_use_buy_no_limit",
+      "mode": "v0+alt",
       "bytes": 936,
       "fits_1232": true,
       "accounts": 23,
-      "cu": 145687,
+      "cu": 144289,
       "wallet_sim_ok": true,
       "executed": true,
       "signers": 1
     },
     {
       "name": "first_use_buy_yes_limit",
+      "mode": "v0+alt",
       "bytes": 666,
       "fits_1232": true,
       "accounts": 16,
-      "cu": 77678,
+      "cu": 79208,
       "wallet_sim_ok": true,
       "executed": true,
       "signers": 1
     },
     {
-      "name": "redeem_no_via_market_max_makers",
-      "bytes": 849,
+      "name": "redeem_no_via_market_11_distinct_makers",
+      "mode": "v0+alt",
+      "bytes": 1169,
       "fits_1232": true,
-      "accounts": 24,
-      "cu": 152038,
+      "accounts": 34,
+      "cu": 130686,
+      "wallet_sim_ok": false,
+      "executed": false,
+      "signers": 1
+    },
+    {
+      "name": "redeem_no_via_market_10_distinct_makers",
+      "mode": "v0+alt",
+      "bytes": 1136,
+      "fits_1232": true,
+      "accounts": 33,
+      "cu": 147999,
       "wallet_sim_ok": true,
       "executed": true,
       "signers": 1
     },
     {
       "name": "preconsume_plus_take",
+      "mode": "v0+alt",
       "bytes": 700,
       "fits_1232": true,
       "accounts": 18,
-      "cu": 82984,
+      "cu": 112649,
       "wallet_sim_ok": true,
       "executed": true,
       "signers": 1
     },
     {
       "name": "cancel_settle_redeem_helper",
+      "mode": "v0+alt",
       "bytes": 753,
       "fits_1232": true,
       "accounts": 19,
-      "cu": 47857,
+      "cu": 47929,
       "wallet_sim_ok": true,
       "executed": true,
       "signers": 1
     }
   ],
   "deferred_m1": [
-    "create_strike_market first/later (Metaplex + SettlementRecord)",
+    "create_strike_market first/later (Metaplex + SettlementRecord CPIs) — issue #14 AC re-scoped to M1 re-measure via #17",
     "batched settlement",
     "intraday add-strike attach sequence"
   ]

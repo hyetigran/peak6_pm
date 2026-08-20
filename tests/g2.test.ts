@@ -93,7 +93,7 @@ before(async () => {
   })], [payer, market]);
 
   // Harness config + wide-open venue gate + OpenOrders accounts for both users
-  await send([ob.harnessInitializeIx(payer.publicKey)], [payer]);
+  await send([ob.harnessInitializeIx(payer.publicKey, quoteMint)], [payer]);
   const now = BigInt(Math.floor(Date.now() / 1000));
   await send([ob.harnessCreateVenueGateIx(payer.publicKey, market.publicKey, now - 60n, now + 3600n, payer.publicKey)], [payer]);
   for (const u of [maker, taker]) {

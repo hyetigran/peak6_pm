@@ -111,7 +111,7 @@ before(async () => {
     set(q, y, n);
   }
 
-  await send([ob.harnessInitializeIx(payer.publicKey)], [payer]);
+  await send([ob.harnessInitializeIx(payer.publicKey, quoteMint)], [payer]);
   const bookRent = await conn.getMinimumBalanceForRentExemption(ob.BOOKSIDE_SPACE);
   const heapRent = await conn.getMinimumBalanceForRentExemption(ob.EVENT_HEAP_SPACE);
   await send([

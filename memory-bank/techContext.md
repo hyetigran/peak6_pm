@@ -47,7 +47,7 @@ On-chain math: checked integers only. Atoms `u64`; intermediates `u128`. Prices/
 
 ## Transaction construction
 
-G7-measured (localnet, strict stable-only ALT): first-use Buy-No-limit = 936B/23 accts/148.7k CU — ONE approval, no waiver. All user composites fit legacy-size v0 with per-user accounts inline. Operator venue creation = 2 txs.
+G7-measured (localnet, strict stable-only ALT; numbers in g7-measurements.json): first-use Buy-No-limit = 936B/151.8k CU — ONE approval, no waiver; fits at every ladder rung incl. legacy. Redemption inline cap = 10 DISTINCT makers (11 OOMs — lower than G6's plain-take 11). Operator venue creation = 2 txs (1-tx variant 1351B, impossible). Stable ALT frozen + mutation-impossible proven.
 
 
 - Order creation always through Meridian.

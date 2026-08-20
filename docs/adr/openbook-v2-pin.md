@@ -318,22 +318,27 @@ transactions.
 
 Measured on localnet under the STRICT ALT split (lookup table holds only
 stable program IDs, the Config PDA, and the pinned quote mint; every per-day
-and per-user address inline) — `tests/g7.test.ts`, `make g7`, numbers in
-`docs/adr/g7-measurements.json`.
+and per-user address inline) — `tests/g7.test.ts`, `make g7`. This table is
+generated from `docs/adr/g7-measurements.json` (the single source of numbers).
 
-| Composite | Bytes | Accts | CU | One approval |
-| --- | ---: | ---: | ---: | --- |
-| **First-use Buy-No-limit (HARD GATE)** | **936** | 23 | 148,687 | **YES — one signature, wallet-simulates, executes. 296 bytes of headroom. The named waiver is NOT needed** |
-| First-use Buy-Yes-limit | 666 | 16 | 79,178 | yes |
-| `redeem_no_via_market`, 11 inline makers | 849 | 24 | 146,038 | yes |
-| Pre-consume + take composite | 700 | 18 | 79,984 | yes |
-| Post-close cancel + settle + direct Pair Redemption | 753 | 19 | 47,857 | yes |
-| Operator venue creation | two transactions: books funding 627 B, create+gate+pair 925 B / 143,205 CU. The one-transaction variant measures **1,319 B > 1,232** (five signatures) and is impossible — operator flows carry no one-approval requirement |
+| Composite | Mode | Bytes | Accts | CU | Verdict |
+| --- | --- | ---: | ---: | ---: | --- |
+| **First-use Buy-No-limit (HARD GATE)** | v0+ALT | **936** | 23 | 151,789 | **one signature, wallet-sim + executed. The named waiver is NOT needed** |
+| — ladder rung: legacy | legacy | 993 | 23 | 151,789 | fits even without v0/ALT — the H7 ladder never needs its later rungs |
+| — ladder rung: v0, no ALT | v0 | 995 | 23 | 151,789 | fits |
+| First-use Buy-Yes-limit | v0+ALT | 666 | 16 | 76,208 | fits, executed |
+| `redeem_no_via_market`, **10 DISTINCT makers** | v0+ALT | 1136 | 33 | 148,008 | fits, executed. **11 distinct makers OOMs the venue** (1169 B, sim fails) — the redemption path's own CPIs lower its inline cap below G6's plain-take 11. Redeem builders cap at 10 |
+| Pre-consume(8-event backlog) + take | v0+ALT | 700 | 18 | 112,649 | fits, executed |
+| Post-close cancel + settle + direct Pair Redemption | v0+ALT | 753 | 19 | 47,929 | fits, executed |
+| Operator venue creation, all-in-one variant | v0+ALT | 1351 | 24 | — | **oversize (measured, committed)** — five signatures cannot fit |
+| Operator venue creation, 2-tx flow | v0+ALT | 627 + 957 | 5 + 24 | 150,961 | both fit and execute; operator flows carry no one-approval requirement |
 
-First-use Buy-No composite content: OOI + OOA creation + both outcome ATA
-creations + `mint_pair` + PostOnly ask — the full source requirement, with
-both outcome ATAs absent beforehand and only a funded quote ATA present.
-Deferred to M1 instructions (tracked by the go/no-go): `create_strike_market`
-first/later variants (Metaplex + SettlementRecord CPIs), batched settlement,
-intraday add-strike attach sequence — each must be re-measured when it
-exists; the headroom above suggests no structural risk.
+The stable ALT was **frozen at the end of the suite and proven immutable**
+(extension rejected) — the PRD's post-M0 "remove ALT authority and prove
+mutation is impossible" requirement, exercised. An earlier measurement that
+passed 11 copies of the SAME maker OO understated bytes (v0 dedupes repeated
+keys); superseded by the distinct-maker rows above. Deferred to M1
+instructions with a re-measure obligation (go/no-go tracked):
+`create_strike_market` first/later (Metaplex + SettlementRecord CPIs, the
+issue-#14 metadata-CPI AC re-scoped there), batched settlement, intraday
+add-strike attach sequence.

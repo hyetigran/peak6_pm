@@ -9,6 +9,7 @@
   "devDependencies": {
     "@solana/spl-token": "^0.4.9",
     "@solana/web3.js": "^1.95.8",
+    "@sqds/multisig": "^2.1.4",
     "@types/node": "^26.2.0",
     "bs58": "^6.0.0",
     "tsx": "^4.19.2",

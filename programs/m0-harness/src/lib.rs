@@ -46,9 +46,22 @@ pub mod m0_harness {
     /// Stores the pinned OpenBook program identity. Every wrapper checks the
     /// supplied program account against it (fail closed on mismatch).
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
+        // G12: validate and pin the quote mint at initialization — owner must
+        // be the classic SPL Token program and decimals exactly 6 (the Circle
+        // Devnet USDC shape; the exact address pin is this stored value).
+        // SPL Mint layout: decimals u8 at offset 44.
+        require!(
+            *ctx.accounts.quote_mint.owner == TOKEN_PROGRAM_ID,
+            HarnessError::WrongQuoteMint
+        );
+        {
+            let d = ctx.accounts.quote_mint.try_borrow_data()?;
+            require!(d.len() == 82 && d[44] == 6, HarnessError::WrongQuoteMint);
+        }
         let config = &mut ctx.accounts.config;
         config.admin = ctx.accounts.admin.key();
         config.openbook_program = ctx.accounts.openbook_program.key();
+        config.quote_mint = ctx.accounts.quote_mint.key();
         config.venue_authority_bump = ctx.bumps.venue_authority;
         Ok(())
     }
@@ -433,7 +446,13 @@ pub mod m0_harness {
     /// Bind the pair-collateral model to a Venue Market (G5). Admin-only.
     /// Both outcome mints must already have the PairVault PDA as their sole
     /// mint authority; the quote vault is the PDA's ATA.
-    pub fn init_pair(ctx: Context<InitPair>) -> Result<()> {
+    pub fn init_pair(ctx: Context<InitPair>, metadata_hash: [u8; 32]) -> Result<()> {
+        // ADR-0016 ordering: permanent metadata must be published and
+        // verified BEFORE any mint exists for trading. The harness models the
+        // binding: a zero hash (nothing published) cannot bind a pair, so
+        // mint_pair can never run without metadata. Real Arweave/Metaplex
+        // publication is the M1 implementation of the same gate.
+        require!(metadata_hash != [0u8; 32], HarnessError::MetadataUnset);
         // fail closed at binding time: both mints must have the PairVault PDA
         // as their sole mint authority with zero supply, and the vault token
         // account must be owned by the PDA. SPL Mint layout: COption tag u32
@@ -461,6 +480,7 @@ pub mod m0_harness {
         pv.no_mint = ctx.accounts.no_mint.key();
         pv.quote_vault = ctx.accounts.quote_vault.key();
         pv.liability_atoms = 0;
+        pv.metadata_hash = metadata_hash;
         pv.bump = ctx.bumps.pair_vault;
         Ok(())
     }
@@ -697,6 +717,8 @@ pub struct Initialize<'info> {
     /// CHECK: executable identity is snapshotted; wrappers compare against it.
     #[account(executable)]
     pub openbook_program: UncheckedAccount<'info>,
+    /// CHECK: validated in the handler (owner + decimals) and pinned.
+    pub quote_mint: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -824,7 +846,8 @@ pub struct CreateVenueMarket<'info> {
     pub market_quote_vault: UncheckedAccount<'info>,
     /// CHECK: validated by OpenBook
     pub base_mint: UncheckedAccount<'info>,
-    /// CHECK: validated by OpenBook
+    /// CHECK: only the pinned quote mint may back a Venue Market (G12).
+    #[account(address = config.quote_mint @ HarnessError::WrongQuoteMint)]
     pub quote_mint: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
     /// CHECK: pinned; OpenBook also type-checks it.
@@ -993,6 +1016,8 @@ pub struct VenueGate {
 pub struct Config {
     pub admin: Pubkey,
     pub openbook_program: Pubkey,
+    /// The pinned quote mint (Circle Devnet USDC on devnet; ADR-0015).
+    pub quote_mint: Pubkey,
     pub venue_authority_bump: u8,
 }
 
@@ -1044,6 +1069,10 @@ pub enum HarnessError {
     WrongTokenProgram,
     #[msg("liability would underflow; reverting")]
     LiabilityUnderflow,
+    #[msg("quote mint is not the pinned six-decimal SPL mint")]
+    WrongQuoteMint,
+    #[msg("permanent metadata must be published and verified before minting")]
+    MetadataUnset,
 }
 
 // --- G5: pair collateral model -----------------------------------------
@@ -1235,6 +1264,8 @@ pub struct PairVault {
     pub quote_vault: Pubkey,
     /// Collateral Liability in atoms (ADR-0002).
     pub liability_atoms: u64,
+    /// ADR-0016: hash of the published, verified permanent metadata; never zero.
+    pub metadata_hash: [u8; 32],
     pub bump: u8,
 }
 

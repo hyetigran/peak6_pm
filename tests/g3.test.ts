@@ -146,7 +146,7 @@ before(async () => {
   makerQuoteAta = await createAssociatedTokenAccount(conn, payer, quoteMint, maker.publicKey);
   makerBaseAta = await createAssociatedTokenAccount(conn, payer, baseMint, maker.publicKey);
   await mintTo(conn, payer, quoteMint, makerQuoteAta, payer, 1_000_000_000n);
-  await send([ob.harnessInitializeIx(payer.publicKey)], [payer]);
+  await send([ob.harnessInitializeIx(payer.publicKey, quoteMint)], [payer]);
 });
 
 test("G3.1 order pre-open rejected, program-clock-exact", async () => {
