@@ -313,3 +313,27 @@ transactions.
 | Consume-prepend composite | consume(8) + inline take in ONE transaction proven green — the builder policy shape |
 | Keeper throughput SLO | worst-case generation is bounded by take throughput (≤11 events per take tx); one keeper tx clears ≈ 288 events — the ≥2× requirement holds with two orders of magnitude of margin, from measured numbers |
 | Latency baselines (localnet) | inline take 538 ms; match+heap take 1143 ms; prepend composite 539 ms; chained consume 532 ms. Devnet re-baselines ride with issue #8 |
+
+## 15. G7 evidence — transaction feasibility / one-approval gate
+
+Measured on localnet under the STRICT ALT split (lookup table holds only
+stable program IDs, the Config PDA, and the pinned quote mint; every per-day
+and per-user address inline) — `tests/g7.test.ts`, `make g7`, numbers in
+`docs/adr/g7-measurements.json`.
+
+| Composite | Bytes | Accts | CU | One approval |
+| --- | ---: | ---: | ---: | --- |
+| **First-use Buy-No-limit (HARD GATE)** | **936** | 23 | 148,687 | **YES — one signature, wallet-simulates, executes. 296 bytes of headroom. The named waiver is NOT needed** |
+| First-use Buy-Yes-limit | 666 | 16 | 79,178 | yes |
+| `redeem_no_via_market`, 11 inline makers | 849 | 24 | 146,038 | yes |
+| Pre-consume + take composite | 700 | 18 | 79,984 | yes |
+| Post-close cancel + settle + direct Pair Redemption | 753 | 19 | 47,857 | yes |
+| Operator venue creation | two transactions: books funding 627 B, create+gate+pair 925 B / 143,205 CU. The one-transaction variant measures **1,319 B > 1,232** (five signatures) and is impossible — operator flows carry no one-approval requirement |
+
+First-use Buy-No composite content: OOI + OOA creation + both outcome ATA
+creations + `mint_pair` + PostOnly ask — the full source requirement, with
+both outcome ATAs absent beforehand and only a funded quote ATA present.
+Deferred to M1 instructions (tracked by the go/no-go): `create_strike_market`
+first/later variants (Metaplex + SettlementRecord CPIs), batched settlement,
+intraday add-strike attach sequence — each must be re-measured when it
+exists; the headroom above suggests no structural risk.

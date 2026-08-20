@@ -37,7 +37,7 @@ Date: 2026-08-19 evening.
 | PRD v0.7 / ARCHITECTURE v1.1 reconciliation | Done in working tree; **unstaged** |
 | Design mockups | Present; untracked |
 | Memory Bank | Updated to current freeze |
-| M0 G1–G12 | Started 2026-08-19. **G2–G6, G8–G10 green on localnet (49 tests)**. G1 identity resolved by ADR-0030; golden-test items open. G3 M1-dependent bullets (mint gates, add_strike windows, abandonment) tracked by go/no-go. G6, G7, G11, G12 pending; #12 G5 and #13 G6 unblocked by G4 |
+| M0 G1–G12 | Started 2026-08-19. **G2–G10 green on localnet (53 tests)**. G1 identity resolved by ADR-0030; golden-test items open. G3 M1-dependent bullets (mint gates, add_strike windows, abandonment) tracked by go/no-go. G6, G7, G11, G12 pending; #12 G5 and #13 G6 unblocked by G4 |
 | M1 program core | Blocked on signed M0 go/no-go |
 | M2 OpenBook integration | Blocked |
 | M3 oracle/settlement | Blocked; provider unchosen |
@@ -63,7 +63,7 @@ Day 0 has not started. The schedule has no slack for an M0 failure that reopens 
 
 ## Ticket board (GitLab, 2026-08-20)
 
-M0 broken into issues #1–#17 (probe #7 closed). Frontier (#1 G3, #2 G4, #3 G8, #4 G10, #5 G9 done 2026-08-20): #6 G12, #8 G2-devnet; humans: #9 provider, #10 webhook, #11 Squads members. #12 G5, #13 G6 done 2026-08-20. Blocked: #14 G7←#13 (now unblocked), #15 EE-decision←#1, #16 G11←#9, #17 go/no-go←all gates. Triage role is the first description line (bot cannot set labels); blocking edges live in descriptions.
+M0 broken into issues #1–#17 (probe #7 closed). Frontier (#1 G3, #2 G4, #3 G8, #4 G10, #5 G9 done 2026-08-20): #6 G12, #8 G2-devnet; humans: #9 provider, #10 webhook, #11 Squads members. #12 G5, #13 G6, #14 G7 done 2026-08-20. Blocked: #15 EE-decision←#1, #16 G11←#9, #17 go/no-go←all gates. Triage role is the first description line (bot cannot set labels); blocking edges live in descriptions.
 
 ## Known issues / risks to track
 
@@ -78,7 +78,7 @@ Will not protect `.env` or keypairs once they appear.
 ### M0 technical risks
 
 - **G6 measured:** inline capacity 11 (not 15; SBF heap bound, contiguous probe), consume 8/ix + owner-OO-required, 600-heap drains <1s — keeper SLO trivially met. EventHeap-full fills panic (fail-closed).
-- First-use Buy-No-limit exceeds tx limits (G7; only named waiver).
+- **G7 RESOLVED: first-use Buy-No-limit fits ONE approval (936B/148.7k CU) — the named waiver is NOT needed.** Operator venue creation is a 2-tx flow (1-tx variant impossible at 1319B).
 - **G8 measured:** 5-day+20% budget ≈ 567 SOL, ~1.9 SOL/Venue Market in books/heap; locked only ~0.93 SOL/day; ~93.6 SOL/day reclaimable via close. Devnet faucet strategy or recycling needed.
 - **G1 REOPENED:** ADR-0029 copy (`923gYkFC…`) is inert — v1.7 declare_id check binds the artifact to canonical `opnb2LAf…` only; byte-patch unprovable (second inlined ID). 7.21 SOL sunk on the inert deployment. Resolved by ADR-0030: canonical deployment + monitored fail-closed checks; PRD v0.7.1 G1 clause revised.
 - GPL contamination of CPI adapter.

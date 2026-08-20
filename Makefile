@@ -1,4 +1,4 @@
-.PHONY: build fixture-verify localnet g2 g3 g4 g5 g6 g8 g9 g10 m0
+.PHONY: build fixture-verify localnet g2 g3 g4 g5 g6 g7 g8 g9 g10 m0
 
 fixture-verify:
 	@echo "a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8  fixtures/openbook_v2-v1.7.so" | shasum -a 256 -c -
@@ -24,6 +24,9 @@ g5: build
 g6: build
 	./scripts/run-suite.sh tests/g6.test.ts
 
+g7: build
+	./scripts/run-suite.sh tests/g7.test.ts
+
 g8: build
 	./scripts/run-suite.sh tests/g8.test.ts
 
@@ -41,6 +44,7 @@ m0: build
 	./scripts/run-suite.sh tests/g4.test.ts
 	./scripts/run-suite.sh tests/g5.test.ts
 	./scripts/run-suite.sh tests/g6.test.ts
+	./scripts/run-suite.sh tests/g7.test.ts
 	./scripts/run-suite.sh tests/g8.test.ts
 	./scripts/run-suite.sh tests/g9.test.ts
 	./scripts/run-suite.sh tests/g10.test.ts

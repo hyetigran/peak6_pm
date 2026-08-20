@@ -47,6 +47,9 @@ On-chain math: checked integers only. Atoms `u64`; intermediates `u128`. Prices/
 
 ## Transaction construction
 
+G7-measured (localnet, strict stable-only ALT): first-use Buy-No-limit = 936B/23 accts/148.7k CU — ONE approval, no waiver. All user composites fit legacy-size v0 with per-user accounts inline. Operator venue creation = 2 txs.
+
+
 - Order creation always through Meridian.
 - `mint_pair` creates missing canonical Yes/No ATAs in-instruction (user payer). USDC ATA may be a wallet prerequisite.
 - Prefer v0 + frozen deployment ALT for first-use Buy-No-limit (G7). ALT: programs, sysvars, Config PDA, quote mint only.
