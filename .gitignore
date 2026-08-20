@@ -63,3 +63,5 @@ tmp/
 scratch/
 *.local
 .validator-test.log
+services/indexer/.indexer.sqlite*
+services/*/node_modules/
