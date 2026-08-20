@@ -119,3 +119,37 @@ abandons the official-artifact property entirely. The remaining real choice
 is the §6 option 2 (canonical deployment + monitored fail-closed identity
 checks, with a PRD revision of the G1 immutability clause), and that decision
 is owned by stakeholders.
+
+## 8. G3 evidence — time/pause gates and expiry semantics at the pin
+
+Harness-provable G3 subset proven on localnet against the pinned bytes at the
+canonical ID (`tests/g3.test.ts`, run via `make g3`). Boundary tests are
+**program-clock-exact**: the wrapper logs its `Clock` reading before any
+check, each attempt is sent with skipPreflight, and assertions judge by that
+logged timestamp — the very value the checks (and the OpenBook CPI in the
+same bank) observed. RPC blockTime is never used: it is an estimate that can
+drift ±1s from the bank clock, which a first run demonstrated.
+
+| Fact | Evidence |
+| --- | --- |
+| Order pre-open rejected | harness `OrderBeforeOpen`, failing attempt's gate clock proven `< trade_open_ts` |
+| Order while Paused rejected | harness `VenuePaused` |
+| Pause preserves resting orders (ADR-0010) | vault balance unchanged across pause; the resting order is cancelable afterward |
+| Cancel + settle work WHILE paused | owner-signed `cancel_all_orders` + `settle_funds` succeed under pause; full refund |
+| Order at exact close rejected | success ⟺ `clock < close_ts`, `TradingClosed` ⟺ `clock >= close_ts`, both sides observed |
+| OpenBook expiry boundary is strict | `state/market.rs:165–167` `time_expiry != 0 && time_expiry < now`; empirically success ⟺ `clock <= time_expiry`, `MarketHasExpired` ⟺ `clock > time_expiry`. Meridian's `time_expiry = close_ts - 1` therefore rejects at exactly `close_ts` |
+| Recovery after natural expiry | cancel + settle succeed post-expiry; full refund |
+| `set_market_expired` authority | requires `close_market_admin` signer (`accounts_ix/set_market_expired.rs`); wrong signer → `InvalidCloseMarketAdmin`; harness path admin-gated |
+| `set_market_expired` effect | `instructions/set_market_expired.rs`: guard `!is_expired` then `time_expiry = -1`. On-chain readback confirms `-1`. Re-expire rejected (`MarketHasExpired`) — a true one-way fuse; orders rejected at venue level afterward |
+| Recovery after the fuse | cancel + settle succeed after `set_market_expired`; full refund |
+
+One capacity fact surfaced by the boundary loops: an OpenOrders account holds
+at most **24 resting orders** (`state/open_orders_account.rs:12`,
+`MAX_OPEN_ORDERS = 24`; exceeding it fails with `OpenOrdersFull`). This bounds
+per-user resting orders per Venue Market and feeds G7/G8 sizing.
+
+ADR-0018 input: the fuse is one-way at the pin, cannot fire twice, cannot fire
+on an already-expired market, and leaves cancellation/settlement intact.
+Remaining G3 bullets (mint gates, `add_strike` lead windows, global-pause
+scope over Meridian instructions, abandonment/tombstone) require M1 program
+state and are tracked by the go/no-go issue.

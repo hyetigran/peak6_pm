@@ -37,7 +37,7 @@ Date: 2026-08-19 evening.
 | PRD v0.7 / ARCHITECTURE v1.1 reconciliation | Done in working tree; **unstaged** |
 | Design mockups | Present; untracked |
 | Memory Bank | Updated to current freeze |
-| M0 G1–G12 | Started 2026-08-19. **G2 green on localnet (7/7)**. G1 identity resolved by ADR-0030 (canonical + monitored, PRD v0.7.1); golden-test items open. G3–G12 pending |
+| M0 G1–G12 | Started 2026-08-19. **G2 (7/7) and G3 harness subset (5/5) green on localnet**. G1 identity resolved by ADR-0030; golden-test items open. G3 M1-dependent bullets (mint gates, add_strike windows, abandonment) tracked by go/no-go. G4–G12 pending |
 | M1 program core | Blocked on signed M0 go/no-go |
 | M2 OpenBook integration | Blocked |
 | M3 oracle/settlement | Blocked; provider unchosen |
@@ -63,7 +63,7 @@ Day 0 has not started. The schedule has no slack for an M0 failure that reopens 
 
 ## Ticket board (GitLab, 2026-08-20)
 
-M0 broken into issues #1–#17 (probe #7 closed). Frontier: #1 G3, #2 G4, #3 G8, #4 G10, #5 G9+residuals, #6 G12, #8 G2-devnet; humans: #9 provider, #10 webhook, #11 Squads members. Blocked: #12 G5←#2, #13 G6←#2, #14 G7←#13, #15 EE-decision←#1, #16 G11←#9, #17 go/no-go←all gates. Triage role is the first description line (bot cannot set labels); blocking edges live in descriptions.
+M0 broken into issues #1–#17 (probe #7 closed). Frontier: #2 G4 (#1 G3 done 2026-08-20), #3 G8, #4 G10, #5 G9+residuals, #6 G12, #8 G2-devnet; humans: #9 provider, #10 webhook, #11 Squads members. Blocked: #12 G5←#2, #13 G6←#2, #14 G7←#13, #15 EE-decision←#1, #16 G11←#9, #17 go/no-go←all gates. Triage role is the first description line (bot cannot set labels); blocking edges live in descriptions.
 
 ## Known issues / risks to track
 

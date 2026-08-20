@@ -26,7 +26,8 @@ Re-read from the pinned v1.7 release in M0, not from `master`:
 - `place_take_order` has no referrer account; `settle_funds` optionally does (wrapper forces none).
 - Inline maker fills: up to 15 remaining OpenOrders accounts; otherwise EventHeap. At the pinned v1.7 commit `PENALTY_EVENT_HEAP = 0` (`state/market.rs:16`) — heap entries charge **nothing**; the 500-lamport figure is from a later revision. `penalty_heap_count` still increments; golden-test the constant stays 0.
 - `consume_events_admin = None` → permissionless consume.
-- `close_market_admin` controls `set_market_expired` / prune / close.
+- `close_market_admin` controls `set_market_expired` / prune / close. `set_market_expired` requires not-yet-expired and sets `time_expiry = -1`: a true one-way fuse (G3-proven).
+- `MAX_OPEN_ORDERS = 24` resting orders per OpenOrders account (`OpenOrdersFull` beyond).
 - `collect_fee_admin` is still a required pubkey even at zero fees → unsignable sentinel, never a Meridian PDA.
 - Majority of OpenBook repo is MIT; GPL is behind `enable-gpl`. Use `client`/`cpi` only.
 

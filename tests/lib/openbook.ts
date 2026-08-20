@@ -244,6 +244,7 @@ export function harnessPlaceLimitOrderIx(opts: {
     keys: [
       { pubkey: opts.user, isSigner: true, isWritable: false },
       { pubkey: harnessConfigPda(), isSigner: false, isWritable: false },
+      { pubkey: venueGatePda(opts.market), isSigner: false, isWritable: false },
       { pubkey: venueAuthorityPda(), isSigner: false, isWritable: false },
       { pubkey: opts.ooAccount, isSigner: false, isWritable: true },
       { pubkey: opts.userTokenAccount, isSigner: false, isWritable: true },
@@ -268,6 +269,7 @@ export function harnessPlaceTakeOrderIx(opts: {
   const keys: AccountMeta[] = [
     { pubkey: opts.user, isSigner: true, isWritable: true },
     { pubkey: harnessConfigPda(), isSigner: false, isWritable: false },
+    { pubkey: venueGatePda(opts.market), isSigner: false, isWritable: false },
     { pubkey: venueAuthorityPda(), isSigner: false, isWritable: false },
     { pubkey: opts.market, isSigner: false, isWritable: true },
     { pubkey: marketAuthorityPda(opts.market), isSigner: false, isWritable: false },
@@ -289,3 +291,106 @@ export function harnessPlaceTakeOrderIx(opts: {
     data: Buffer.concat([disc("place_take_order"), encodePlaceTakeOrderArgs(opts.args)]),
   });
 }
+
+// --- G3 additions ------------------------------------------------------
+export const venueGatePda = (market: PublicKey) =>
+  PublicKey.findProgramAddressSync([Buffer.from("venue_gate"), market.toBuffer()], HARNESS_PID)[0];
+
+export function harnessCreateVenueGateIx(
+  admin: PublicKey, market: PublicKey, tradeOpenTs: bigint, closeTs: bigint,
+): TransactionInstruction {
+  const data = Buffer.concat([disc("create_venue_gate"), i64le(tradeOpenTs), i64le(closeTs)]);
+  return new TransactionInstruction({
+    programId: HARNESS_PID,
+    keys: [
+      { pubkey: admin, isSigner: true, isWritable: true },
+      { pubkey: harnessConfigPda(), isSigner: false, isWritable: false },
+      { pubkey: market, isSigner: false, isWritable: false },
+      { pubkey: venueGatePda(market), isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data,
+  });
+}
+
+export function harnessSetPausedIx(admin: PublicKey, market: PublicKey, paused: boolean): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: HARNESS_PID,
+    keys: [
+      { pubkey: admin, isSigner: true, isWritable: false },
+      { pubkey: harnessConfigPda(), isSigner: false, isWritable: false },
+      { pubkey: venueGatePda(market), isSigner: false, isWritable: true },
+    ],
+    data: Buffer.concat([disc("set_paused"), Buffer.from([paused ? 1 : 0])]),
+  });
+}
+
+export function harnessExpireMarketIx(admin: PublicKey, market: PublicKey): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: HARNESS_PID,
+    keys: [
+      { pubkey: admin, isSigner: true, isWritable: false },
+      { pubkey: harnessConfigPda(), isSigner: false, isWritable: false },
+      { pubkey: venueAuthorityPda(), isSigner: false, isWritable: false },
+      { pubkey: market, isSigner: false, isWritable: true },
+      { pubkey: OPENBOOK_PID, isSigner: false, isWritable: false },
+    ],
+    data: disc("expire_market"),
+  });
+}
+
+/** DIRECT set_market_expired — negative-path builder (G3). */
+export function directSetMarketExpiredIx(closeMarketAdmin: PublicKey, market: PublicKey): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: OPENBOOK_PID,
+    keys: [
+      { pubkey: closeMarketAdmin, isSigner: true, isWritable: false },
+      { pubkey: market, isSigner: false, isWritable: true },
+    ],
+    data: disc("set_market_expired"),
+  });
+}
+
+/** Recovery path: owner-signed, never gated by the harness. */
+export function cancelAllOrdersIx(owner: PublicKey, ooAccount: PublicKey, market: PublicKey, bids: PublicKey, asks: PublicKey): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: OPENBOOK_PID,
+    keys: [
+      { pubkey: owner, isSigner: true, isWritable: false },
+      { pubkey: ooAccount, isSigner: false, isWritable: true },
+      { pubkey: market, isSigner: false, isWritable: true },
+      { pubkey: bids, isSigner: false, isWritable: true },
+      { pubkey: asks, isSigner: false, isWritable: true },
+    ],
+    data: Buffer.concat([disc("cancel_all_orders"), Buffer.from([0]), Buffer.from([255])]), // side: None, limit 255
+  });
+}
+
+/** Recovery path: settle free funds back to the user. Referrer forced to None. */
+export function settleFundsIx(opts: {
+  owner: PublicKey; ooAccount: PublicKey; market: PublicKey;
+  marketBaseVault: PublicKey; marketQuoteVault: PublicKey;
+  userBaseAccount: PublicKey; userQuoteAccount: PublicKey;
+}): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: OPENBOOK_PID,
+    keys: [
+      { pubkey: opts.owner, isSigner: true, isWritable: true },
+      { pubkey: opts.owner, isSigner: true, isWritable: true }, // penalty_payer
+      { pubkey: opts.ooAccount, isSigner: false, isWritable: true },
+      { pubkey: opts.market, isSigner: false, isWritable: true },
+      { pubkey: marketAuthorityPda(opts.market), isSigner: false, isWritable: false },
+      { pubkey: opts.marketBaseVault, isSigner: false, isWritable: true },
+      { pubkey: opts.marketQuoteVault, isSigner: false, isWritable: true },
+      { pubkey: opts.userBaseAccount, isSigner: false, isWritable: true },
+      { pubkey: opts.userQuoteAccount, isSigner: false, isWritable: true },
+      NONE, // referrer: None
+      { pubkey: TOKEN_PID, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: disc("settle_funds"),
+  });
+}
+
+/** Market.time_expiry lives at offset 48: 8 disc + bump,base_dec,quote_dec,padding1[5] (=8) + market_authority (32). */
+export const readTimeExpiry = (marketData: Buffer): bigint => marketData.readBigInt64LE(48);

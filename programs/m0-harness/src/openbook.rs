@@ -12,6 +12,8 @@ use anchor_lang::prelude::*;
 pub const DISC_PLACE_ORDER: [u8; 8] = [51, 194, 155, 175, 109, 130, 96, 106];
 /// `sha256("global:place_take_order")[..8]`
 pub const DISC_PLACE_TAKE_ORDER: [u8; 8] = [3, 44, 71, 3, 26, 199, 203, 85];
+/// `sha256("global:set_market_expired")[..8]`
+pub const DISC_SET_MARKET_EXPIRED: [u8; 8] = [219, 82, 219, 236, 60, 115, 197, 64];
 
 /// IDL `Side`
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
