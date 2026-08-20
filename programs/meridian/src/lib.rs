@@ -58,4 +58,32 @@ pub mod meridian {
     pub fn set_global_pause(ctx: Context<SetGlobalPause>, paused: bool) -> Result<()> {
         set_global_pause::handler(ctx, paused)
     }
+
+    /// Create an Outcome Market (first-of-day or Add Strike share this path);
+    /// creates the Yes/No Pair and binds the shared Settlement Record.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_outcome_market(
+        ctx: Context<CreateOutcomeMarket>,
+        ticker_id: u8,
+        trading_day: u32,
+        strike_1e6: u64,
+        prior_official_close_1e6: u64,
+        mint_open_ts: i64,
+        trade_open_ts: i64,
+        close_ts: i64,
+        metadata_manifest_sha256: [u8; 32],
+        normal_settlement_delay_secs: u32,
+        override_delay_secs: u32,
+    ) -> Result<()> {
+        create_outcome_market::handler(
+            ctx, ticker_id, trading_day, strike_1e6, prior_official_close_1e6,
+            mint_open_ts, trade_open_ts, close_ts, metadata_manifest_sha256,
+            normal_settlement_delay_secs, override_delay_secs,
+        )
+    }
+
+    /// Abandon a Created/Active market while untouched (ADR-0011).
+    pub fn abandon_market(ctx: Context<AbandonMarket>) -> Result<()> {
+        abandon_market::handler(ctx)
+    }
 }
