@@ -7,7 +7,7 @@ import {
   Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction,
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
-import { createMint } from "@solana/spl-token";
+import { createMint, createAssociatedTokenAccount, mintTo } from "@solana/spl-token";
 import fs from "node:fs";
 import * as m from "../tests/lib/meridian.js";
 import * as ob from "../tests/lib/openbook.js";
@@ -32,6 +32,17 @@ async function main() {
   const gov = Keypair.generate(), operator = Keypair.generate();
   for (const kp of [gov, operator]) await conn.confirmTransaction(await conn.requestAirdrop(kp.publicKey, 200e9), "confirmed");
   const quoteMint = await createMint(conn, gov, gov.publicKey, null, 6);
+
+  // Fund a real wallet with test USD + SOL so it can trade in the browser
+  // (defaults to the provided address; override with DEMO_WALLET).
+  const DEMO_WALLET = process.env.DEMO_WALLET ?? "4pHCuvZqXzuxtesxvBLUK3n12VL7CBPkU7TrR239SvNt";
+  try {
+    const wallet = new PublicKey(DEMO_WALLET);
+    const wata = await createAssociatedTokenAccount(conn, gov, quoteMint, wallet);
+    await mintTo(conn, gov, quoteMint, wata, gov, 10_000_000_000n); // 10,000 test USD
+    try { await conn.confirmTransaction(await conn.requestAirdrop(wallet, 5_000_000_000), "confirmed"); } catch {}
+    console.log(`funded ${DEMO_WALLET}: 10,000 test USD + 5 SOL (quote mint ${quoteMint.toBase58()})`);
+  } catch (e) { console.error("could not fund DEMO_WALLET:", (e as Error).message); }
 
   await send([m.initializeConfigIx({
     governance: gov.publicKey, quoteMint, openbookProgramData: OPENBOOK_PROGRAMDATA,
