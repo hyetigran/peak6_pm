@@ -1,4 +1,4 @@
-.PHONY: build fixture-verify localnet g2 g3 g4 g5 g6 g7 g8 g9 g10 g12 m0
+.PHONY: build fixture-verify localnet g2 g3 g4 g5 g6 g7 g8 g9 g10 g12 m0 meridian-test
 
 fixture-verify:
 	@echo "a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8  fixtures/openbook_v2-v1.7.so" | shasum -a 256 -c -
@@ -6,6 +6,8 @@ fixture-verify:
 
 build: fixture-verify
 	cargo build-sbf --manifest-path programs/m0-harness/Cargo.toml
+	cargo build-sbf --manifest-path programs/meridian/Cargo.toml
+	cp wallets/meridian-program.json target/deploy/meridian-keypair.json
 
 localnet: build
 	./scripts/localnet.sh
@@ -30,6 +32,9 @@ g7: build
 
 g12: build
 	./scripts/run-suite.sh tests/g12.test.ts
+
+meridian-test: build
+	./scripts/run-suite.sh tests/meridian-foundation.test.ts
 
 g8: build
 	./scripts/run-suite.sh tests/g8.test.ts

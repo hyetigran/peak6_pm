@@ -1,0 +1,17 @@
+[toolchain]
+
+[features]
+resolver = true
+
+[programs.localnet]
+meridian = "FF6mu5FFb1q1Qz88x1HnhkePdF8Q1dXWnTfUUSkzUT3t"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "echo skip"
