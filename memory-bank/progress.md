@@ -45,6 +45,18 @@ Date: 2026-08-19 evening.
 | M5 indexer | Blocked |
 | M6 synthetic demo + Squads transfer | Blocked |
 
+## programs/meridian — the real V1 program (NEW, 2026-08-20)
+
+Per the user's direction (build the program → services → frontend, localnet first), the production Anchor program now EXISTS and is functionally complete for V1, built on the M0-validated OpenBook integration. 13/13 meridian tests green on localnet across three suites (`make meridian-test`):
+
+- **Foundation** (6/6): Config (versioned, 4 two-step roles, pinned OpenBook identity, quote-mint pin, quality bounds, fee-free), register_transport (FeedVersion), create_outcome_market (Pair mints + collateral vault under the market PDA + init-or-match shared SettlementRecord), Add Strike, abandon.
+- **Trading** (4/4): create_venue_market (OpenBook venue, OutcomeMarket PDA as sole authority), mint_pair, place_limit_order (PostOnly, fail-closed), place_take_order (full-fill-or-revert), redeem_pair_direct. Vault>=liability invariant on-chain.
+- **Settlement** (3/3): finalize_settlement_normal/manual (record Pending→Final, quality bounds, override), settle_market (derive winner, at-or-above→Yes), redeem_winning (Outcome Redemption, $1 complement).
+
+Program id `FF6mu5FF…`. Authority model: the OutcomeMarket PDA is mint authority + vault owner + OpenBook admin (one PDA per market). `localnet` build feature relaxes only timing floors for tests/demo; devnet build is strict. Settlement delivery is mocked on localnet, real Switchboard on devnet (ADR-0028).
+
+**Still TODO for the full stack:** market-assisted Sell-No (redeem_no_via_market) port; real Switchboard oracle read; Metaplex metadata CPI; services (automation/indexer/demo-source); frontend (5 pages); localnet demo wiring. M0 gates #8/#9/#15/#16/#17 remain (human inputs / go-no-go).
+
 ## Timeline budget (PRD v0.7 §17)
 
 Capacity assumption: **one senior engineer, full-time, AI-assisted. 18–22 working days total**, and only if M0 passes without architectural revision.
