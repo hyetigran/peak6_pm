@@ -1,6 +1,6 @@
 # OpenBook V2 pin evidence (G1)
 
-**Status: ADR-0029 INVALIDATED by execution evidence (§7); the §0 deployment is inert. G1 identity disposition is reopened — decision pending.** The canonical devnet deployment failed G1 on a retained upgrade authority (§6). ADR-0029's byte-identical copy was deployed and verified (§0) but cannot execute (§7). G1's remaining golden-test items (§5 closing note) are still open M0 work.
+**Status: G1 disposition RESOLVED by ADR-0030 — V1 binds to the canonical deployment `opnb2LAf…` with monitored fail-closed identity checks; the §0 ADR-0029 deployment is inert and must never be referenced.** Remaining G1 golden-test items (§5 closing note) stay open M0 work. The canonical devnet deployment failed G1 on a retained upgrade authority (§6). ADR-0029's byte-identical copy was deployed and verified (§0) but cannot execute (§7). G1's remaining golden-test items (§5 closing note) are still open M0 work.
 
 ## 0. Meridian deployment (the V1 binding identity)
 

@@ -1,7 +1,7 @@
 # Meridian — Product Requirements and M0 Validation Plan
 
-**Version:** 0.7
-**Date:** 2026-08-19  
+**Version:** 0.7.1 (ADR-0030 G1 revision: canonical OpenBook deployment with monitored fail-closed identity; stakeholder-approved 2026-08-20)
+**Date:** 2026-08-20  
 **Source requirements:** [`docs/REQUIREMENTS.md`](./REQUIREMENTS.md), converted from the source PDF; the PDF remains the upstream source of truth.
 **Decision record:** [`CONTEXT.md`](../CONTEXT.md) and [`docs/adr/`](./adr/) contain the accepted Rounds 1–6 vocabulary and decisions.
 **Status:** **M0 validation candidate; full build pending gates.** M0 may begin from this document. M1 and all full-build work begin only after the non-waiverable M0 gates pass and the signed go/no-go report is approved.
@@ -180,7 +180,7 @@ OPENBOOK_BUILD_SHA256     = a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f
 
 G1 independently verifies that the devnet executable matches the official v1.7 release/build record. If it does not, implementation stops and the pin is corrected before any CPI builder is trusted.
 
-OpenBook is also a custody-critical external program, so a release tag and program ID alone are insufficient. G1 records the executable account owner, derived ProgramData address, deployment slot, executable SHA-256, and upgrade-authority state. V1 accepts only the verified devnet deployment whose Upgradeable Loader authority is `None`. `initialize_config` stores that immutable identity, and every OpenBook wrapper checks the executable/ProgramData relationship and exact stored slot before CPI. A retained or later-restored authority, changed slot, owner mismatch, ProgramData mismatch, or executable-hash mismatch is a non-waiverable G1 failure; the architecture must reopen before funds are exposed.
+OpenBook is also a custody-critical external program, so a release tag and program ID alone are insufficient. G1 records the executable account owner, derived ProgramData address, deployment slot, executable SHA-256, and upgrade-authority state. V1 accepts the verified canonical devnet deployment; per ADR-0030 its retained external upgrade authority is a monitored fail-closed risk, because the artifact's compiled-in program ID makes an immutable re-deployment impossible. `initialize_config` stores the snapshotted identity, and every OpenBook wrapper checks the executable/ProgramData relationship and exact stored slot before CPI. A changed slot, owner mismatch, ProgramData mismatch, or executable-hash mismatch is a non-waiverable G1 failure that halts Meridian; any upgrade by the external authority must trigger an alert and reopens the architecture before funds are exposed.
 
 ---
 
@@ -2045,7 +2045,7 @@ M0 validation may begin from this candidate. M1 does not begin until every non-w
 - confirm official v1.7 release commit `796a470`;
 - confirm official build SHA-256;
 - inspect and publish the executable owner, derived ProgramData address, deployment slot, executable SHA-256, and upgrade authority; dump the devnet executable and verify against the official verifiable-build artifact/hash path;
-- require Upgradeable Loader ownership and `upgrade_authority == None`; any retained authority or changed owner/ProgramData/slot/hash is a non-waiverable failure that reopens the architecture;
+- require Upgradeable Loader ownership; record the upgrade-authority state. Per ADR-0030 (the artifact executes only at its compiled-in canonical program ID, so an immutable re-deployment is impossible), the canonical deployment's retained external authority is accepted as a monitored fail-closed risk: any changed owner/ProgramData/slot/hash remains a non-waiverable failure that halts Meridian and reopens the architecture, and automation must alert on any authority or deployment-state change;
 - pin Rust CPI + TS client revisions;
 - confirm fallback adapter can be generated from MIT IDL/client/account layouts only.
 - enumerate every pinned instruction capable of mutating Market admin, fee, expiry, oracle, lot, mint, vault, or authority fields and record its exact signer requirements.

@@ -1,10 +1,10 @@
 # Meridian — Architecture
 
-**Version:** 1.1
-**Date:** 2026-08-19  
+**Version:** 1.1.1 (ADR-0030 G1 revision)
+**Date:** 2026-08-20  
 **Status:** M0 validation candidate; full build pending non-waiverable gates
-**Product plan:** `docs/PRD.md` / Meridian Implementation Plan v0.7
-**PRD SHA-256:** `05410e441fd4ca9498dea512fad137f22be78d5839c47e2c1ddbe8705b7fccca`
+**Product plan:** `docs/PRD.md` / Meridian Implementation Plan v0.7.1
+**PRD SHA-256:** `1621c24df9a37e4b9fd6399f7c4ba8e419165ea636ea9326d113be40fbd3f089`
 **Source specification:** `docs/REQUIREMENTS.md` (converted from the source PDF; the PDF remains source of truth when available)
 **Primary venue:** OpenBook V2 deployed v1.7  
 **Target:** Solana devnet
@@ -843,7 +843,7 @@ a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8
 
 These values are inputs to G1 but are independently verified before implementation relies on them.
 
-Because OpenBook is custody-critical external code, G1 also publishes its executable owner, Upgradeable Loader-derived ProgramData address, deployment slot, executable SHA-256, and upgrade-authority state. Config accepts only the verified deployment with `upgrade_authority == None`. `initialize_config` and every OpenBook wrapper require the exact program plus read-only ProgramData account and verify the stored owner/address/slot/authority identity before CPI; tooling independently checks the hash. A retained or restored authority, changed slot, owner/address mismatch, or executable-hash mismatch fails G1 and reopens the architecture.
+Because OpenBook is custody-critical external code, G1 also publishes its executable owner, Upgradeable Loader-derived ProgramData address, deployment slot, executable SHA-256, and upgrade-authority state. Config accepts the verified canonical deployment; per ADR-0030 its retained external upgrade authority is a monitored fail-closed risk (the artifact's compiled-in program ID makes an immutable re-deployment impossible). `initialize_config` and every OpenBook wrapper require the exact program plus read-only ProgramData account and verify the stored owner/address/slot identity before CPI; tooling independently checks the hash and automation alerts on any authority or deployment-state change. A changed slot, owner/address mismatch, or executable-hash mismatch fails closed and reopens the architecture.
 
 ### 7.2 Integration implementation
 
