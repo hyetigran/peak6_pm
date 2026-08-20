@@ -28,6 +28,8 @@ pub const FEE_ADMIN_SENTINEL_SEED: &[u8] = b"meridian_fee_admin_sentinel";
 pub const BASE_LOT_SIZE: i64 = 1_000_000;
 /// One price lot == one cent (6-decimal USDC).
 pub const QUOTE_LOT_SIZE: i64 = 10_000;
+/// OracleConfigParams.conf_filter forwarded at venue creation (oracles None).
+pub const PINNED_CONF_FILTER: f32 = 0.1;
 pub const OUTCOME_DECIMALS: u8 = 6;
 pub const QUOTE_DECIMALS: u8 = 6;
 

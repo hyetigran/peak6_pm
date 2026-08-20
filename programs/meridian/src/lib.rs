@@ -16,6 +16,7 @@ pub mod instructions;
 
 use instructions::*;
 use instructions::rotate_role::Role;
+use openbook::{PlaceOrderArgs, PlaceTakeOrderArgs};
 
 declare_id!("FF6mu5FFb1q1Qz88x1HnhkePdF8Q1dXWnTfUUSkzUT3t");
 
@@ -85,6 +86,34 @@ pub mod meridian {
     /// Abandon a Created/Active market while untouched (ADR-0011).
     pub fn abandon_market(ctx: Context<AbandonMarket>) -> Result<()> {
         abandon_market::handler(ctx)
+    }
+
+    /// Attach the single Yes/USDC OpenBook Venue Market (Created -> Active).
+    pub fn create_venue_market(ctx: Context<CreateVenueMarket>, name: String, time_expiry: i64) -> Result<()> {
+        create_venue_market::handler(ctx, name, time_expiry)
+    }
+
+    /// Mint a Pair: q USDC -> q Yes + q No.
+    pub fn mint_pair(ctx: Context<MintPair>, q_atoms: u64) -> Result<()> {
+        mint_pair::handler(ctx, q_atoms)
+    }
+
+    /// Direct Pair Redemption: burn q Yes + q No -> q USDC.
+    pub fn redeem_pair_direct(ctx: Context<RedeemPairDirect>, q_atoms: u64) -> Result<()> {
+        mint_pair::redeem_pair_direct(ctx, q_atoms)
+    }
+
+    /// PostOnly limit order (Directional Intent).
+    pub fn place_limit_order(ctx: Context<PlaceLimitOrder>, args: PlaceOrderArgs) -> Result<()> {
+        place_limit_order::handler(ctx, args)
+    }
+
+    /// Market Action (take) — full-fill-or-revert.
+    pub fn place_take_order<'info>(
+        ctx: Context<'_, '_, 'info, 'info, PlaceTakeOrder<'info>>,
+        args: PlaceTakeOrderArgs,
+    ) -> Result<()> {
+        place_take_order::handler(ctx, args)
     }
 
     /// Governance registers an immutable Settlement Transport Version.

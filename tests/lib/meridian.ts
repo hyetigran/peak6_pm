@@ -106,3 +106,148 @@ export function createOutcomeMarketIx(opts: {
   ];
   return new TransactionInstruction({ programId: MERIDIAN_PID, keys, data });
 }
+
+// --- trading builders (reuse tests/lib/openbook.ts for OO/book/PDAs) ---
+import * as ob from "./openbook.js";
+
+export const marketAuthorityPda = (obMarket: PublicKey) =>
+  PublicKey.findProgramAddressSync([Buffer.from("Market"), obMarket.toBuffer()], OPENBOOK_PID)[0];
+export const eventAuthorityPda = () =>
+  PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], OPENBOOK_PID)[0];
+const FEE_ADMIN_SENTINEL = PublicKey.findProgramAddressSync(
+  [Buffer.from("meridian_fee_admin_sentinel")], SystemProgram.programId)[0];
+
+const str = (s: string) => { const b = Buffer.from(s); const l = Buffer.alloc(4); l.writeUInt32LE(b.length); return Buffer.concat([l, b]); };
+
+export function createVenueMarketIx(opts: {
+  operator: PublicKey; market: PublicKey; obMarket: PublicKey; bids: PublicKey;
+  asks: PublicKey; eventHeap: PublicKey; yesMint: PublicKey; quoteMint: PublicKey;
+  name: string; timeExpiry: bigint;
+}): TransactionInstruction {
+  const auth = marketAuthorityPda(opts.obMarket);
+  const exp = Buffer.alloc(8); exp.writeBigInt64LE(opts.timeExpiry);
+  return new TransactionInstruction({
+    programId: MERIDIAN_PID,
+    keys: [
+      { pubkey: opts.operator, isSigner: true, isWritable: true },
+      { pubkey: configPda(), isSigner: false, isWritable: false },
+      { pubkey: opts.market, isSigner: false, isWritable: true },
+      { pubkey: opts.obMarket, isSigner: true, isWritable: true },
+      { pubkey: auth, isSigner: false, isWritable: false },
+      { pubkey: opts.bids, isSigner: false, isWritable: true },
+      { pubkey: opts.asks, isSigner: false, isWritable: true },
+      { pubkey: opts.eventHeap, isSigner: false, isWritable: true },
+      { pubkey: ob.ataFor(opts.yesMint, auth), isSigner: false, isWritable: true },
+      { pubkey: ob.ataFor(opts.quoteMint, auth), isSigner: false, isWritable: true },
+      { pubkey: opts.yesMint, isSigner: false, isWritable: false },
+      { pubkey: opts.quoteMint, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PID, isSigner: false, isWritable: false },
+      { pubkey: ATA_PID, isSigner: false, isWritable: false },
+      { pubkey: eventAuthorityPda(), isSigner: false, isWritable: false },
+      { pubkey: FEE_ADMIN_SENTINEL, isSigner: false, isWritable: false },
+      { pubkey: OPENBOOK_PID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([disc("create_venue_market"), str(opts.name), exp]),
+  });
+}
+
+const u64b = (n: bigint) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(n); return b; };
+
+export function mintPairIx(user: PublicKey, market: PublicKey, qAtoms: bigint, o: {
+  yesMint: PublicKey; noMint: PublicKey; collateralVault: PublicKey;
+  userQuote: PublicKey; userYes: PublicKey; userNo: PublicKey;
+}): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: MERIDIAN_PID,
+    keys: [
+      { pubkey: user, isSigner: true, isWritable: false },
+      { pubkey: configPda(), isSigner: false, isWritable: false },
+      { pubkey: market, isSigner: false, isWritable: true },
+      { pubkey: o.yesMint, isSigner: false, isWritable: true },
+      { pubkey: o.noMint, isSigner: false, isWritable: true },
+      { pubkey: o.collateralVault, isSigner: false, isWritable: true },
+      { pubkey: o.userQuote, isSigner: false, isWritable: true },
+      { pubkey: o.userYes, isSigner: false, isWritable: true },
+      { pubkey: o.userNo, isSigner: false, isWritable: true },
+      { pubkey: TOKEN_PID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([disc("mint_pair"), u64b(qAtoms)]),
+  });
+}
+
+export function redeemPairDirectIx(user: PublicKey, market: PublicKey, qAtoms: bigint, o: {
+  yesMint: PublicKey; noMint: PublicKey; collateralVault: PublicKey;
+  userQuote: PublicKey; userYes: PublicKey; userNo: PublicKey;
+}): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: MERIDIAN_PID,
+    keys: [
+      { pubkey: user, isSigner: true, isWritable: false },
+      { pubkey: market, isSigner: false, isWritable: true },
+      { pubkey: o.yesMint, isSigner: false, isWritable: true },
+      { pubkey: o.noMint, isSigner: false, isWritable: true },
+      { pubkey: o.collateralVault, isSigner: false, isWritable: true },
+      { pubkey: o.userQuote, isSigner: false, isWritable: true },
+      { pubkey: o.userYes, isSigner: false, isWritable: true },
+      { pubkey: o.userNo, isSigner: false, isWritable: true },
+      { pubkey: TOKEN_PID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([disc("redeem_pair_direct"), u64b(qAtoms)]),
+  });
+}
+
+export function placeLimitOrderIx(o: {
+  user: PublicKey; market: PublicKey; ooAccount: PublicKey; userTokenAccount: PublicKey;
+  obMarket: PublicKey; bids: PublicKey; asks: PublicKey; eventHeap: PublicKey;
+  marketVault: PublicKey; args: ob.PlaceOrderArgs;
+}): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: MERIDIAN_PID,
+    keys: [
+      { pubkey: o.user, isSigner: true, isWritable: false },
+      { pubkey: configPda(), isSigner: false, isWritable: false },
+      { pubkey: o.market, isSigner: false, isWritable: true },
+      { pubkey: o.ooAccount, isSigner: false, isWritable: true },
+      { pubkey: o.userTokenAccount, isSigner: false, isWritable: true },
+      { pubkey: o.obMarket, isSigner: false, isWritable: true },
+      { pubkey: o.bids, isSigner: false, isWritable: true },
+      { pubkey: o.asks, isSigner: false, isWritable: true },
+      { pubkey: o.eventHeap, isSigner: false, isWritable: true },
+      { pubkey: o.marketVault, isSigner: false, isWritable: true },
+      { pubkey: OPENBOOK_PID, isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([disc("place_limit_order"), ob.encodePlaceOrderArgs(o.args)]),
+  });
+}
+
+export function placeTakeOrderIx(o: {
+  user: PublicKey; market: PublicKey; obMarket: PublicKey; bids: PublicKey; asks: PublicKey;
+  marketBaseVault: PublicKey; marketQuoteVault: PublicKey; eventHeap: PublicKey;
+  userBase: PublicKey; userQuote: PublicKey; makerOoAccounts: PublicKey[]; args: ob.PlaceTakeOrderArgs;
+}): TransactionInstruction {
+  const keys: AccountMeta[] = [
+    { pubkey: o.user, isSigner: true, isWritable: true },
+    { pubkey: configPda(), isSigner: false, isWritable: false },
+    { pubkey: o.market, isSigner: false, isWritable: true },
+    { pubkey: o.obMarket, isSigner: false, isWritable: true },
+    { pubkey: marketAuthorityPda(o.obMarket), isSigner: false, isWritable: false },
+    { pubkey: o.bids, isSigner: false, isWritable: true },
+    { pubkey: o.asks, isSigner: false, isWritable: true },
+    { pubkey: o.marketBaseVault, isSigner: false, isWritable: true },
+    { pubkey: o.marketQuoteVault, isSigner: false, isWritable: true },
+    { pubkey: o.eventHeap, isSigner: false, isWritable: true },
+    { pubkey: o.userBase, isSigner: false, isWritable: true },
+    { pubkey: o.userQuote, isSigner: false, isWritable: true },
+    { pubkey: OPENBOOK_PID, isSigner: false, isWritable: false },
+    { pubkey: TOKEN_PID, isSigner: false, isWritable: false },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+  ];
+  for (const oo of o.makerOoAccounts) keys.push({ pubkey: oo, isSigner: false, isWritable: true });
+  return new TransactionInstruction({
+    programId: MERIDIAN_PID,
+    keys,
+    data: Buffer.concat([disc("place_take_order"), ob.encodePlaceTakeOrderArgs(o.args)]),
+  });
+}

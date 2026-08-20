@@ -35,6 +35,7 @@ g12: build
 
 meridian-test: build
 	./scripts/run-suite.sh tests/meridian-foundation.test.ts
+	./scripts/run-suite.sh tests/meridian-trading.test.ts
 
 g8: build
 	./scripts/run-suite.sh tests/g8.test.ts
