@@ -71,3 +71,5 @@ services/*/node_modules/
 .validator-demo.log
 .book-market.txt
 .demo-faucet.json
+
+design_mockups/
