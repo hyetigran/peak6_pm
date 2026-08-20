@@ -33,7 +33,7 @@ IDX_PID="$(cat /tmp/mrd_idx.pid)"
 sleep 4
 curl -s localhost:8787/markets | python3 -c "import json,sys; print('[demo] indexer sees', len(json.load(sys.stdin)['markets']), 'markets')" 2>/dev/null || echo "[demo] indexer starting…"
 
-echo "[demo] starting frontend on :3000…"
+echo "[demo] starting frontend on :${FE_PORT:-3100}…"
 ( cd frontend && npm run dev -- -p ${FE_PORT:-3100} > "$ROOT/.frontend-demo.log" 2>&1 & echo $! > /tmp/mrd_fe.pid )
 FE_PID="$(cat /tmp/mrd_fe.pid)"
 
