@@ -352,6 +352,25 @@ export function directSetMarketExpiredIx(closeMarketAdmin: PublicKey, market: Pu
   });
 }
 
+/** Cancel one order by its venue-returned u128 id (owner-signed). */
+export function cancelOrderIx(owner: PublicKey, ooAccount: PublicKey, market: PublicKey, bidsAcc: PublicKey, asksAcc: PublicKey, orderId: bigint): TransactionInstruction {
+  const data = Buffer.alloc(24);
+  disc("cancel_order").copy(data);
+  data.writeBigUInt64LE(orderId & 0xffffffffffffffffn, 8);
+  data.writeBigUInt64LE(orderId >> 64n, 16);
+  return new TransactionInstruction({
+    programId: OPENBOOK_PID,
+    keys: [
+      { pubkey: owner, isSigner: true, isWritable: false },
+      { pubkey: ooAccount, isSigner: false, isWritable: true },
+      { pubkey: market, isSigner: false, isWritable: false },
+      { pubkey: bidsAcc, isSigner: false, isWritable: true },
+      { pubkey: asksAcc, isSigner: false, isWritable: true },
+    ],
+    data,
+  });
+}
+
 /** Recovery path: owner-signed, never gated by the harness. */
 export function cancelAllOrdersIx(owner: PublicKey, ooAccount: PublicKey, market: PublicKey, bids: PublicKey, asks: PublicKey): TransactionInstruction {
   return new TransactionInstruction({

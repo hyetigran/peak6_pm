@@ -19,8 +19,7 @@
 import { before, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction,
-  type TransactionInstruction,
+  Connection, Keypair, PublicKey, Transaction, TransactionInstruction, sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import { createAssociatedTokenAccount, createMint, getAccount, mintTo } from "@solana/spl-token";
 import * as ob from "./lib/openbook.js";
@@ -33,7 +32,7 @@ const taker = Keypair.generate();
 const market = Keypair.generate(), bids = Keypair.generate(), asks = Keypair.generate(), heap = Keypair.generate();
 let baseMint: PublicKey, quoteMint: PublicKey;
 let makerBaseAta: PublicKey, makerQuoteAta: PublicKey, takerBaseAta: PublicKey, takerQuoteAta: PublicKey;
-let baseVault: PublicKey, quoteVault: PublicKey, makerOo: PublicKey;
+let baseVault: PublicKey, quoteVault: PublicKey, makerOo: PublicKey, takerOo: PublicKey;
 
 // PRODUCTION lot scheme (G10)
 const BASE_LOT = 1_000_000n;   // one whole 6-decimal Yes Token
@@ -134,7 +133,12 @@ before(async () => {
     ob.createOoIndexerIx(payer.publicKey, maker.publicKey),
     ob.createOoAccountIx(payer.publicKey, maker.publicKey, 1, market.publicKey),
   ], [payer, maker]);
+  await send([
+    ob.createOoIndexerIx(payer.publicKey, taker.publicKey),
+    ob.createOoAccountIx(payer.publicKey, taker.publicKey, 1, market.publicKey),
+  ], [payer, taker]);
   makerOo = ob.ooAccountPda(maker.publicKey, 1);
+  takerOo = ob.ooAccountPda(taker.publicKey, 1);
 });
 
 test("G10.1 golden price vectors: P in {1,50,99} locks and fills exactly P cents per whole token", async () => {
@@ -155,9 +159,14 @@ test("G10.1 golden price vectors: P in {1,50,99} locks and fills exactly P cents
 
 test("G10.2 PostOnly crossing is a venue silent no-op; wrapper fails closed", async () => {
   await send([placeIx(limitArgs(ob.Side.Ask, 50n, 100n))], [maker]); // resting ask @ $0.50
-  // crossing PostOnly bid at the same price: venue would silently drop it
-  await expectFail(send([placeIx(limitArgs(ob.Side.Bid, 50n, 101n))], [maker]),
-    "OrderNotPosted", "crossing PostOnly must fail closed");
+  // strictly-crossing PostOnly bid from a DIFFERENT owner (rules out any
+  // self-trade confound): venue silently drops it; wrapper fails closed
+  await expectFail(send([ob.harnessPlaceLimitOrderIx({
+    user: taker.publicKey, ooAccount: takerOo, userTokenAccount: takerQuoteAta,
+    market: market.publicKey, bids: bids.publicKey, asks: asks.publicKey,
+    eventHeap: heap.publicKey, marketVault: quoteVault,
+    args: limitArgs(ob.Side.Bid, 51n, 101n),
+  })], [taker]), "OrderNotPosted", "crossing PostOnly must fail closed");
   // non-crossing bid rests fine
   const v0 = (await getAccount(conn, quoteVault)).amount;
   await send([placeIx(limitArgs(ob.Side.Bid, 49n, 102n))], [maker]);
@@ -171,21 +180,7 @@ test("G10.3 returned order ID is real: cancel_order by the logged id", async () 
   assert.ok(m, "wrapper logged the venue-returned order id");
   const orderId = BigInt(m![1]);
   // cancel exactly that order (owner-signed direct path)
-  const data = Buffer.alloc(24);
-  ob.disc("cancel_order").copy(data);
-  data.writeBigUInt64LE(orderId & 0xffffffffffffffffn, 8);
-  data.writeBigUInt64LE(orderId >> 64n, 16);
-  await send([new (await import("@solana/web3.js")).TransactionInstruction({
-    programId: ob.OPENBOOK_PID,
-    keys: [
-      { pubkey: maker.publicKey, isSigner: true, isWritable: false },
-      { pubkey: makerOo, isSigner: false, isWritable: true },
-      { pubkey: market.publicKey, isSigner: false, isWritable: false },
-      { pubkey: bids.publicKey, isSigner: false, isWritable: true },
-      { pubkey: asks.publicKey, isSigner: false, isWritable: true },
-    ],
-    data,
-  })], [maker]);
+  await send([ob.cancelOrderIx(maker.publicKey, makerOo, market.publicKey, bids.publicKey, asks.publicKey, orderId)], [maker]);
   await makerCleanup(); // settle the unlocked funds
 });
 
@@ -208,7 +203,70 @@ test("G10.5 SelfTradeBehavior pinned to AbortTransaction (wire golden + wrapper 
   const bytes = ob.encodePlaceOrderArgs(limitArgs(ob.Side.Bid, 50n, 400n));
   assert.equal(bytes.length, 44, "PlaceOrderArgs is 44 bytes");
   assert.equal(bytes[42], ob.SelfTradeBehavior.AbortTransaction, "STB at offset 42 == 2 (AbortTransaction)");
-  // wrapper rejects any other value
+  // wrapper rejects BOTH non-Abort variants. On-chain STB *matching* is
+  // unreachable through V1 wrappers by construction: PostOnly never crosses,
+  // and place_take_order has no STB field at the pin (take-path self-cross
+  // prevention is G5 work).
   await expectFail(send([placeIx({ ...limitArgs(ob.Side.Bid, 50n, 401n), selfTradeBehavior: ob.SelfTradeBehavior.DecrementTake })], [maker]),
-    "SelfTradeMustAbort", "non-Abort self-trade behavior");
+    "SelfTradeMustAbort", "DecrementTake");
+  await expectFail(send([placeIx({ ...limitArgs(ob.Side.Bid, 50n, 402n), selfTradeBehavior: ob.SelfTradeBehavior.CancelProvide })], [maker]),
+    "SelfTradeMustAbort", "CancelProvide");
+});
+
+test("G10.6 boundary and overflow vectors", async () => {
+  // price 0: rejected by the venue (no zero-price orders)
+  await expectFail(send([placeIx(limitArgs(ob.Side.Bid, 0n, 500n))], [maker]),
+    "Program log:", "price 0 must not post"); // any venue error; must not succeed silently
+  // zero base lots: fails closed one way or another (venue reject or OrderNotPosted)
+  await expectFail(send([placeIx({ ...limitArgs(ob.Side.Bid, 50n, 501n), maxBaseLots: 0n, maxQuoteLotsIncludingFees: 50n })], [maker]),
+    "Program log:", "zero-lot order must not post");
+  // absurd price: quote conversion overflows i64/u64 territory; must fail, never wrap
+  await expectFail(send([placeIx({ ...limitArgs(ob.Side.Bid, (1n << 62n), 502n), maxQuoteLotsIncludingFees: (1n << 62n) })], [maker]),
+    "Program log:", "overflowing price must not post");
+  // price 100 ($1.00): venue-legal; Meridian's 1..99 range is client policy —
+  // documented, and the order is cancelled right away
+  const logs = await sendGetLogs([placeIx(limitArgs(ob.Side.Bid, 100n, 503n))], [maker]);
+  assert.ok(logs.join("\n").includes("order_id="), "price 100 posts at the venue (range is product policy)");
+  await makerCleanup();
+  // far-future expiry (beyond the u16 TIF clamp) still posts
+  const now2 = BigInt(Math.floor(Date.now() / 1000));
+  const logs2 = await sendGetLogs([placeIx(limitArgs(ob.Side.Bid, 40n, 504n, now2 + 100_000n))], [maker]);
+  assert.ok(logs2.join("\n").includes("order_id="), "expiry beyond 65,535s posts (TIF clamped at the pin)");
+  await makerCleanup();
+});
+
+test("G10.7 per-order expiry boundary, program-clock-exact", async () => {
+  // bundle [place(expiry=T), take] per attempt: while now < T the order posts
+  // (TIF = T - now > 0) and fills; at now >= T the venue silently ignores the
+  // placement and the wrapper reverts OrderNotPosted. gate_now logs give the
+  // exact program clock per attempt.
+  const T = BigInt(Math.floor(Date.now() / 1000)) + 10n;
+  const results: { now: bigint; ok: boolean; logs: string }[] = [];
+  for (let id = 600n; id <= 660n; id++) {
+    const ixs = [
+      placeIx(limitArgs(ob.Side.Bid, 30n, id, T)),
+      takeIx(ob.Side.Ask, 30n),
+    ];
+    const tx = new Transaction().add(...ixs);
+    const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
+    tx.recentBlockhash = blockhash; tx.lastValidBlockHeight = lastValidBlockHeight;
+    tx.feePayer = maker.publicKey;
+    tx.sign(maker, taker);
+    const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: true });
+    await conn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
+    const info = await conn.getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+    const logs = (info!.meta?.logMessages ?? []).join("\n");
+    const g = logs.match(/gate_now=(-?\d+)/);
+    if (!g) continue; // pre-gate failure (shouldn't happen)
+    results.push({ now: BigInt(g[1]), ok: info!.meta?.err == null, logs });
+    if (results.filter(x => !x.ok).length >= 2 && results.some(x => x.ok)) break;
+  }
+  assert.ok(results.some(x => x.ok) && results.some(x => !x.ok), "observed both sides of the boundary");
+  for (const r of results) {
+    if (r.ok) assert.ok(r.now < T, `posted+filled at clock ${r.now} must precede expiry ${T}`);
+    else {
+      assert.ok(r.now >= T, `failure at clock ${r.now} must be at/after expiry ${T}`);
+      assert.ok(r.logs.includes("OrderNotPosted"), "failure is the fail-closed unposted check");
+    }
+  }
 });

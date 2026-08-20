@@ -236,9 +236,12 @@ $0.01..$0.99.
 | **Past-expiry placement is a venue silent no-op** | `order.rs:52–54` returns `None` TIF ⇒ order silently ignored; same wrapper check reverts it |
 | Returned order ID semantics | `place_order` returns `Option<u128>` in CPI return data; the wrapper requires `Some`, logs it, and the logged id cancels via `cancel_order` — proven round-trip |
 | Per-order expiry granularity | TIF is **u16 seconds** (`order.rs:47–61`): `expiry − now` clamped to 65,535 s (~18.2 h) — ample for same-day Outcome Markets; expired makers are skipped by takes (proven: take against an expired order reverts full-fill) |
-| SelfTradeBehavior pinned | wrapper rejects anything but `AbortTransaction` (`SelfTradeMustAbort`); wire golden: `PlaceOrderArgs` is 44 bytes with STB at offset 42 == 2. Note: `place_take_order` has no STB field at the pin — self-trade prevention on the take path is the G5 no-knowing-self-cross work |
+| SelfTradeBehavior pinned | wrapper rejects both non-Abort variants (`SelfTradeMustAbort`); wire golden: `PlaceOrderArgs` is 44 bytes with STB at offset 42 == 2. **Disposition:** on-chain STB *matching* is unreachable through V1 wrappers by construction — PostOnly never crosses and `place_take_order` has no STB field at the pin; take-path self-cross prevention is the G5 work |
+| Boundary/overflow vectors | price 0, zero lots, and a 2^62 price all fail closed (venue reject or `OrderNotPosted`), never wrap; price 100 ($1.00) is venue-legal — the 1..99 range is Meridian client policy; expiry beyond the 65,535 s TIF clamp still posts |
+| Expiry boundary, program-clock-exact | bundled place(expiry=T)+take probes: posted+filled ⟺ clock `< T`, `OrderNotPosted` ⟺ clock `≥ T` (venue TIF = T − now, zero ⇒ silently ignored) |
 
 The two silent no-op behaviors are the notable pin findings: **the venue
 reports success for orders it never posted**. Any Meridian order path that
 does not verify the returned order id would silently strand user intent;
-the wrapper's `OrderNotPosted` check is therefore load-bearing for M1.
+the wrapper's `OrderNotPosted` check is therefore load-bearing for M1, and M1
+should surface the order id via CPI return data rather than log-scraping.

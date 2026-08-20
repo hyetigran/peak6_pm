@@ -216,7 +216,7 @@ pub mod m0_harness {
             from == ctx.accounts.openbook_program.key(),
             HarnessError::WrongOpenbookProgram
         );
-        require!(data.first() == Some(&1) && data.len() >= 17, HarnessError::OrderNotPosted);
+        require!(data.first() == Some(&1) && data.len() == 17, HarnessError::OrderNotPosted);
         let id = u128::from_le_bytes(data[1..17].try_into().unwrap());
         msg!("order_id={}", id);
         Ok(())
