@@ -69,3 +69,4 @@ services/*/node_modules/
 .frontend-demo.log
 .indexer-demo.log
 .validator-demo.log
+.book-market.txt
