@@ -38,7 +38,7 @@ pub mod m0_harness {
         Ok(())
     }
 
-    /// Creates the per-market time/pause gate (G3). Admin-only.
+    /// Creates the per-Venue-Market time/pause gate (G3). Admin-only.
     pub fn create_venue_gate(
         ctx: Context<CreateVenueGate>,
         trade_open_ts: i64,
@@ -82,6 +82,42 @@ pub mod m0_harness {
             &[
                 ctx.accounts.venue_authority.to_account_info(),
                 ctx.accounts.market.to_account_info(),
+                ctx.accounts.openbook_program.to_account_info(),
+            ],
+            &[seeds],
+        )?;
+        Ok(())
+    }
+
+    /// Prune a user's resting orders after expiry (G3 / ADR-0018 recovery
+    /// evidence). Admin-only; `venue_authority` signs as `close_market_admin`.
+    /// At the pin this requires the Venue Market to BE expired
+    /// (`MarketHasNotExpired` otherwise) — proven both ways in tests.
+    pub fn prune_orders(ctx: Context<PruneOrders>, limit: u8) -> Result<()> {
+        let metas = vec![
+            AccountMeta::new_readonly(ctx.accounts.venue_authority.key(), true),
+            AccountMeta::new(ctx.accounts.open_orders_account.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.market.key(), false),
+            AccountMeta::new(ctx.accounts.bids.key(), false),
+            AccountMeta::new(ctx.accounts.asks.key(), false),
+        ];
+        let mut data = DISC_PRUNE_ORDERS.to_vec();
+        data.push(limit);
+        let ix = Instruction {
+            program_id: ctx.accounts.openbook_program.key(),
+            accounts: metas,
+            data,
+        };
+        let bump = [ctx.accounts.config.venue_authority_bump];
+        let seeds: &[&[u8]] = &[VENUE_AUTHORITY_SEED, &bump];
+        invoke_signed(
+            &ix,
+            &[
+                ctx.accounts.venue_authority.to_account_info(),
+                ctx.accounts.open_orders_account.to_account_info(),
+                ctx.accounts.market.to_account_info(),
+                ctx.accounts.bids.to_account_info(),
+                ctx.accounts.asks.to_account_info(),
                 ctx.accounts.openbook_program.to_account_info(),
             ],
             &[seeds],
@@ -321,7 +357,7 @@ pub struct CreateVenueGate<'info> {
     pub admin: Signer<'info>,
     #[account(seeds = [CONFIG_SEED], bump)]
     pub config: Account<'info, Config>,
-    /// CHECK: OpenBook market this gate governs; identity only.
+    /// CHECK: the OpenBook Venue Market this gate governs; identity only.
     pub market: UncheckedAccount<'info>,
     #[account(
         init,
@@ -356,6 +392,31 @@ pub struct ExpireMarket<'info> {
     /// CHECK: validated by OpenBook
     #[account(mut)]
     pub market: UncheckedAccount<'info>,
+    /// CHECK: fail closed on any program identity mismatch.
+    #[account(executable, address = config.openbook_program @ HarnessError::WrongOpenbookProgram)]
+    pub openbook_program: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct PruneOrders<'info> {
+    #[account(address = config.admin @ HarnessError::NotAdmin)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump)]
+    pub config: Account<'info, Config>,
+    /// CHECK: the close_market_admin PDA; OpenBook enforces the exact match.
+    #[account(seeds = [VENUE_AUTHORITY_SEED], bump = config.venue_authority_bump)]
+    pub venue_authority: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    #[account(mut)]
+    pub open_orders_account: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    pub market: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    #[account(mut)]
+    pub bids: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    #[account(mut)]
+    pub asks: UncheckedAccount<'info>,
     /// CHECK: fail closed on any program identity mismatch.
     #[account(executable, address = config.openbook_program @ HarnessError::WrongOpenbookProgram)]
     pub openbook_program: UncheckedAccount<'info>,

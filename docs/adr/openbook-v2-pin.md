@@ -128,20 +128,26 @@ canonical ID (`tests/g3.test.ts`, run via `make g3`). Boundary tests are
 check, each attempt is sent with skipPreflight, and assertions judge by that
 logged timestamp — the very value the checks (and the OpenBook CPI in the
 same bank) observed. RPC blockTime is never used: it is an estimate that can
-drift ±1s from the bank clock, which a first run demonstrated.
+drift ±1s from the bank clock, which a first run demonstrated. Declared
+method deviation: the ticket specified "validator clock warp", which
+`solana-test-validator` cannot do mid-run; the program-clock method replaces
+it and is strictly more precise.
 
 | Fact | Evidence |
 | --- | --- |
 | Order pre-open rejected | harness `OrderBeforeOpen`, failing attempt's gate clock proven `< trade_open_ts` |
-| Order while Paused rejected | harness `VenuePaused` |
+| Order while Paused rejected | harness `VenuePaused` on BOTH wrappers (maker and take paths) |
 | Pause preserves resting orders (ADR-0010) | vault balance unchanged across pause; the resting order is cancelable afterward |
-| Cancel + settle work WHILE paused | owner-signed `cancel_all_orders` + `settle_funds` succeed under pause; full refund |
+| Cancel + consume + settle work WHILE paused | permissionless `consume_events` plus owner-signed `cancel_all_orders` + `settle_funds` succeed under pause; full refund |
 | Order at exact close rejected | success ⟺ `clock < close_ts`, `TradingClosed` ⟺ `clock >= close_ts`, both sides observed |
 | OpenBook expiry boundary is strict | `state/market.rs:165–167` `time_expiry != 0 && time_expiry < now`; empirically success ⟺ `clock <= time_expiry`, `MarketHasExpired` ⟺ `clock > time_expiry`. Meridian's `time_expiry = close_ts - 1` therefore rejects at exactly `close_ts` |
 | Recovery after natural expiry | cancel + settle succeed post-expiry; full refund |
 | `set_market_expired` authority | requires `close_market_admin` signer (`accounts_ix/set_market_expired.rs`); wrong signer → `InvalidCloseMarketAdmin`; harness path admin-gated |
 | `set_market_expired` effect | `instructions/set_market_expired.rs`: guard `!is_expired` then `time_expiry = -1`. On-chain readback confirms `-1`. Re-expire rejected (`MarketHasExpired`) — a true one-way fuse; orders rejected at venue level afterward |
-| Recovery after the fuse | cancel + settle succeed after `set_market_expired`; full refund |
+| Recovery after the fuse | admin `prune_orders` cancels the resting order, owner `settle_funds` refunds in full |
+| `prune_orders` preconditions | `close_market_admin` signer (`accounts_ix/prune_orders.rs`) AND market expired: `instructions/prune_orders.rs` requires `is_expired` (`MarketHasNotExpired` otherwise) — proven both ways on-chain (rejected pre-fuse, succeeds post-fuse) |
+| `close_market` preconditions | `instructions/close_market.rs`: requires expired AND `market.is_empty()` AND empty book AND empty EventHeap (`NonEmptyMarket` / `BookContainsElements` / `EventHeapContainsElements`); rent to caller-supplied `sol_destination` (§5). Documented from source; on-chain exercise deferred to G8 rent-refund work |
+| Meridian rule instantiated | a Venue Market created with `time_expiry = close_ts - 1` and gate close `close_ts` rejects orders at exactly `close_ts` (success ⟺ clock `< close_ts`), with the gate and the venue predicate as independent layers |
 
 One capacity fact surfaced by the boundary loops: an OpenOrders account holds
 at most **24 resting orders** (`state/open_orders_account.rs:12`,

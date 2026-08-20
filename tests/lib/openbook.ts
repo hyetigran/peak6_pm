@@ -394,3 +394,38 @@ export function settleFundsIx(opts: {
 
 /** Market.time_expiry lives at offset 48: 8 disc + bump,base_dec,quote_dec,padding1[5] (=8) + market_authority (32). */
 export const readTimeExpiry = (marketData: Buffer): bigint => marketData.readBigInt64LE(48);
+
+/** Permissionless crank (consume_events_admin = None on harness Venue Markets). */
+export function consumeEventsIx(market: PublicKey, eventHeap: PublicKey, limit: bigint): TransactionInstruction {
+  const data = Buffer.alloc(16);
+  disc("consume_events").copy(data);
+  data.writeBigUInt64LE(limit, 8);
+  return new TransactionInstruction({
+    programId: OPENBOOK_PID,
+    keys: [
+      NONE, // consume_events_admin: None => permissionless
+      { pubkey: market, isSigner: false, isWritable: true },
+      { pubkey: eventHeap, isSigner: false, isWritable: true },
+    ],
+    data,
+  });
+}
+
+export function harnessPruneOrdersIx(admin: PublicKey, opts: {
+  ooAccount: PublicKey; market: PublicKey; bids: PublicKey; asks: PublicKey; limit: number;
+}): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: HARNESS_PID,
+    keys: [
+      { pubkey: admin, isSigner: true, isWritable: false },
+      { pubkey: harnessConfigPda(), isSigner: false, isWritable: false },
+      { pubkey: venueAuthorityPda(), isSigner: false, isWritable: false },
+      { pubkey: opts.ooAccount, isSigner: false, isWritable: true },
+      { pubkey: opts.market, isSigner: false, isWritable: false },
+      { pubkey: opts.bids, isSigner: false, isWritable: true },
+      { pubkey: opts.asks, isSigner: false, isWritable: true },
+      { pubkey: OPENBOOK_PID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([disc("prune_orders"), Buffer.from([opts.limit])]),
+  });
+}

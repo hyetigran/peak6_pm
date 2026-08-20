@@ -2,18 +2,23 @@
  * G3 — Exact time/pause gates + OpenBook expiry semantics (PRD v0.7.1 §15,
  * harness-provable subset; mint/add-strike/abandonment bullets need M1 state).
  *
- * Boundary proofs are blockTime-exact: every attempt is sent with
- * skipPreflight and judged by its own block's timestamp — the same clock the
- * program read — so the assertions are exact, not sleep-approximate.
+ * Boundary proofs are program-clock-exact: the gate logs its Clock reading
+ * before any check, each attempt is sent with skipPreflight, and assertions
+ * judge by that logged timestamp — the very value the checks (and the
+ * OpenBook CPI in the same bank) observed. RPC blockTime is never used (it
+ * is an estimate that drifts ±1s from the bank clock). The ticket's
+ * "validator clock warp" method is unavailable mid-run; this is exact.
  *
- *   1. order pre-open rejected (blockTime < trade_open_ts proven)
- *   2. order while Paused rejected; resting order survives pause; cancel +
- *      settle work WHILE paused (ADR-0010); unpause resumes
- *   3. close boundary: success ⟺ blockTime < close_ts
- *   4. OpenBook natural expiry (time_expiry = T): success ⟺ blockTime ≤ T,
- *      MarketHasExpired ⟺ blockTime > T; recovery works after expiry
+ *   1. order pre-open rejected (gate clock < trade_open_ts proven)
+ *   2. order while Paused rejected on BOTH wrappers; resting order survives
+ *      pause; cancel + consume_events + settle work WHILE paused (ADR-0010)
+ *   3. close boundary: success ⟺ clock < close_ts
+ *   4. OpenBook natural expiry (time_expiry = T): success ⟺ clock ≤ T,
+ *      MarketHasExpired ⟺ clock > T; recovery works after expiry
  *   5. set_market_expired: close_market_admin-only, one-way (time_expiry=-1,
- *      re-expire rejected), venue-level rejection afterward, recovery intact
+ *      re-expire rejected); prune requires expired; recovery intact
+ *   6. the Meridian configuration itself: time_expiry = close_ts - 1 with
+ *      gate close = close_ts rejects orders at exactly close_ts
  */
 import { before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -111,6 +116,21 @@ const recoveryIxs = (m: Mkt) => [
   }),
 ];
 
+/** Probe a time boundary: place+cancel per attempt until both sides observed. */
+async function probeBoundary(m: Mkt) {
+  const results: { now: bigint; ok: boolean; logs: string }[] = [];
+  for (let id = 1n; id <= 60n; id++) {
+    // cancel in the same tx: a success must not leave a resting order, or the
+    // 24-slot OpenOrders capacity (open_orders_account.rs:12) fills mid-loop
+    const r = await sendRaw([placeIx(m, id), ob.cancelAllOrdersIx(maker.publicKey, m.oo, m.market.publicKey, m.bids, m.asks)], [maker]);
+    assert.ok(r.gateNow !== null, "gate logged its clock");
+    results.push({ now: r.gateNow!, ok: r.err === null, logs: r.logs.join("\n") });
+    if (results.filter(x => !x.ok).length >= 2 && results.some(x => x.ok)) break;
+  }
+  assert.ok(results.some(x => x.ok) && results.some(x => !x.ok), "observed both sides of the boundary");
+  return results;
+}
+
 before(async () => {
   conn = new Connection(RPC, "confirmed");
   for (let i = 0; ; i++) {
@@ -146,13 +166,21 @@ test("G3.2 pause rejects orders, preserves resting orders, keeps recovery open (
 
   const quoteBefore = (await getAccount(conn, makerQuoteAta)).amount;
   await send([placeIx(m, 1n)], [maker]); // resting bid: 0.50 locked
-  assert.equal((await getAccount(conn, m.quoteVault)).amount, 500_000n, "bid collateral locked");
+  assert.equal((await getAccount(conn, m.quoteVault)).amount, PRICE * QUOTE_LOT, "bid collateral locked");
 
   await send([ob.harnessSetPausedIx(payer.publicKey, m.market.publicKey, true)], [payer]);
-  await expectFail(send([placeIx(m, 2n)], [maker]), "VenuePaused", "order while paused");
+  await expectFail(send([placeIx(m, 2n)], [maker]), "VenuePaused", "maker order while paused");
+  await expectFail(send([ob.harnessPlaceTakeOrderIx({
+    user: maker.publicKey, market: m.market.publicKey, bids: m.bids, asks: m.asks,
+    eventHeap: m.eventHeap, marketBaseVault: m.baseVault, marketQuoteVault: m.quoteVault,
+    userBaseAccount: makerBaseAta, userQuoteAccount: makerQuoteAta, makerOoAccounts: [],
+    args: { side: ob.Side.Ask, priceLots: PRICE, maxBaseLots: 1n, maxQuoteLotsIncludingFees: PRICE,
+      orderType: ob.PlaceOrderType.ImmediateOrCancel, limit: 16 },
+  })], [maker]), "VenuePaused", "take order while paused");
   // resting order untouched by pause
-  assert.equal((await getAccount(conn, m.quoteVault)).amount, 500_000n, "resting order survives pause");
-  // recovery works WHILE paused: cancel + settle, owner-signed
+  assert.equal((await getAccount(conn, m.quoteVault)).amount, PRICE * QUOTE_LOT, "resting order survives pause");
+  // recovery works WHILE paused: consume_events (permissionless crank) + cancel + settle
+  await send([ob.consumeEventsIx(m.market.publicKey, m.eventHeap, 8n)], [maker]);
   await send(recoveryIxs(m), [maker]);
   assert.equal((await getAccount(conn, makerQuoteAta)).amount, quoteBefore, "funds recovered while paused");
 
@@ -164,16 +192,7 @@ test("G3.3 close boundary: success iff program clock < close_ts", async () => {
   const m = await newMarket(0n, "G3-close");
   const close = (await chainNow()) + 12n;
   await send([ob.harnessCreateVenueGateIx(payer.publicKey, m.market.publicKey, close - 3600n, close)], [payer]);
-  const results: { now: bigint; ok: boolean; logs: string }[] = [];
-  for (let id = 1n; id <= 60n; id++) {
-    // cancel in the same tx: a success must not leave a resting order, or the
-    // 24-slot OpenOrders capacity (open_orders_account.rs:12) fills mid-loop
-    const r = await sendRaw([placeIx(m, id), ob.cancelAllOrdersIx(maker.publicKey, m.oo, m.market.publicKey, m.bids, m.asks)], [maker]);
-    assert.ok(r.gateNow !== null, "gate logged its clock");
-    results.push({ now: r.gateNow!, ok: r.err === null, logs: r.logs.join("\n") });
-    if (results.filter(x => !x.ok).length >= 2 && results.some(x => x.ok)) break;
-  }
-  assert.ok(results.some(x => x.ok) && results.some(x => !x.ok), "observed both sides of the boundary");
+  const results = await probeBoundary(m);
   for (const r of results) {
     if (r.ok) assert.ok(r.now < close, `success at clock ${r.now} must precede close ${close}`);
     else {
@@ -188,16 +207,7 @@ test("G3.4 OpenBook expiry boundary: success iff program clock <= time_expiry; r
   const m = await newMarket(T, "G3-expiry");
   await send([ob.harnessCreateVenueGateIx(payer.publicKey, m.market.publicKey, T - 3600n, T + 3600n)], [payer]);
   const quoteBefore = (await getAccount(conn, makerQuoteAta)).amount;
-  const results: { now: bigint; ok: boolean; logs: string }[] = [];
-  for (let id = 1n; id <= 60n; id++) {
-    // cancel in the same tx: a success must not leave a resting order, or the
-    // 24-slot OpenOrders capacity (open_orders_account.rs:12) fills mid-loop
-    const r = await sendRaw([placeIx(m, id), ob.cancelAllOrdersIx(maker.publicKey, m.oo, m.market.publicKey, m.bids, m.asks)], [maker]);
-    assert.ok(r.gateNow !== null, "gate logged its clock");
-    results.push({ now: r.gateNow!, ok: r.err === null, logs: r.logs.join("\n") });
-    if (results.filter(x => !x.ok).length >= 2 && results.some(x => x.ok)) break;
-  }
-  assert.ok(results.some(x => x.ok) && results.some(x => !x.ok), "observed both sides of the boundary");
+  const results = await probeBoundary(m);
   for (const r of results) {
     // pinned predicate is strict: expired iff time_expiry < now  (market.rs:165-167)
     if (r.ok) assert.ok(r.now <= T, `success at clock ${r.now} must be at/before T ${T}`);
@@ -224,6 +234,11 @@ test("G3.5 set_market_expired: admin-only one-way fuse; recovery intact (ADR-001
   await expectFail(send([ob.harnessExpireMarketIx(maker.publicKey, m.market.publicKey)], [maker]),
     "NotAdmin", "expire_market by non-admin");
 
+  // prune requires the Venue Market to BE expired (instructions/prune_orders.rs)
+  await expectFail(send([ob.harnessPruneOrdersIx(payer.publicKey, {
+    ooAccount: m.oo, market: m.market.publicKey, bids: m.bids, asks: m.asks, limit: 8,
+  })], [payer]), "MarketHasNotExpired", "prune before expiry");
+
   await send([ob.harnessExpireMarketIx(payer.publicKey, m.market.publicKey)], [payer]);
   const data = (await conn.getAccountInfo(m.market.publicKey))!.data;
   assert.equal(ob.readTimeExpiry(data), -1n, "time_expiry set to -1 at the pin");
@@ -232,6 +247,31 @@ test("G3.5 set_market_expired: admin-only one-way fuse; recovery intact (ADR-001
   await expectFail(send([ob.harnessExpireMarketIx(payer.publicKey, m.market.publicKey)], [payer]),
     "MarketHasExpired", "fuse is one-way: re-expire rejected at the pin");
 
-  await send(recoveryIxs(m), [maker]);
-  assert.equal((await getAccount(conn, makerQuoteAta)).amount, quoteBefore, "funds recovered after fuse");
+  // after the fuse, close_market_admin prune cancels the user's resting order
+  await send([ob.harnessPruneOrdersIx(payer.publicKey, {
+    ooAccount: m.oo, market: m.market.publicKey, bids: m.bids, asks: m.asks, limit: 8,
+  })], [payer]);
+  await send([ob.settleFundsIx({
+    owner: maker.publicKey, ooAccount: m.oo, market: m.market.publicKey,
+    marketBaseVault: m.baseVault, marketQuoteVault: m.quoteVault,
+    userBaseAccount: makerBaseAta, userQuoteAccount: makerQuoteAta,
+  })], [maker]);
+  assert.equal((await getAccount(conn, makerQuoteAta)).amount, quoteBefore, "funds recovered after fuse via prune + settle");
+});
+
+test("G3.6 Meridian config: time_expiry = close_ts - 1 rejects at exactly close_ts", async () => {
+  const close = (await chainNow()) + 14n;
+  const m = await newMarket(close - 1n, "G3-meridian"); // the Meridian rule itself
+  await send([ob.harnessCreateVenueGateIx(payer.publicKey, m.market.publicKey, close - 3600n, close)], [payer]);
+  const results = await probeBoundary(m);
+  for (const r of results) {
+    // defense in depth: gate rejects at clock >= close_ts; even without it,
+    // OpenBook's strict predicate (time_expiry = close_ts - 1 < clock) rejects
+    if (r.ok) assert.ok(r.now < close, `success at clock ${r.now} must precede close ${close}`);
+    else {
+      assert.ok(r.now >= close, `failure at clock ${r.now} must be at/after close ${close}`);
+      assert.ok(r.logs.includes("TradingClosed") || r.logs.includes("MarketHasExpired"),
+        "rejected by the gate or the venue expiry");
+    }
+  }
 });

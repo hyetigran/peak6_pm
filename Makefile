@@ -15,6 +15,8 @@ g2: build
 g3: build
 	./scripts/run-suite.sh tests/g3.test.ts
 
+# one validator per suite: node --test runs files concurrently, and the
+# suites would race on the harness config PDA init against a shared validator
 m0: build
 	./scripts/run-suite.sh tests/g2.test.ts
 	./scripts/run-suite.sh tests/g3.test.ts
