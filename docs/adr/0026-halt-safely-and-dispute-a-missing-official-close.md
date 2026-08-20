@@ -1,0 +1,3 @@
+# Halt safely and dispute a missing Official Close
+
+A halted or suspended ticker is abandoned if detected before issuance. After issuance, Meridian pauses new Directional Intents while preserving recovery, and may resume only when trading resumes under conditions that still satisfy the market's safety checks. If the primary listing market publishes an Official Close, Meridian settles from that price and records the Close Method; if it publishes no Official Close, the Outcome Market becomes Settlement Disputed. Meridian never silently substitutes a last trade, midpoint, zero, previous close, or vendor bar unless the primary listing market itself declares that value as its official close under its documented rules.

@@ -1,0 +1,5 @@
+# Treat Meridian redemption as a family of token-destruction paths
+
+Every burn invoked by Meridian or one of its PDAs occurs through Pair Redemption, market-assisted Pair Redemption for Sell No, or Outcome Redemption. Direct Pair Redemption is available both before and after Settlement because V1 has no claim fee to bypass; market-assisted Pair Redemption remains limited to a live trading session. It may acquire the missing Yes Token, but must finish through the same pair-redemption primitive rather than introduce a separate program burn capability.
+
+Classic SPL token-account owners and delegates can nevertheless call the Token Program's burn instruction directly; Meridian cannot intercept that capability without abandoning freely held classic SPL tokens. V1 treats a Direct Holder Burn as unsupported voluntary forfeiture: it pays nothing and cannot release vault funds. Permissionless supply-based Collateral Liability reconciliation preserves truthful solvency and converts any released obligation into ownerless, non-withdrawable Collateral Surplus.

@@ -1,0 +1,60 @@
+---
+description: Use CONTEXT.md domain vocabulary; never the avoided synonyms
+alwaysApply: true
+---
+
+# Domain language
+
+When naming a concept in issues, tests, UI copy, ADRs, or code comments, use `CONTEXT.md` terms. Do not drift to the avoided synonyms.
+
+## Required terms
+
+| Use | Avoid |
+| --- | --- |
+| Outcome Market | Contract, Strike Market, bare Market |
+| Venue Market | Outcome Market (for the book), bare Market |
+| Market Phase | Raw state, Active (in UI copy) |
+| Trading Day | Calendar day, expiry date |
+| Strike | Target price, exercise price |
+| Yes Token / No Token | Call/put token, bullish/bearish coin |
+| Pair | Bundle |
+| Directional Intent | Raw order-book operation |
+| Market Action | Market order, partial-fill order |
+| Executable Depth | Liquidity, book size |
+| Worst Execution Price | Slippage default, estimated price |
+| Position State | Token balance, wallet balance (when meaning exposure) |
+| Exposure Interval | Net balance, current exposure |
+| Flat / Yes-sided / No-sided / Mixed / Unknown Position | Empty wallet, long/short, hedged, invalid balance |
+| Recovery-only Mode | Offline mode, read-only mode |
+| Directional Guardrail | Position invariant, Position Constraint |
+| Mark Price | Current price, last price |
+| Implied Probability | Bare “probability” or “prediction” |
+| Live Underlying Price | Official Close, settlement price, current price |
+| Collateral Liability / Surplus | Pairs minted, protocol fee |
+| Rent Refund Address | Current authority, collateral/fee recipient |
+| Redemption / Pair Redemption / Outcome Redemption | Burn, withdrawal, claim (as the family name) |
+| Direct Holder Burn | Redemption, withdrawal |
+| Official Close | Daily bar close, last price, after-hours/adjusted close |
+| Close Method | Price source, aggregate type |
+| Settlement Record | Price update, latest quote |
+| Settlement Quality Predicate | Confidence interval, latest value |
+| Settlement | Expiry, market close |
+| Settlement Disputed | Void, draw, canceled market |
+| Manual Settlement Override | Admin outcome, forced winner |
+| Emergency Expiry | Pause, abandonment |
+| Corporate Action Blackout | Split adjustment, adjusted close |
+| History Completeness | Recent activity, best-effort history |
+| Platform-execution P&L | Tax basis, total wallet P&L |
+| Internal Unwind | Trade, realized sale |
+
+## Guardrail semantics (ADR-0009, ADR-0019)
+
+Evaluate Exposure Interval across wallet holdings, venue balances, and resting **and locally pending** orders. Mixed and Unknown fail closed for new Directional Intents. Missing indexed state enters Recovery-only Mode. Cancellation, fund settlement, Pair Redemption, and exit recovery remain available.
+
+## Redemption semantics (ADR-0003)
+
+Destruction through Meridian is a family: Pair Redemption (before **and** after Settlement in V1), market-assisted Pair Redemption for Sell No (live session only), and Outcome Redemption. Direct Holder Burn is unsupported classic SPL forfeiture, not Redemption.
+
+## Settlement semantics (ADR-0012, 0021, 0023, 0026)
+
+Every Outcome Market for a ticker and Trading Day consumes one Settlement Record. Official Close is the primary listing market’s unadjusted close (Nasdaq NOCP for V1). Missing Official Close is Settlement Disputed, not a substituted last trade.

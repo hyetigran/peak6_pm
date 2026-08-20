@@ -1,0 +1,38 @@
+---
+description: Meridian document authority, phase, and non-negotiable build constraints
+alwaysApply: true
+---
+
+# Meridian — project intelligence
+
+This repo is **Meridian** (`peak6_pm`): same-day MAG7 binary Outcome Markets on Solana devnet with OpenBook V2 v1.7.
+
+## Memory Bank
+
+After any reset, read all of `memory-bank/` before acting: `projectbrief.md`, `productContext.md`, `systemPatterns.md`, `techContext.md`, `activeContext.md`, `progress.md`.
+
+## Document authority
+
+1. `CONTEXT.md` owns vocabulary.
+2. `docs/adr/0001`–`0028` are accepted Rounds 1–6 decisions.
+3. `docs/PRD.md` **v0.7** owns reconciled product behavior and acceptance.
+4. `docs/ARCHITECTURE.md` **v1.1** owns component/CPI/account design.
+5. `docs/REQUIREMENTS.md` is the converted source spec; the original PDF is source of truth if present.
+
+If output would contradict an ADR or the v0.7/v1.1 freeze, say so explicitly instead of silently overriding.
+
+## Current phase
+
+Docs-only working tree. **M0 (G1–G12) is authorized.** Do not start M1 until a signed go/no-go report. Origin `main` may still be the older v0.6 commit until the freeze is committed.
+
+## Non-negotiables
+
+- Solana **devnet** only. No mainnet, no real funds.
+- OpenBook V2 v1.7 is the venue. No fork. MIT `cpi`/`client` or MIT IDL/layouts only — never GPL program source. Require `upgrade_authority == None`.
+- `create_venue_market` is the only attachable venue path. Order creation only through Meridian PDAs. Never construct supported OpenBook order-creation transactions from the app.
+- Limits are PostOnly; Market Actions are full-fill-or-revert. Fail closed rather than persist partial synthetic exposure.
+- Collateral vault never pays SOL/rent/EventHeap penalties. Collateral Surplus is non-withdrawable in V1.
+- V1 is **protocol-fee-free**. No fee_admin, treasury, claim/taker switches, or collection instructions. OpenBook `collect_fee_admin` is an unsignable sentinel.
+- One Settlement Record per ticker and Trading Day. Official Close is Nasdaq NOCP, not a daily bar. Synthetic demo cannot satisfy G11.
+- Issues live on GitLab; use `glab`. Canonical triage labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
+- Frontend path is `frontend/`, not `app/`.

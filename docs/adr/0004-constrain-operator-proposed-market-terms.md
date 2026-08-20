@@ -1,0 +1,3 @@
+# Constrain operator-proposed initial market terms
+
+For the devnet proof of concept, the operator may propose the Trading Day, Strike, previous close, and schedule within strict on-chain bounds, while addresses are derived and settlement terms come from active configuration. The program validates a supported ticker, positive $10-multiple Strike, positive previous close, the 30-minute mint-to-trade interval, a 3.5- or 6.5-hour session, canonical identity and assets, zero initial liability, and an inclusive Add Strike cutoff exactly thirty minutes before that Trading Day's scheduled close, including early closes; it still trusts the operator and audited calendar automation for whether the date is an NYSE session and the market facts are true.

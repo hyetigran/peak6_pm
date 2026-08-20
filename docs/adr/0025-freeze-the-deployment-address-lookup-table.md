@@ -1,0 +1,3 @@
+# Freeze the deployment Address Lookup Table
+
+The Address Lookup Table required by first-use composite transactions is created during deployment, published with its exact expected contents, and checked by clients. It contains only stable global addresses known before daily market creation: required program IDs, sysvars, the Config PDA, and the pinned quote mint. Per-Trading-Day Outcome Market, Venue Market, Settlement Record, transport, wallet, and OpenOrders addresses remain inline. G7 must pass with that exact split. After M0 confirms the stable account set, the table's authority is removed so mutation cannot silently redirect or break the one-approval Buy-No path.
