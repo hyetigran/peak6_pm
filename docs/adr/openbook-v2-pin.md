@@ -159,3 +159,24 @@ on an already-expired market, and leaves cancellation/settlement intact.
 Remaining G3 bullets (mint gates, `add_strike` lead windows, global-pause
 scope over Meridian instructions, abandonment/tombstone) require M1 program
 state and are tracked by the go/no-go issue.
+
+## 9. G4 evidence — full-fill rollback
+
+Market Actions are full-fill-or-revert, proven on localnet against the pinned
+bytes (`tests/g4.test.ts`, `make g4`). The take wrapper enforces an
+exact-delta postcondition — the user's base account must change by exactly
+`max_base_lots × base_lot_size` (+ for Bid, − for Ask) — read directly from
+account bytes before and after the CPI in the same instruction.
+
+| Fact | Evidence |
+| --- | --- |
+| Exact-liquidity Buy and Sell fill fully | taker base ±1 lot and quote ∓`price` exactly, zero fees, both perspectives |
+| Partial fill reverts everything | taker requests 2 lots against 1 resting: OpenBook fills 1 inline, the postcondition fails, and taker balances AND both market vaults are byte-identical afterward — the resting maker order and its collateral survive untouched |
+| Empty-book take reverts | zero fill ≠ requested ⇒ `PartialFillReverted`, no state change |
+| No partial synthetic exposure | the postcondition runs inside the same instruction as the CPI; failure reverts the whole transaction, so no intermediate state is ever visible to a later instruction or block |
+| `Market` lot-size offsets | `quote_lot_size` at byte 448, `base_lot_size` at 456 (field order `state/market.rs:20–118`, `OracleConfig` 88 bytes per `state/oracle.rs:39`) — golden-tested against creation values |
+| SPL token `amount` offset 64 | used by the postcondition; standard classic-SPL layout |
+
+Note for M1: the production `take_full` should verify the quote-side bound as
+well (`Worst Execution Price`); the base-side exactness proven here is the
+full-fill invariant.

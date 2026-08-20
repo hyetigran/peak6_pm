@@ -72,3 +72,18 @@ pub fn ix_data<T: AnchorSerialize>(disc: [u8; 8], args: &T) -> Vec<u8> {
     args.serialize(&mut data).expect("borsh serialize");
     data
 }
+
+/// Byte offsets into the pinned v1.7 `Market` account (state/market.rs field
+/// order; OracleConfig is 88 bytes per state/oracle.rs:39). Golden-tested
+/// against known creation values in tests/g4.test.ts.
+pub const MARKET_QUOTE_LOT_SIZE_OFFSET: usize = 448;
+pub const MARKET_BASE_LOT_SIZE_OFFSET: usize = 456;
+/// SPL token account `amount` field offset.
+pub const TOKEN_AMOUNT_OFFSET: usize = 64;
+
+pub fn read_i64(data: &[u8], off: usize) -> i64 {
+    i64::from_le_bytes(data[off..off + 8].try_into().unwrap())
+}
+pub fn read_u64(data: &[u8], off: usize) -> u64 {
+    u64::from_le_bytes(data[off..off + 8].try_into().unwrap())
+}

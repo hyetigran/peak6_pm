@@ -180,13 +180,28 @@ pub mod m0_harness {
     }
 
     /// Take order via CPI with `venue_authority` signing as
-    /// `open_orders_admin`. Full-fill-or-revert enforcement is G4/G5 work and
-    /// is intentionally absent from this revision.
+    /// `open_orders_admin`. Market Actions are full-fill-or-revert (G4): the
+    /// user's base account must change by exactly `max_base_lots ×
+    /// base_lot_size`; any partial fill fails the postcondition, reverting
+    /// every OpenBook, token, and Meridian change in the transaction — no
+    /// partial synthetic exposure survives.
     pub fn place_take_order<'info>(
         ctx: Context<'_, '_, 'info, 'info, PlaceTakeOrderCpi<'info>>,
         args: PlaceTakeOrderArgs,
     ) -> Result<()> {
         check_gate(&ctx.accounts.venue_gate)?;
+        require!(args.max_base_lots > 0, HarnessError::ZeroTakeQuantity);
+        let base_lot_size = read_i64(
+            &ctx.accounts.market.try_borrow_data()?,
+            MARKET_BASE_LOT_SIZE_OFFSET,
+        );
+        let expected_base_atoms = (args.max_base_lots as u64)
+            .checked_mul(base_lot_size as u64)
+            .ok_or(HarnessError::AmountOverflow)?;
+        let base_before = read_u64(
+            &ctx.accounts.user_base_account.try_borrow_data()?,
+            TOKEN_AMOUNT_OFFSET,
+        );
         let ob = ctx.accounts.openbook_program.key();
         let mut metas = vec![
             AccountMeta::new(ctx.accounts.user.key(), true),
@@ -235,6 +250,21 @@ pub mod m0_harness {
         let bump = [ctx.accounts.config.venue_authority_bump];
         let seeds: &[&[u8]] = &[VENUE_AUTHORITY_SEED, &bump];
         invoke_signed(&ix, &infos, &[seeds])?;
+
+        // G4 exact-delta postcondition: full fill or the whole tx reverts.
+        let base_after = read_u64(
+            &ctx.accounts.user_base_account.try_borrow_data()?,
+            TOKEN_AMOUNT_OFFSET,
+        );
+        let delta = match args.side {
+            Side::Bid => base_after.checked_sub(base_before),
+            Side::Ask => base_before.checked_sub(base_after),
+        }
+        .ok_or(HarnessError::AmountOverflow)?;
+        require!(
+            delta == expected_base_atoms,
+            HarnessError::PartialFillReverted
+        );
         Ok(())
     }
 }
@@ -469,4 +499,10 @@ pub enum HarnessError {
     VenuePaused,
     #[msg("order rejected: at or after close")]
     TradingClosed,
+    #[msg("take quantity must be positive")]
+    ZeroTakeQuantity,
+    #[msg("amount arithmetic overflow")]
+    AmountOverflow,
+    #[msg("Market Action did not fill fully; reverting (no partial exposure)")]
+    PartialFillReverted,
 }
