@@ -2,7 +2,7 @@
 
 ## Current focus
 
-The working freeze is PRD **v0.7** + ARCHITECTURE **v1.1** + ADRs **0001–0029**. **M0 is underway.** G1's identity requirements are GREEN against Meridian's own finalized OpenBook copy (`923gYkFC…`, authority `None`, slot `485624272`) — the canonical deployment failed G1 on a retained upgrade authority and ADR-0029 resolved it (user-approved, executed 2026-08-20). Next: the M0 CPI harness for G2–G10, iterated on localnet with the same artifact at the same program ID, measured on devnet against the Meridian copy. G1 golden-test items (zero-fee encoding, PostOnly/SelfTradeBehavior, lot math, 15-account inline limit, create-market discriminator) remain open. Still no program, services, or app code.
+The working freeze is PRD **v0.7** + ARCHITECTURE **v1.1** + ADRs 0001–0028 (**0029 invalidated by evidence**). **M0 underway; G2 is GREEN on localnet (7/7)** via the m0-harness at the canonical OpenBook ID. **G1 is reopened**: v1.7's compiled-in `declare_id` makes any re-ID'd copy inert (the `923gY…` devnet deployment is permanently inert, 7.21 SOL sunk), and a binary patch is unprovable (second inlined ID copy). The artifact runs ONLY at canonical `opnb2LAf…`, whose devnet deployment retains an external upgrade authority. Pending stakeholder decision: accept canonical + monitored fail-closed identity checks (needs PRD G1 revision) — see pin evidence §7. Harness: `programs/m0-harness` (anchor 0.31, MIT-IDL hand-rolled CPI = G1 fallback-adapter proof), `tests/g2.test.ts`, `scripts/run-g2.sh`, pinned fixture in `fixtures/`.
 
 ## What is true right now (2026-08-19 evening)
 
