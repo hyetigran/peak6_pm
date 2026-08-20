@@ -2,7 +2,7 @@
 
 ## Current focus
 
-Product and architecture are **reconciled through ADR-0028**. The working freeze is PRD **v0.7** and ARCHITECTURE **v1.1**. **M0 has begun and G1 is RED**: the devnet OpenBook deployment retains a live upgrade authority (`Cax5s8Cj…`), a non-waiverable failure per G1. Executable bytes, hash, and commit all match the pin exactly (evidence: `docs/adr/openbook-v2-pin.md`). Humans must choose: deploy an immutable byte-identical copy (new program ID, new ADR), revise G1's non-waiverable clause (PRD revision), or stop. G2–G10 measurement may continue against slot `282042596`; M1 stays blocked. Still no program, services, or app code.
+The working freeze is PRD **v0.7** + ARCHITECTURE **v1.1** + ADRs **0001–0029**. **M0 is underway.** G1's identity requirements are GREEN against Meridian's own finalized OpenBook copy (`923gYkFC…`, authority `None`, slot `485624272`) — the canonical deployment failed G1 on a retained upgrade authority and ADR-0029 resolved it (user-approved, executed 2026-08-20). Next: the M0 CPI harness for G2–G10, iterated on localnet with the same artifact at the same program ID, measured on devnet against the Meridian copy. G1 golden-test items (zero-fee encoding, PostOnly/SelfTradeBehavior, lot math, 15-account inline limit, create-market discriminator) remain open. Still no program, services, or app code.
 
 ## What is true right now (2026-08-19 evening)
 

@@ -1,8 +1,27 @@
 # OpenBook V2 pin evidence (G1)
 
-**Status: G1 RED — non-waiverable failure.** The executable identity is fully verified against the pin, but the devnet deployment retains a live upgrade authority, which G1 names as a non-waiverable failure that reopens the architecture before funds are exposed. Do not begin M1 from this file.
+**Status: G1 identity requirements GREEN against the Meridian deployment (ADR-0029).** The canonical devnet deployment failed G1 on a retained upgrade authority (§6, preserved below as the finding that forced ADR-0029). Per that ADR, V1 binds to Meridian's own finalized, byte-identical copy, verified in §0. G1's remaining golden-test items (§5 closing note) are still open M0 work.
 
-Verified 2026-08-19 against `https://api.devnet.solana.com` and `https://api.mainnet-beta.solana.com` (solana-cli 3.1.13), the official GitHub release, and source files fetched at the pinned commit. Every fact below cites where it was read.
+## 0. Meridian deployment (the V1 binding identity)
+
+Deployed and verified 2026-08-20T02:39:34Z (slot block time):
+
+| Field | Value |
+| --- | --- |
+| Program ID | `923gYkFCtTtrL9pX7vQNKR7QJchb2jpY3s26xiWuDxz4` |
+| Owner | `BPFLoaderUpgradeab1e11111111111111111111111` |
+| ProgramData address | `87S9cJyGfg5o95Fh8DGGoKmiERm88kDQQ2rqBXfpbJRg` |
+| **Upgrade authority** | **`None` — finalized, immutable** |
+| Last deployed in slot | `485624272` (2026-08-20T02:39:34Z) |
+| Data length | 1,035,960 bytes — exactly the artifact size, no padding |
+| ProgramData balance (rent) | 7.21148568 SOL |
+| Deploy signature | `4cxiTTWyoANfxsu4WccmcvURT4WY8QEn2DhzCkdajZUvnuAcmQKRceCSn7B8eGrUbHmaPtWFmRSb8ZNU1ccfwWRR` |
+
+Post-deploy verification: `solana program dump` of this program returns bytes whose raw SHA-256 is `a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8` — **the pinned official-artifact hash directly**, with `cmp` confirming byte-identity. Because ProgramData was allocated at exact artifact size, no truncation rule is needed for this deployment; preflight may compare the raw dump hash. `initialize_config` stores this table's program ID, ProgramData address, slot, and hash; every OpenBook CPI re-verifies them. All G2–G10 measurements run against this deployment. If devnet is ever reset, redeploy from the release artifact and re-run this verification before any other work.
+
+Sections 1–6 below record the canonical deployment's verification and the finding that reopened the architecture.
+
+Canonical deployment verified 2026-08-19 against `https://api.devnet.solana.com` and `https://api.mainnet-beta.solana.com` (solana-cli 3.1.13), the official GitHub release, and source files fetched at the pinned commit. Every fact below cites where it was read.
 
 ## 1. Deployed identity
 
@@ -66,4 +85,4 @@ This cannot be waived and cannot be fixed by Meridian-side checks alone: the per
 2. **Accept the retained authority as a monitored risk**: keep the canonical deployment, rely on the existing fail-closed ProgramData/slot/hash checks, add an alert on any authority/slot change. Requires stakeholders to explicitly revise G1's non-waiverable clause in a new PRD revision — the PRD currently forbids exactly this.
 3. **Stop** until the OpenBook deployer burns the authority (outside Meridian's control; no basis to expect it).
 
-Until one of these is adopted by ADR, M0 continues on gates that do not depend on executable immutability (G2–G10 measurements run against the current deployment and stay valid as long as the recorded slot `282042596` is unchanged), and M1 remains blocked.
+**Resolution:** option 1 was adopted as ADR-0029 on 2026-08-19 and executed on 2026-08-20; the Meridian deployment in §0 is the V1 binding identity. The canonical deployment is no longer load-bearing for Meridian.

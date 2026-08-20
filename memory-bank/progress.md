@@ -37,7 +37,7 @@ Date: 2026-08-19 evening.
 | PRD v0.7 / ARCHITECTURE v1.1 reconciliation | Done in working tree; **unstaged** |
 | Design mockups | Present; untracked |
 | Memory Bank | Updated to current freeze |
-| M0 G1–G12 | Started 2026-08-19. **G1 RED** (retained OpenBook upgrade authority — non-waiverable; `docs/adr/openbook-v2-pin.md`). Executable/commit/hash verified PASS. G2–G12 pending |
+| M0 G1–G12 | Started 2026-08-19. G1 identity GREEN via ADR-0029 Meridian copy `923gYkFC…` (deployed+verified 2026-08-20; golden-test items open). G2–G12 pending |
 | M1 program core | Blocked on signed M0 go/no-go |
 | M2 OpenBook integration | Blocked |
 | M3 oracle/settlement | Blocked; provider unchosen |
@@ -76,7 +76,7 @@ Will not protect `.env` or keypairs once they appear.
 - EventHeap backlog near close (inline makers + pre-consume + fail-closed; keeper ≥2× throughput).
 - First-use Buy-No-limit exceeds tx limits (G7; only named waiver).
 - OpenBook rent + permanent SettlementRecord/metadata (G8; 49/day × 5 days + 20%).
-- **REALIZED:** OpenBook devnet upgrade authority is retained (`Cax5s8Cj…`); mainnet likewise (`CZoAmQEr…`). G1 red pending a human decision (own immutable deployment / G1 revision / stop). Bytes+hash+commit verified clean.
+- **RESOLVED (ADR-0029):** canonical OpenBook authority retained ⇒ Meridian deployed its own finalized byte-identical copy `923gYkFC…`. Residual: devnet reset would require redeploy + re-verification; program keypair in gitignored `wallets/` is disposable.
 - GPL contamination of CPI adapter.
 - `redeem_pair_via_market` vault-spend bugs; knowing self-cross must be avoided (G5).
 - Provider cannot supply same-record Nasdaq NOCP (G11 go/no-go).

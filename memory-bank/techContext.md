@@ -4,8 +4,8 @@
 
 - **Chain:** Solana **devnet** only for the core submission. No mainnet, no real funds.
 - **Meridian program:** Rust + Anchor.
-- **CLOB:** OpenBook V2 **deployed v1.7**, program `opnb2LAfJYbRMAHHvqjCwQxanZn7ReEHp1k81EohpZb`.
-- **Pin (G1 verified 2026-08-19 — executable/commit/hash PASS; `upgrade_authority` is RETAINED (`Cax5s8Cj…` devnet, `CZoAmQEr…` mainnet) ⇒ G1 RED, see `docs/adr/openbook-v2-pin.md`):**
+- **CLOB:** OpenBook V2 v1.7 via **Meridian's own finalized devnet copy** `923gYkFCtTtrL9pX7vQNKR7QJchb2jpY3s26xiWuDxz4` (ADR-0029; authority `None`, slot `485624272`, ProgramData `87S9cJyGfg5o95Fh8DGGoKmiERm88kDQQ2rqBXfpbJRg`, raw dump hash == pin). Canonical `opnb2LAf…` is NOT used (retained upgrade authority). Localnet: load the same artifact at the same program ID via `solana-test-validator --bpf-program`.
+- **Pin (G1 identity GREEN against Meridian copy per ADR-0029; canonical deployment failed on retained authority — see `docs/adr/openbook-v2-pin.md`):**
   - release commit `796a470`
   - build SHA-256 `a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8`
 - **Settlement transport:** Switchboard On-Demand carrying one atomically bound Settlement Record per ticker and Trading Day. Delivery path, not source of truth.
