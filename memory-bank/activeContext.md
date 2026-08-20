@@ -2,7 +2,7 @@
 
 ## Current focus
 
-Product and architecture are **reconciled through ADR-0028**. The working freeze is PRD **v0.7** and ARCHITECTURE **v1.1**. The product decision frontier is empty. **M0 (G1–G12) is authorized to begin.** M1 starts only after a signed go/no-go report. There is still no program, services, or app code.
+Product and architecture are **reconciled through ADR-0028**. The working freeze is PRD **v0.7** and ARCHITECTURE **v1.1**. **M0 has begun and G1 is RED**: the devnet OpenBook deployment retains a live upgrade authority (`Cax5s8Cj…`), a non-waiverable failure per G1. Executable bytes, hash, and commit all match the pin exactly (evidence: `docs/adr/openbook-v2-pin.md`). Humans must choose: deploy an immutable byte-identical copy (new program ID, new ADR), revise G1's non-waiverable clause (PRD revision), or stop. G2–G10 measurement may continue against slot `282042596`; M1 stays blocked. Still no program, services, or app code.
 
 ## What is true right now (2026-08-19 evening)
 

@@ -5,7 +5,7 @@
 - **Chain:** Solana **devnet** only for the core submission. No mainnet, no real funds.
 - **Meridian program:** Rust + Anchor.
 - **CLOB:** OpenBook V2 **deployed v1.7**, program `opnb2LAfJYbRMAHHvqjCwQxanZn7ReEHp1k81EohpZb`.
-- **Pin (re-verify in M0 G1; require `upgrade_authority == None`):**
+- **Pin (G1 verified 2026-08-19 — executable/commit/hash PASS; `upgrade_authority` is RETAINED (`Cax5s8Cj…` devnet, `CZoAmQEr…` mainnet) ⇒ G1 RED, see `docs/adr/openbook-v2-pin.md`):**
   - release commit `796a470`
   - build SHA-256 `a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8`
 - **Settlement transport:** Switchboard On-Demand carrying one atomically bound Settlement Record per ticker and Trading Day. Delivery path, not source of truth.
@@ -24,7 +24,7 @@ Re-read from the pinned v1.7 release in M0, not from `master`:
 - `open_orders_admin` must sign order creation including `place_take_order`.
 - Expiry predicate is strict: `time_expiry != 0 && time_expiry < now`. Meridian sets `time_expiry = close_ts - 1`.
 - `place_take_order` has no referrer account; `settle_funds` optionally does (wrapper forces none).
-- Inline maker fills: up to 15 remaining OpenOrders accounts; otherwise EventHeap. New heap entries charge 500 lamports to `penalty_payer`.
+- Inline maker fills: up to 15 remaining OpenOrders accounts; otherwise EventHeap. At the pinned v1.7 commit `PENALTY_EVENT_HEAP = 0` (`state/market.rs:16`) — heap entries charge **nothing**; the 500-lamport figure is from a later revision. `penalty_heap_count` still increments; golden-test the constant stays 0.
 - `consume_events_admin = None` → permissionless consume.
 - `close_market_admin` controls `set_market_expired` / prune / close.
 - `collect_fee_admin` is still a required pubkey even at zero fees → unsignable sentinel, never a Meridian PDA.
