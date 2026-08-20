@@ -1,7 +1,7 @@
 import http from "node:http";
 import type Database from "better-sqlite3";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { decodeBookSide, ladder, type BookLevel } from "./layout.js";
+import { decodeBookSide, ladder, ownersFor, type BookLevel } from "./layout.js";
 
 function json(res: http.ServerResponse, code: number, body: unknown) {
   const s = JSON.stringify(body);
@@ -37,8 +37,10 @@ export function serve(db: Database.Database, conn: Connection, port: number) {
         if (!row.openbook_market || row.openbook_market === "11111111111111111111111111111111")
           return json(res, 200, { bids: [], asks: [], best_bid: null, best_ask: null, mark: null, yes_prob: null, no_prob: null, note: "no venue attached" });
         const [bidsInfo, asksInfo] = await conn.getMultipleAccountsInfo([new PublicKey(row.bids), new PublicKey(row.asks)]);
-        const bids: BookLevel[] = bidsInfo ? ladder(decodeBookSide(bidsInfo.data as Buffer), "bid") : [];
-        const asks: BookLevel[] = asksInfo ? ladder(decodeBookSide(asksInfo.data as Buffer), "ask") : [];
+        const bidLeaves = bidsInfo ? decodeBookSide(bidsInfo.data as Buffer) : [];
+        const askLeaves = asksInfo ? decodeBookSide(asksInfo.data as Buffer) : [];
+        const bids: BookLevel[] = ladder(bidLeaves, "bid");
+        const asks: BookLevel[] = ladder(askLeaves, "ask");
         const bestBid = bids[0]?.price ?? null;
         const bestAsk = asks[0]?.price ?? null;
         const mark = bestBid != null && bestAsk != null ? (bestBid + bestAsk) / 2
@@ -47,6 +49,7 @@ export function serve(db: Database.Database, conn: Connection, port: number) {
           bids, asks, best_bid: bestBid, best_ask: bestAsk, mark,
           yes_prob: mark != null ? +(mark / 100).toFixed(4) : null,
           no_prob: mark != null ? +((100 - mark) / 100).toFixed(4) : null,
+          bid_owners: ownersFor(bidLeaves, "bid"), ask_owners: ownersFor(askLeaves, "ask"),
         });
       }
       const pMatch = url.pathname.match(/^\/portfolio\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);

@@ -18,6 +18,13 @@ async function j<T>(path: string): Promise<T> {
 }
 export const getMarkets = () => j<{ markets: Market[]; meta: Health }>("/markets");
 export const getMarket = (pk: string) => j<Market>(`/markets/${pk}`);
+export interface Book {
+  bids: { price: number; shares: number }[]; asks: { price: number; shares: number }[];
+  best_bid: number | null; best_ask: number | null; mark: number | null;
+  yes_prob: number | null; no_prob: number | null;
+  bid_owners: string[]; ask_owners: string[]; note?: string;
+}
+export const getBook = (pk: string) => j<Book>(`/book/${pk}`);
 export const getHealth = () => j<Health & { ok: boolean }>("/health");
 export const getPortfolio = (wallet: string) =>
   j<{ owner: string; positions: any[] }>(`/portfolio/${wallet}`);

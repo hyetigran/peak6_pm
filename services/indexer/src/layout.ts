@@ -93,21 +93,31 @@ const LEAF_TAG = 2;
 
 export interface BookLevel { price: number; shares: number }
 
-export function decodeBookSide(data: Buffer): { price: number; shares: number }[] {
-  const leaves: { price: number; shares: number }[] = [];
+export interface Leaf { price: number; shares: number; owner: string }
+export function decodeBookSide(data: Buffer): Leaf[] {
+  const leaves: Leaf[] = [];
   for (let i = 0; i < MAX_NODES; i++) {
     const off = BOOK_NODES_OFFSET + i * NODE_SIZE;
     if (off + NODE_SIZE > data.length) break;
     if (data[off] !== LEAF_TAG) continue;
     const price = Number(data.readBigUInt64LE(off + 16)); // high 64 bits of key
     const shares = Number(data.readBigInt64LE(off + 56));
-    if (shares > 0) leaves.push({ price, shares });
+    const owner = new PublicKey(data.subarray(off + 24, off + 24 + 32)).toBase58(); // LeafNode.owner
+    if (shares > 0) leaves.push({ price, shares, owner });
   }
   return leaves;
 }
 
+/** Distinct order owners (OpenOrders accounts), best-price first, capped. */
+export function ownersFor(leaves: Leaf[], side: "bid" | "ask", cap = 11): string[] {
+  const sorted = [...leaves].sort((a, b) => (side === "bid" ? b.price - a.price : a.price - b.price));
+  const seen = new Set<string>();
+  for (const l of sorted) { if (seen.size >= cap) break; seen.add(l.owner); }
+  return [...seen];
+}
+
 /** Aggregate leaves into price levels; sort bids desc, asks asc. */
-export function ladder(leaves: { price: number; shares: number }[], side: "bid" | "ask"): BookLevel[] {
+export function ladder(leaves: Leaf[], side: "bid" | "ask"): BookLevel[] {
   const by = new Map<number, number>();
   for (const l of leaves) by.set(l.price, (by.get(l.price) ?? 0) + l.shares);
   const levels = [...by.entries()].map(([price, shares]) => ({ price, shares }));

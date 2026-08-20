@@ -13,6 +13,7 @@ const DISC: Record<string, number[]> = {
   place_take_order: [3, 44, 71, 3, 26, 199, 203, 85],
   redeem_pair_direct: [244, 116, 20, 210, 39, 49, 85, 1],
   redeem_winning: [191, 44, 57, 7, 31, 46, 190, 162],
+  redeem_no_via_market: [35, 188, 183, 140, 192, 85, 133, 122],
   create_open_orders_indexer: [64, 64, 153, 255, 217, 71, 249, 133],
   create_open_orders_account: [204, 181, 175, 222, 40, 125, 188, 71],
 };
@@ -202,4 +203,56 @@ export function placeTakeOrderIx(o: {
   ];
   for (const oo of o.makerOos) keys.push({ pubkey: oo, isSigner: false, isWritable: true });
   return new TransactionInstruction({ programId: MERIDIAN, keys, data: Buffer.concat([disc("place_take_order"), args]) });
+}
+
+export const tradeYesAta = (market: PublicKey, yesMint: PublicKey) => ataFor(yesMint, market);
+
+/** Idempotent-create the program Yes-trade ATA (owner = market PDA). */
+export function createTradeAtaIx(payer: PublicKey, market: PublicKey, yesMint: PublicKey): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: ATA,
+    keys: [
+      { pubkey: payer, isSigner: true, isWritable: true },
+      { pubkey: ataFor(yesMint, market), isSigner: false, isWritable: true },
+      { pubkey: market, isSigner: false, isWritable: false },
+      { pubkey: yesMint, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: TOKEN, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from([1]), // CreateIdempotent
+  });
+}
+
+export function redeemNoViaMarketIx(user: PublicKey, o: {
+  market: PublicKey; yesMint: PublicKey; noMint: PublicKey; collateralVault: PublicKey;
+  userQuote: PublicKey; userNo: PublicKey; obMarket: PublicKey; bids: PublicKey; asks: PublicKey;
+  baseVault: PublicKey; quoteVault: PublicKey; eventHeap: PublicKey;
+  makerOos: PublicKey[]; qLots: bigint; priceLots: bigint;
+}): TransactionInstruction {
+  const data = Buffer.alloc(24);
+  Buffer.from(DISC.redeem_no_via_market ?? []).copy(data);
+  data.writeBigInt64LE(o.qLots, 8); data.writeBigInt64LE(o.priceLots, 16);
+  const keys: AccountMeta[] = [
+    { pubkey: user, isSigner: true, isWritable: true },
+    { pubkey: configPda(), isSigner: false, isWritable: false },
+    { pubkey: o.market, isSigner: false, isWritable: true },
+    { pubkey: o.yesMint, isSigner: false, isWritable: true },
+    { pubkey: o.noMint, isSigner: false, isWritable: true },
+    { pubkey: o.collateralVault, isSigner: false, isWritable: true },
+    { pubkey: ataFor(o.yesMint, o.market), isSigner: false, isWritable: true },
+    { pubkey: o.userQuote, isSigner: false, isWritable: true },
+    { pubkey: o.userNo, isSigner: false, isWritable: true },
+    { pubkey: o.obMarket, isSigner: false, isWritable: true },
+    { pubkey: marketAuthorityPda(o.obMarket), isSigner: false, isWritable: false },
+    { pubkey: o.bids, isSigner: false, isWritable: true },
+    { pubkey: o.asks, isSigner: false, isWritable: true },
+    { pubkey: o.baseVault, isSigner: false, isWritable: true },
+    { pubkey: o.quoteVault, isSigner: false, isWritable: true },
+    { pubkey: o.eventHeap, isSigner: false, isWritable: true },
+    { pubkey: OPENBOOK, isSigner: false, isWritable: false },
+    { pubkey: TOKEN, isSigner: false, isWritable: false },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+  ];
+  for (const oo of o.makerOos) keys.push({ pubkey: oo, isSigner: false, isWritable: true });
+  return new TransactionInstruction({ programId: MERIDIAN, keys, data });
 }
