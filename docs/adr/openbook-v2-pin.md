@@ -190,24 +190,25 @@ re-verify on devnet under issue #8.
 
 | Account class | Bytes | Lamports |
 | --- | ---: | ---: |
-| OpenBook market | 840 | 6,792,960 |
+| OpenBook market | 848 | 6,792,960 |
 | bids / asks (each) | 90,952 | 633,916,800 |
 | EventHeap | 91,288 | 636,255,360 |
 | market vault ATA (each) | 165 | 2,039,280 |
 | OpenOrders account | 1,264 | 9,688,320 |
 | OO indexer (1 entry) | 49 | 1,231,920 |
 | SPL mint | 82 | 1,461,600 |
-| SettlementRecord (frozen layout, 524 B) | 524 | 4,537,920 |
-| SettlementTransportVersion (frozen layout) | 306 | 2,881,440 |
-| Metaplex metadata (standard 679 B) | 679 | 5,616,720 |
+| venue gate (harness) | 89 | 1,510,320 |
+| SettlementRecord (frozen layout, computed) | 524 | 4,537,920 |
+| SettlementTransportVersion (frozen layout, computed) | 286 | 2,881,440 |
+| Metaplex metadata (standard 679 B, computed; measure in G12) | 679 | 5,616,720 |
 
 Budget (49 Outcome Markets/day + 7 Settlement Records/day, five Trading
-Days, +20% reserve): **567.4 SOL**, dominated by
+Days, +20% reserve): **567.8 SOL**, dominated by
 bids/asks/EventHeap (~1.90 SOL per Venue Market). Worst-case locked
 (vault ATAs, mints, metadata, Settlement Records — no close path at the pin)
-is only **0.93 SOL/day**; **93.6 SOL/day** is reclaimable via
-`close_market` once markets are settled and empty. A same-week recycling
-strategy (close yesterday's markets before funding today's) cuts the float to
+is only **1.00 SOL/day** (incl. the harness venue gate); **93.6 SOL/day** is reclaimable via
+`close_market` once the Outcome Markets are Settled and the Venue Markets empty. A same-week recycling
+strategy (close yesterday's Venue Markets before funding today's) cuts the float to
 roughly one day of venue rent plus accumulated locked rent; the headline
 number assumes no recycling. This quantifies the PRD risk-register item
 "OpenBook large-account rent".

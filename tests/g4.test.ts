@@ -137,7 +137,7 @@ before(async () => {
 
   await send([ob.harnessInitializeIx(payer.publicKey)], [payer]);
   const now = BigInt(Math.floor(Date.now() / 1000));
-  await send([ob.harnessCreateVenueGateIx(payer.publicKey, market.publicKey, now - 60n, now + 3600n)], [payer]);
+  await send([ob.harnessCreateVenueGateIx(payer.publicKey, market.publicKey, now - 60n, now + 3600n, payer.publicKey)], [payer]);
   await send([
     ob.createOoIndexerIx(payer.publicKey, maker.publicKey),
     ob.createOoAccountIx(payer.publicKey, maker.publicKey, 1, market.publicKey),

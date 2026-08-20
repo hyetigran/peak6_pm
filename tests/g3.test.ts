@@ -152,7 +152,7 @@ before(async () => {
 test("G3.1 order pre-open rejected, program-clock-exact", async () => {
   const m = await newMarket(0n, "G3-preopen");
   const open = (await chainNow()) + 3600n;
-  await send([ob.harnessCreateVenueGateIx(payer.publicKey, m.market.publicKey, open, open + 3600n)], [payer]);
+  await send([ob.harnessCreateVenueGateIx(payer.publicKey, m.market.publicKey, open, open + 3600n, payer.publicKey)], [payer]);
   const r = await sendRaw([placeIx(m, 1n)], [maker]);
   assert.notEqual(r.err, null, "pre-open order must fail");
   assert.ok(r.logs.join("\n").includes("OrderBeforeOpen"), "fails with OrderBeforeOpen");
@@ -162,7 +162,7 @@ test("G3.1 order pre-open rejected, program-clock-exact", async () => {
 test("G3.2 pause rejects orders, preserves resting orders, keeps recovery open (ADR-0010)", async () => {
   const m = await newMarket(0n, "G3-pause");
   const now = await chainNow();
-  await send([ob.harnessCreateVenueGateIx(payer.publicKey, m.market.publicKey, now - 60n, now + 3600n)], [payer]);
+  await send([ob.harnessCreateVenueGateIx(payer.publicKey, m.market.publicKey, now - 60n, now + 3600n, payer.publicKey)], [payer]);
 
   const quoteBefore = (await getAccount(conn, makerQuoteAta)).amount;
   await send([placeIx(m, 1n)], [maker]); // resting bid: 0.50 locked
@@ -191,7 +191,7 @@ test("G3.2 pause rejects orders, preserves resting orders, keeps recovery open (
 test("G3.3 close boundary: success iff program clock < close_ts", async () => {
   const m = await newMarket(0n, "G3-close");
   const close = (await chainNow()) + 12n;
-  await send([ob.harnessCreateVenueGateIx(payer.publicKey, m.market.publicKey, close - 3600n, close)], [payer]);
+  await send([ob.harnessCreateVenueGateIx(payer.publicKey, m.market.publicKey, close - 3600n, close, payer.publicKey)], [payer]);
   const results = await probeBoundary(m);
   for (const r of results) {
     if (r.ok) assert.ok(r.now < close, `success at clock ${r.now} must precede close ${close}`);
@@ -205,7 +205,7 @@ test("G3.3 close boundary: success iff program clock < close_ts", async () => {
 test("G3.4 OpenBook expiry boundary: success iff program clock <= time_expiry; recovery after", async () => {
   const T = (await chainNow()) + 14n;
   const m = await newMarket(T, "G3-expiry");
-  await send([ob.harnessCreateVenueGateIx(payer.publicKey, m.market.publicKey, T - 3600n, T + 3600n)], [payer]);
+  await send([ob.harnessCreateVenueGateIx(payer.publicKey, m.market.publicKey, T - 3600n, T + 3600n, payer.publicKey)], [payer]);
   const quoteBefore = (await getAccount(conn, makerQuoteAta)).amount;
   const results = await probeBoundary(m);
   for (const r of results) {
@@ -223,7 +223,7 @@ test("G3.4 OpenBook expiry boundary: success iff program clock <= time_expiry; r
 test("G3.5 set_market_expired: admin-only one-way fuse; recovery intact (ADR-0018)", async () => {
   const m = await newMarket(0n, "G3-fuse");
   const now = await chainNow();
-  await send([ob.harnessCreateVenueGateIx(payer.publicKey, m.market.publicKey, now - 60n, now + 3600n)], [payer]);
+  await send([ob.harnessCreateVenueGateIx(payer.publicKey, m.market.publicKey, now - 60n, now + 3600n, payer.publicKey)], [payer]);
   const quoteBefore = (await getAccount(conn, makerQuoteAta)).amount;
   await send([placeIx(m, 1n)], [maker]); // resting order through the fuse
 
@@ -262,7 +262,7 @@ test("G3.5 set_market_expired: admin-only one-way fuse; recovery intact (ADR-001
 test("G3.6 Meridian config: time_expiry = close_ts - 1 rejects at exactly close_ts", async () => {
   const close = (await chainNow()) + 14n;
   const m = await newMarket(close - 1n, "G3-meridian"); // the Meridian rule itself
-  await send([ob.harnessCreateVenueGateIx(payer.publicKey, m.market.publicKey, close - 3600n, close)], [payer]);
+  await send([ob.harnessCreateVenueGateIx(payer.publicKey, m.market.publicKey, close - 3600n, close, payer.publicKey)], [payer]);
   const results = await probeBoundary(m);
   for (const r of results) {
     // defense in depth: gate rejects at clock >= close_ts; even without it,

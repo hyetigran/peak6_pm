@@ -125,19 +125,23 @@ test("G8.1 measure every existing account class; emit evidence table", async () 
   assert.equal(rows.find(r => r.name === "user_ata")!.bytes, ATA_BYTES);
 
   // frozen-layout Meridian accounts: exact rent, computed
+  // computed exactly from frozen layouts — NOT on-chain measurements; each
+  // must be re-measured when its account first exists (records/transport in
+  // M1/M3, metadata in G12)
+  const computed: { name: string; bytes: number; lamports: number; computed_from_frozen_layout: true }[] = [];
   for (const [name, bytes] of [
     ["settlement_record_frozen_layout", SETTLEMENT_RECORD_BYTES],
     ["settlement_transport_version_frozen_layout", TRANSPORT_VERSION_BYTES],
     ["metaplex_metadata_standard", METAPLEX_METADATA_BYTES],
   ] as const) {
-    rows.push({ name, bytes, lamports: await conn.getMinimumBalanceForRentExemption(bytes) });
+    computed.push({ name, bytes, lamports: await conn.getMinimumBalanceForRentExemption(bytes), computed_from_frozen_layout: true });
   }
 
-  const L = (n: string) => rows.find(r => r.name === n)!.lamports;
+  const L = (n: string) => [...rows, ...computed].find(r => r.name === n)!.lamports;
   // one Outcome Market's venue-side footprint (operator-funded; PRD G8: the
   // operator is payer for every OpenBook Market/book/EventHeap/vault allocation)
   const perMarketVenue = L("openbook_market") + L("bids") + L("asks") + L("event_heap")
-    + L("market_base_vault_ata") + L("market_quote_vault_ata");
+    + L("market_base_vault_ata") + L("market_quote_vault_ata") + L("venue_gate");
   // Meridian-side per Outcome Market (known today): 2 mints + 2 immutable
   // metadata; the Outcome Market account itself lands in M1
   const perMarketMeridianKnown = 2n * BigInt(L("spl_mint")) + 2n * BigInt(L("metaplex_metadata_standard"));
@@ -146,7 +150,8 @@ test("G8.1 measure every existing account class; emit evidence table", async () 
   const fiveDay = perDay * 5n;
   const budget = (fiveDay * 120n) / 100n;
   // worst-case locked: vaults, mints, metadata, settlement records never close
-  const lockedPerDay = 49n * (BigInt(L("market_base_vault_ata")) + BigInt(L("market_quote_vault_ata")) + perMarketMeridianKnown)
+  // venue_gate has no close path in the harness => locked
+  const lockedPerDay = 49n * (BigInt(L("market_base_vault_ata")) + BigInt(L("market_quote_vault_ata")) + BigInt(L("venue_gate")) + perMarketMeridianKnown)
     + 7n * BigInt(L("settlement_record_frozen_layout"));
   // best-case reclaimed: market+books+heap via close_market, OO accounts by owners
   const reclaimablePerDay = 49n * BigInt(L("openbook_market") + L("bids") + L("asks") + L("event_heap"));
@@ -154,8 +159,9 @@ test("G8.1 measure every existing account class; emit evidence table", async () 
   const evidence = {
     method: "measured on localnet against the pinned bytes; rent parameters are cluster defaults (verify on devnet in issue #8)",
     measured: rows,
+    computed_from_frozen_layouts: computed,
     budget_lamports: {
-      per_market_venue_side: perMarketVenue,
+      per_market_venue_side: perMarketVenue.toString(),
       per_market_meridian_known_side: perMarketMeridianKnown.toString(),
       per_day_49_markets_7_records: perDay.toString(),
       five_days: fiveDay.toString(),
@@ -163,7 +169,11 @@ test("G8.1 measure every existing account class; emit evidence table", async () 
       worst_case_locked_per_day: lockedPerDay.toString(),
       best_case_reclaimable_per_day: reclaimablePerDay.toString(),
     },
-    pending_m1: ["meridian_outcome_market_account", "meridian_config", "64-byte reserved padding verification in allocations"],
+    pending_on_chain_measurement: [
+      "meridian_outcome_market_account (M1)", "meridian_config (M1)",
+      "settlement_record (M1/M3)", "settlement_transport_version (M1/M3)",
+      "metaplex_metadata (G12)", "64-byte reserved padding verification in allocations (M1)",
+    ],
   };
   fs.writeFileSync("docs/adr/g8-rent-measurements.json", JSON.stringify(evidence, null, 2) + "\n");
   assert.ok(budget > 0n);

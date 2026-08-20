@@ -298,7 +298,7 @@ export const venueGatePda = (market: PublicKey) =>
 
 export function harnessCreateVenueGateIx(
   admin: PublicKey, market: PublicKey, tradeOpenTs: bigint, closeTs: bigint,
-  rentRefund: PublicKey = admin, // ADR-0027 snapshot; defaults to admin
+  rentRefund: PublicKey, // ADR-0027 snapshot — always explicit, never defaulted
 ): TransactionInstruction {
   const data = Buffer.concat([disc("create_venue_gate"), i64le(tradeOpenTs), i64le(closeTs), rentRefund.toBuffer()]);
   return new TransactionInstruction({

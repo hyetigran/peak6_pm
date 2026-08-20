@@ -72,21 +72,16 @@ pub mod m0_harness {
             AccountMeta::new_readonly(ctx.accounts.venue_authority.key(), true),
             AccountMeta::new(ctx.accounts.market.key(), false),
         ];
-        let ix = Instruction {
-            program_id: ctx.accounts.openbook_program.key(),
-            accounts: metas,
-            data: DISC_SET_MARKET_EXPIRED.to_vec(),
-        };
-        let bump = [ctx.accounts.config.venue_authority_bump];
-        let seeds: &[&[u8]] = &[VENUE_AUTHORITY_SEED, &bump];
-        invoke_signed(
-            &ix,
+        venue_signed_cpi(
+            ctx.accounts.openbook_program.key(),
+            metas,
             &[
                 ctx.accounts.venue_authority.to_account_info(),
                 ctx.accounts.market.to_account_info(),
                 ctx.accounts.openbook_program.to_account_info(),
             ],
-            &[seeds],
+            DISC_SET_MARKET_EXPIRED.to_vec(),
+            ctx.accounts.config.venue_authority_bump,
         )?;
         Ok(())
     }
@@ -105,15 +100,9 @@ pub mod m0_harness {
         ];
         let mut data = DISC_PRUNE_ORDERS.to_vec();
         data.push(limit);
-        let ix = Instruction {
-            program_id: ctx.accounts.openbook_program.key(),
-            accounts: metas,
-            data,
-        };
-        let bump = [ctx.accounts.config.venue_authority_bump];
-        let seeds: &[&[u8]] = &[VENUE_AUTHORITY_SEED, &bump];
-        invoke_signed(
-            &ix,
+        venue_signed_cpi(
+            ctx.accounts.openbook_program.key(),
+            metas,
             &[
                 ctx.accounts.venue_authority.to_account_info(),
                 ctx.accounts.open_orders_account.to_account_info(),
@@ -122,7 +111,8 @@ pub mod m0_harness {
                 ctx.accounts.asks.to_account_info(),
                 ctx.accounts.openbook_program.to_account_info(),
             ],
-            &[seeds],
+            data,
+            ctx.accounts.config.venue_authority_bump,
         )?;
         Ok(())
     }
@@ -145,15 +135,9 @@ pub mod m0_harness {
             AccountMeta::new(ctx.accounts.sol_destination.key(), false),
             AccountMeta::new_readonly(ctx.accounts.token_program.key(), false),
         ];
-        let ix = Instruction {
-            program_id: ctx.accounts.openbook_program.key(),
-            accounts: metas,
-            data: DISC_CLOSE_MARKET.to_vec(),
-        };
-        let bump = [ctx.accounts.config.venue_authority_bump];
-        let seeds: &[&[u8]] = &[VENUE_AUTHORITY_SEED, &bump];
-        invoke_signed(
-            &ix,
+        venue_signed_cpi(
+            ctx.accounts.openbook_program.key(),
+            metas,
             &[
                 ctx.accounts.venue_authority.to_account_info(),
                 ctx.accounts.market.to_account_info(),
@@ -164,7 +148,8 @@ pub mod m0_harness {
                 ctx.accounts.token_program.to_account_info(),
                 ctx.accounts.openbook_program.to_account_info(),
             ],
-            &[seeds],
+            DISC_CLOSE_MARKET.to_vec(),
+            ctx.accounts.config.venue_authority_bump,
         )?;
         Ok(())
     }
@@ -196,15 +181,9 @@ pub mod m0_harness {
             AccountMeta::new_readonly(ob, false), // oracle_b: None
             AccountMeta::new_readonly(ctx.accounts.token_program.key(), false),
         ];
-        let ix = Instruction {
-            program_id: ob,
-            accounts: metas,
-            data: ix_data(DISC_PLACE_ORDER, &args),
-        };
-        let bump = [ctx.accounts.config.venue_authority_bump];
-        let seeds: &[&[u8]] = &[VENUE_AUTHORITY_SEED, &bump];
-        invoke_signed(
-            &ix,
+        venue_signed_cpi(
+            ob,
+            metas,
             &[
                 ctx.accounts.user.to_account_info(),
                 ctx.accounts.open_orders_account.to_account_info(),
@@ -218,7 +197,8 @@ pub mod m0_harness {
                 ctx.accounts.openbook_program.to_account_info(),
                 ctx.accounts.token_program.to_account_info(),
             ],
-            &[seeds],
+            ix_data(DISC_PLACE_ORDER, &args),
+            ctx.accounts.config.venue_authority_bump,
         )?;
         Ok(())
     }
@@ -271,11 +251,7 @@ pub mod m0_harness {
         for acc in ctx.remaining_accounts {
             metas.push(AccountMeta::new(acc.key(), false));
         }
-        let ix = Instruction {
-            program_id: ob,
-            accounts: metas,
-            data: ix_data(DISC_PLACE_TAKE_ORDER, &args),
-        };
+
         let mut infos = vec![
             ctx.accounts.user.to_account_info(),
             ctx.accounts.market.to_account_info(),
@@ -293,9 +269,13 @@ pub mod m0_harness {
             ctx.accounts.venue_authority.to_account_info(),
         ];
         infos.extend(ctx.remaining_accounts.iter().cloned());
-        let bump = [ctx.accounts.config.venue_authority_bump];
-        let seeds: &[&[u8]] = &[VENUE_AUTHORITY_SEED, &bump];
-        invoke_signed(&ix, &infos, &[seeds])?;
+        venue_signed_cpi(
+            ob,
+            metas,
+            &infos,
+            ix_data(DISC_PLACE_TAKE_ORDER, &args),
+            ctx.accounts.config.venue_authority_bump,
+        )?;
 
         // G4 exact-delta postcondition: full fill or the whole tx reverts.
         let base_after = read_u64(
@@ -529,6 +509,23 @@ pub struct PruneOrders<'info> {
     /// CHECK: fail closed on any program identity mismatch.
     #[account(executable, address = config.openbook_program @ HarnessError::WrongOpenbookProgram)]
     pub openbook_program: UncheckedAccount<'info>,
+}
+
+
+/// Sign a CPI as `venue_authority` — the single scaffold every venue wrapper
+/// shares (order placement, expiry, prune, close).
+fn venue_signed_cpi(
+    program_id: Pubkey,
+    metas: Vec<AccountMeta>,
+    infos: &[AccountInfo],
+    data: Vec<u8>,
+    venue_authority_bump: u8,
+) -> Result<()> {
+    let ix = Instruction { program_id, accounts: metas, data };
+    let bump = [venue_authority_bump];
+    let seeds: &[&[u8]] = &[VENUE_AUTHORITY_SEED, &bump];
+    invoke_signed(&ix, infos, &[seeds])?;
+    Ok(())
 }
 
 /// G3 gate: orders only inside [trade_open_ts, close_ts) and never Paused.

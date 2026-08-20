@@ -55,35 +55,43 @@
       "name": "user_ata",
       "bytes": 165,
       "lamports": 2039280
-    },
+    }
+  ],
+  "computed_from_frozen_layouts": [
     {
       "name": "settlement_record_frozen_layout",
       "bytes": 524,
-      "lamports": 4537920
+      "lamports": 4537920,
+      "computed_from_frozen_layout": true
     },
     {
       "name": "settlement_transport_version_frozen_layout",
       "bytes": 286,
-      "lamports": 2881440
+      "lamports": 2881440,
+      "computed_from_frozen_layout": true
     },
     {
       "name": "metaplex_metadata_standard",
       "bytes": 679,
-      "lamports": 5616720
+      "lamports": 5616720,
+      "computed_from_frozen_layout": true
     }
   ],
   "budget_lamports": {
-    "per_market_venue_side": 1914960480,
+    "per_market_venue_side": "1916470800",
     "per_market_meridian_known_side": "14156640",
-    "per_day_49_markets_7_records": "94558504320",
-    "five_days": "472792521600",
-    "five_days_plus_20pct_reserve": "567351025920",
-    "worst_case_locked_per_day": "925290240",
+    "per_day_49_markets_7_records": "94632510000",
+    "five_days": "473162550000",
+    "five_days_plus_20pct_reserve": "567795060000",
+    "worst_case_locked_per_day": "999295920",
     "best_case_reclaimable_per_day": "93633214080"
   },
-  "pending_m1": [
-    "meridian_outcome_market_account",
-    "meridian_config",
-    "64-byte reserved padding verification in allocations"
+  "pending_on_chain_measurement": [
+    "meridian_outcome_market_account (M1)",
+    "meridian_config (M1)",
+    "settlement_record (M1/M3)",
+    "settlement_transport_version (M1/M3)",
+    "metaplex_metadata (G12)",
+    "64-byte reserved padding verification in allocations (M1)"
   ]
 }
