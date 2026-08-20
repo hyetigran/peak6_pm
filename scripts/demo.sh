@@ -34,13 +34,13 @@ sleep 4
 curl -s localhost:8787/markets | python3 -c "import json,sys; print('[demo] indexer sees', len(json.load(sys.stdin)['markets']), 'markets')" 2>/dev/null || echo "[demo] indexer starting…"
 
 echo "[demo] starting frontend on :3000…"
-( cd frontend && npm run dev > "$ROOT/.frontend-demo.log" 2>&1 & echo $! > /tmp/mrd_fe.pid )
+( cd frontend && npm run dev -- -p ${FE_PORT:-3100} > "$ROOT/.frontend-demo.log" 2>&1 & echo $! > /tmp/mrd_fe.pid )
 FE_PID="$(cat /tmp/mrd_fe.pid)"
 
 echo
 echo "==================================================================="
 echo "  Meridian demo is live:"
-echo "    Frontend : http://localhost:3000"
+echo "    Frontend : http://localhost:${FE_PORT:-3100}"
 echo "    Indexer  : http://localhost:8787/markets"
 echo "    RPC      : http://localhost:8899 (localnet)"
 echo "  Ctrl-C to stop everything."
