@@ -10,7 +10,7 @@ import {
   Connection, Keypair, PublicKey, Transaction, TransactionInstruction,
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
-import { createAssociatedTokenAccount, createMint, getAccount, mintTo } from "@solana/spl-token";
+import { createAssociatedTokenAccount, createAssociatedTokenAccountIdempotent, createMint, getAccount, mintTo } from "@solana/spl-token";
 import * as m from "./lib/meridian.js";
 import * as ob from "./lib/openbook.js";
 
@@ -144,4 +144,32 @@ test("T4 direct Pair Redemption returns collateral", async () => {
     yesMint, noMint, collateralVault: vault, userQuote: takerQuote, userYes: takerYes, userNo: takerNo,
   })], [taker]);
   assert.equal((await getAccount(conn, takerQuote)).amount - q0, 5n * LOT, "5 pairs redeemed for 5 USDC");
+});
+
+test("T5 Sell No via redeem_no_via_market: burn No, vault buys Yes, exact invariant", async () => {
+  // maker rests a Yes ASK at $0.40 (someone selling Yes) for the vault to buy
+  await send([m.placeLimitOrderIx({
+    user: maker.publicKey, market, ooAccount: makerOo, userTokenAccount: makerYes,
+    obMarket: obMarket.publicKey, bids: bids.publicKey, asks: asks.publicKey, eventHeap: heap.publicKey,
+    marketVault: baseVault,
+    args: { side: ob.Side.Ask, priceLots: 40n, maxBaseLots: 2n, maxQuoteLotsIncludingFees: 80n,
+      clientOrderId: 5n, orderType: ob.PlaceOrderType.PostOnly, expiryTimestamp: 0n,
+      selfTradeBehavior: ob.SelfTradeBehavior.AbortTransaction, limit: 16 },
+  })], [maker]);
+  // taker holds No (minted 10 pairs in T2, spent none of the No). Sell 2 No.
+  // client pre-creates the program Yes-trade ATA (owner = market PDA)
+  await createAssociatedTokenAccountIdempotent(conn, operator, yesMint, market, undefined, undefined, undefined, true);
+  const q0 = (await getAccount(conn, takerQuote)).amount;
+  const no0 = (await getAccount(conn, takerNo)).amount;
+  const vault0 = (await getAccount(conn, vault)).amount;
+  await send([m.redeemNoViaMarketIx(taker.publicKey, {
+    market, yesMint, noMint, collateralVault: vault, userQuote: takerQuote, userNo: takerNo,
+    obMarket: obMarket.publicKey, bids: bids.publicKey, asks: asks.publicKey,
+    marketBaseVault: baseVault, marketQuoteVault: obQuoteVault, eventHeap: heap.publicKey,
+    makerOos: [makerOo], qLots: 2n, priceLots: 40n,
+  })], [taker]);
+  assert.equal(no0 - (await getAccount(conn, takerNo)).amount, 2n * LOT, "2 No burned (user-signed)");
+  // proceeds = q*(1 - price) = 2 * (1 - 0.40) = 1.20
+  assert.equal((await getAccount(conn, takerQuote)).amount - q0, 2n * LOT - 2n * 40n * 10_000n, "proceeds = q(1-P)");
+  assert.equal(vault0 - (await getAccount(conn, vault)).amount, 2n * LOT, "vault delta exactly -q (invariant)");
 });

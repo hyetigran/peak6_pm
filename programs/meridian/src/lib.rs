@@ -116,6 +116,15 @@ pub mod meridian {
         place_take_order::handler(ctx, args)
     }
 
+    /// Sell No via market-assisted Pair Redemption (redeem_no_via_market).
+    pub fn redeem_no_via_market<'info>(
+        ctx: Context<'_, '_, 'info, 'info, RedeemNoViaMarket<'info>>,
+        q_lots: i64,
+        price_lots: i64,
+    ) -> Result<()> {
+        redeem_no::handler(ctx, q_lots, price_lots)
+    }
+
     /// Finalize the shared Settlement Record (normal, permissionless).
     pub fn finalize_settlement_normal(
         ctx: Context<FinalizeSettlementNormal>, official_close_1e6: u64, halt_status: u8,

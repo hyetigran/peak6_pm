@@ -1,3 +1,4 @@
+pub mod redeem_no;
 pub mod create_venue_market;
 pub mod mint_pair;
 pub mod place_limit_order;
@@ -6,6 +7,7 @@ pub use create_venue_market::*;
 pub use mint_pair::*;
 pub use place_limit_order::*;
 pub use place_take_order::*;
+pub use redeem_no::*;
 
 use crate::error::MeridianError;
 use crate::state::{MarketState, OutcomeMarket};

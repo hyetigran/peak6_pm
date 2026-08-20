@@ -11,6 +11,7 @@ fi
 OPENBOOK_ID="${OPENBOOK_ID:-opnb2LAfJYbRMAHHvqjCwQxanZn7ReEHp1k81EohpZb}"
 FIXTURE="${FIXTURE:-fixtures/openbook_v2-v1.7.so}"
 exec solana-test-validator --reset --quiet \
+  --gossip-port 8010 --dynamic-port-range 8010-8120 \
   --bpf-program "$OPENBOOK_ID" "$FIXTURE" \
   --bpf-program 3MmdMxRUF4NWPNdwoQcLhoqfmiKReoaSQR9GwSeQEpRr target/deploy/m0_harness.so \
   --bpf-program FF6mu5FFb1q1Qz88x1HnhkePdF8Q1dXWnTfUUSkzUT3t target/deploy/meridian.so \

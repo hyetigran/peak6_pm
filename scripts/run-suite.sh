@@ -2,7 +2,7 @@
 # Suite runner: fresh localnet with the pinned fixture, then the given test file(s).
 set -uo pipefail
 cd "$(dirname "$0")/.."
-pkill -f solana-test-validator 2>/dev/null; sleep 1
+pkill -9 -f solana-test-validator 2>/dev/null; sleep 2
 rm -rf .validator
 ./scripts/localnet.sh --ledger .validator > .validator-test.log 2>&1 &
 VPID=$!
