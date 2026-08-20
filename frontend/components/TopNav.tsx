@@ -10,8 +10,9 @@ const LINKS = [["/markets", "Markets"], ["/portfolio", "Portfolio"], ["/history"
 
 export function TopNav() {
   const path = usePathname();
-  const { pubkey, sol, connect } = useWallet();
+  const { pubkey, sol, external, connect, connectBurner, disconnect } = useWallet();
   const [health, setHealth] = useState<Health | null>(null);
+  const [open, setOpen] = useState(false);
   useEffect(() => {
     const t = setInterval(() => getHealth().then(setHealth).catch(() => setHealth(null)), 4000);
     getHealth().then(setHealth).catch(() => {});
@@ -33,10 +34,31 @@ export function TopNav() {
             {pubkey ? (
               <>
                 <button className="wallet-chip" onClick={() => faucet(pubkey.toBase58())} title="Mint 1000 test USDC (localnet)">+1000 USDC</button>
-                <span className="wallet-chip"><span className="bal mono">{sol.toFixed(2)} SOL</span><span className="mono">{short(pubkey.toBase58())}</span></span>
+                <div style={{ position: "relative" }}>
+                  <button className="wallet-chip" onClick={() => setOpen((o) => !o)}>
+                    <span className="badge" style={{ background: external ? "var(--yes-soft)" : "var(--panel)", color: external ? "var(--yes)" : "var(--ink-60)" }}>{external ? "Wallet" : "Test"}</span>
+                    <span className="bal mono">{sol.toFixed(2)} SOL</span>
+                    <span className="mono">{short(pubkey.toBase58())}</span>
+                  </button>
+                  {open && (
+                    <div className="card" style={{ position: "absolute", right: 0, top: 44, padding: 8, minWidth: 180, zIndex: 30 }}>
+                      <button className="btn btn-ghost" style={{ width: "100%", marginBottom: 6, fontSize: 13 }} onClick={() => { setOpen(false); connect(); }}>Switch wallet</button>
+                      <button className="btn btn-ghost" style={{ width: "100%", fontSize: 13 }} onClick={() => { setOpen(false); disconnect(); }}>Disconnect</button>
+                    </div>
+                  )}
+                </div>
               </>
             ) : (
-              <button className="wallet-chip" onClick={connect}>Connect wallet</button>
+              <div style={{ position: "relative" }}>
+                <button className="btn btn-yes" onClick={() => setOpen((o) => !o)} style={{ padding: "9px 16px" }}>Connect wallet</button>
+                {open && (
+                  <div className="card" style={{ position: "absolute", right: 0, top: 46, padding: 8, minWidth: 220, zIndex: 30 }}>
+                    <button className="btn btn-yes" style={{ width: "100%", marginBottom: 6, fontSize: 13 }} onClick={() => { setOpen(false); connect(); }}>Browser wallet (Phantom …)</button>
+                    <button className="btn btn-ghost" style={{ width: "100%", fontSize: 13 }} onClick={() => { setOpen(false); connectBurner(); }}>Use a test wallet</button>
+                    <div className="sub" style={{ fontSize: 11, marginTop: 8, padding: "0 2px" }}>Point your wallet at localhost:8899. The test wallet self-funds SOL.</div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
