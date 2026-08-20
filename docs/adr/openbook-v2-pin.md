@@ -264,3 +264,22 @@ Proven on localnet against the pinned bytes (`tests/g9.test.ts`, `make g9`).
 `attach_venue` (accepting an externally created market) is an M1 instruction;
 the created-path header verification above is the M0-provable surface, and
 M1's attach must re-verify the same field set against the same offsets.
+
+## 13. G5 evidence — Sell-No / market-assisted Pair Redemption
+
+Proven on localnet against the pinned bytes (`tests/g5.test.ts`, `make g5`)
+with the harness pair-collateral model (PairVault PDA = mint authority of
+both outcome mints + owner of the collateral vault; liability atom-denominated
+per ADR-0002).
+
+| Fact | Evidence |
+| --- | --- |
+| Only the correct collateral vault funds quote | account pinned to `pair_vault.quote_vault` — foreign vault → `WrongCollateralVault` |
+| User must sign the No burn | the burn's authority is the user `Signer`; collateral cannot move without it |
+| Program Yes-trade ATA exact | address re-derived as ATA(yes_mint, PairVault) — any other → `WrongTradeAta` |
+| Exact `q_atoms` Yes acquired | G4-style postcondition on the trade ATA; partial → `PartialFillReverted` with vault, liability, and user tokens all untouched |
+| Vault/liability invariant | `vault_delta == liability_delta == −q` asserted **on-chain** after every redemption (`VaultInvariantViolated` otherwise); proven at $0.40 and the 99-cent corner (proceeds exactly 1 cent/token, zero fees) |
+| Knowing self-cross prevention | builder-side `wouldKnowinglySelfCross` scans the user's own OpenOrders (40-byte `OpenOrder` records: `locked_price` at +24, `is_free` +32, `side_and_tree` +33; asks odd) — detection proven with no false positive one tick below |
+| Raced self-cross = Internal Unwind | forcing the redemption against the user's own resting ask still satisfies the exact vault invariant; the user's maker proceeds settle normally — solvent, classified Internal Unwind |
+| `penalty_payer` never collateral | the USER is the venue penalty payer; collateral-vault and PairVault lamports proven byte-identical across every flow |
+| Solvency | `vault raw >= Collateral Liability` holds at the end of the suite |

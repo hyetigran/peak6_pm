@@ -429,6 +429,225 @@ pub mod m0_harness {
         );
         Ok(())
     }
+
+    /// Bind the pair-collateral model to a Venue Market (G5). Admin-only.
+    /// Both outcome mints must already have the PairVault PDA as their sole
+    /// mint authority; the quote vault is the PDA's ATA.
+    pub fn init_pair(ctx: Context<InitPair>) -> Result<()> {
+        let pv = &mut ctx.accounts.pair_vault;
+        pv.market = ctx.accounts.market.key();
+        pv.yes_mint = ctx.accounts.yes_mint.key();
+        pv.no_mint = ctx.accounts.no_mint.key();
+        pv.quote_vault = ctx.accounts.quote_vault.key();
+        pv.liability_atoms = 0;
+        pv.bump = ctx.bumps.pair_vault;
+        Ok(())
+    }
+
+    /// Mint q Yes + q No for exactly q quote atoms (1 atom == 1 atom).
+    pub fn mint_pair(ctx: Context<MintPair>, q_atoms: u64) -> Result<()> {
+        require!(q_atoms > 0, HarnessError::ZeroTakeQuantity);
+        let tp = ctx.accounts.token_program.to_account_info();
+        // user -> vault: q quote atoms (user signs)
+        token_cpi(&tp, SPL_TRANSFER, q_atoms, vec![
+            AccountMeta::new(ctx.accounts.user_quote.key(), false),
+            AccountMeta::new(ctx.accounts.quote_vault.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.user.key(), true),
+        ], &[
+            ctx.accounts.user_quote.to_account_info(),
+            ctx.accounts.quote_vault.to_account_info(),
+            ctx.accounts.user.to_account_info(),
+        ], None)?;
+        let market = ctx.accounts.pair_vault.market;
+        let bump = ctx.accounts.pair_vault.bump;
+        for (mint, ata) in [
+            (&ctx.accounts.yes_mint, &ctx.accounts.user_yes),
+            (&ctx.accounts.no_mint, &ctx.accounts.user_no),
+        ] {
+            token_cpi(&tp, SPL_MINT_TO, q_atoms, vec![
+                AccountMeta::new(mint.key(), false),
+                AccountMeta::new(ata.key(), false),
+                AccountMeta::new_readonly(ctx.accounts.pair_vault.key(), true),
+            ], &[
+                mint.to_account_info(),
+                ata.to_account_info(),
+                ctx.accounts.pair_vault.to_account_info(),
+            ], Some((PAIR_VAULT_SEED, &market, bump)))?;
+        }
+        let pv = &mut ctx.accounts.pair_vault;
+        pv.liability_atoms = pv.liability_atoms.checked_add(q_atoms).ok_or(HarnessError::AmountOverflow)?;
+        Ok(())
+    }
+
+    /// Direct Pair Redemption: burn q Yes + q No, release exactly q collateral.
+    pub fn redeem_pair_direct(ctx: Context<RedeemPairDirect>, q_atoms: u64) -> Result<()> {
+        require!(q_atoms > 0, HarnessError::ZeroTakeQuantity);
+        let tp = ctx.accounts.token_program.to_account_info();
+        for (mint, ata) in [
+            (&ctx.accounts.yes_mint, &ctx.accounts.user_yes),
+            (&ctx.accounts.no_mint, &ctx.accounts.user_no),
+        ] {
+            token_cpi(&tp, SPL_BURN, q_atoms, vec![
+                AccountMeta::new(ata.key(), false),
+                AccountMeta::new(mint.key(), false),
+                AccountMeta::new_readonly(ctx.accounts.user.key(), true),
+            ], &[
+                ata.to_account_info(),
+                mint.to_account_info(),
+                ctx.accounts.user.to_account_info(),
+            ], None)?;
+        }
+        let market = ctx.accounts.pair_vault.market;
+        let bump = ctx.accounts.pair_vault.bump;
+        token_cpi(&tp, SPL_TRANSFER, q_atoms, vec![
+            AccountMeta::new(ctx.accounts.quote_vault.key(), false),
+            AccountMeta::new(ctx.accounts.user_quote.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.pair_vault.key(), true),
+        ], &[
+            ctx.accounts.quote_vault.to_account_info(),
+            ctx.accounts.user_quote.to_account_info(),
+            ctx.accounts.pair_vault.to_account_info(),
+        ], Some((PAIR_VAULT_SEED, &market, bump)))?;
+        let pv = &mut ctx.accounts.pair_vault;
+        pv.liability_atoms = pv.liability_atoms.checked_sub(q_atoms).ok_or(HarnessError::AmountOverflow)?;
+        Ok(())
+    }
+
+    /// Sell No as market-assisted Pair Redemption (G5): burn the user's No,
+    /// buy exactly q Yes on the Venue Market with VAULT quote, burn the pair,
+    /// pay the user the remainder. Invariant: the vault's total quote delta is
+    /// exactly -q_atoms and liability falls by q_atoms. The user — never the
+    /// collateral vault — is the venue signer's penalty payer.
+    pub fn redeem_no_via_market<'info>(
+        ctx: Context<'_, '_, 'info, 'info, RedeemNoViaMarket<'info>>,
+        q_lots: i64,
+        price_lots: i64,
+    ) -> Result<()> {
+        check_gate(&ctx.accounts.venue_gate)?;
+        require!(q_lots > 0 && price_lots > 0, HarnessError::ZeroTakeQuantity);
+        let base_lot_size = read_i64(&ctx.accounts.market.try_borrow_data()?, MARKET_BASE_LOT_SIZE_OFFSET);
+        require!(base_lot_size > 0, HarnessError::AmountOverflow);
+        let q_atoms = (q_lots as u64).checked_mul(base_lot_size as u64).ok_or(HarnessError::AmountOverflow)?;
+
+        let tp = ctx.accounts.token_program.to_account_info();
+        // 1. the USER signs the No burn — collateral never moves without it
+        token_cpi(&tp, SPL_BURN, q_atoms, vec![
+            AccountMeta::new(ctx.accounts.user_no.key(), false),
+            AccountMeta::new(ctx.accounts.no_mint.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.user.key(), true),
+        ], &[
+            ctx.accounts.user_no.to_account_info(),
+            ctx.accounts.no_mint.to_account_info(),
+            ctx.accounts.user.to_account_info(),
+        ], None)?;
+
+        // 2. buy exactly q Yes with vault quote; PairVault PDA is the venue
+        //    signer, the user is penalty_payer
+        let vault_before = token_amount(&ctx.accounts.quote_vault.to_account_info())?;
+        let yes_before = token_amount(&ctx.accounts.trade_yes_ata.to_account_info())?;
+        let ob = ctx.accounts.openbook_program.key();
+        let args = PlaceTakeOrderArgs {
+            side: Side::Bid,
+            price_lots,
+            max_base_lots: q_lots,
+            max_quote_lots_including_fees: price_lots
+                .checked_mul(q_lots)
+                .ok_or(HarnessError::AmountOverflow)?,
+            order_type: PlaceOrderType::ImmediateOrCancel,
+            limit: 16,
+        };
+        let mut metas = vec![
+            AccountMeta::new(ctx.accounts.pair_vault.key(), true),
+            AccountMeta::new(ctx.accounts.user.key(), true), // penalty_payer: USER
+            AccountMeta::new(ctx.accounts.market.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.market_authority.key(), false),
+            AccountMeta::new(ctx.accounts.bids.key(), false),
+            AccountMeta::new(ctx.accounts.asks.key(), false),
+            AccountMeta::new(ctx.accounts.market_base_vault.key(), false),
+            AccountMeta::new(ctx.accounts.market_quote_vault.key(), false),
+            AccountMeta::new(ctx.accounts.event_heap.key(), false),
+            AccountMeta::new(ctx.accounts.trade_yes_ata.key(), false),
+            AccountMeta::new(ctx.accounts.quote_vault.key(), false),
+            AccountMeta::new_readonly(ob, false),
+            AccountMeta::new_readonly(ob, false),
+            AccountMeta::new_readonly(ctx.accounts.token_program.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.system_program.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.venue_authority.key(), true),
+        ];
+        for acc in ctx.remaining_accounts {
+            metas.push(AccountMeta::new(acc.key(), false));
+        }
+        let mut infos = vec![
+            ctx.accounts.pair_vault.to_account_info(),
+            ctx.accounts.user.to_account_info(),
+            ctx.accounts.market.to_account_info(),
+            ctx.accounts.market_authority.to_account_info(),
+            ctx.accounts.bids.to_account_info(),
+            ctx.accounts.asks.to_account_info(),
+            ctx.accounts.market_base_vault.to_account_info(),
+            ctx.accounts.market_quote_vault.to_account_info(),
+            ctx.accounts.event_heap.to_account_info(),
+            ctx.accounts.trade_yes_ata.to_account_info(),
+            ctx.accounts.quote_vault.to_account_info(),
+            ctx.accounts.openbook_program.to_account_info(),
+            ctx.accounts.token_program.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+            ctx.accounts.venue_authority.to_account_info(),
+        ];
+        infos.extend(ctx.remaining_accounts.iter().cloned());
+        // the venue signer set includes BOTH PDAs: pair_vault (owner of the
+        // trading accounts) and venue_authority (open_orders_admin)
+        let market_key = ctx.accounts.pair_vault.market;
+        let pv_bump = [ctx.accounts.pair_vault.bump];
+        let va_bump = [ctx.accounts.config.venue_authority_bump];
+        let pv_seeds: &[&[u8]] = &[PAIR_VAULT_SEED, market_key.as_ref(), &pv_bump];
+        let va_seeds: &[&[u8]] = &[VENUE_AUTHORITY_SEED, &va_bump];
+        let ix = Instruction {
+            program_id: ob,
+            accounts: metas,
+            data: ix_data(DISC_PLACE_TAKE_ORDER, &args),
+        };
+        invoke_signed(&ix, &infos, &[pv_seeds, va_seeds])?;
+
+        // 3. exact q Yes acquired — the G4 postcondition, on the trade ATA
+        let yes_after = token_amount(&ctx.accounts.trade_yes_ata.to_account_info())?;
+        require!(
+            yes_after.checked_sub(yes_before) == Some(q_atoms),
+            HarnessError::PartialFillReverted
+        );
+        // 4. burn the acquired Yes (PDA signs)
+        token_cpi(&tp, SPL_BURN, q_atoms, vec![
+            AccountMeta::new(ctx.accounts.trade_yes_ata.key(), false),
+            AccountMeta::new(ctx.accounts.yes_mint.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.pair_vault.key(), true),
+        ], &[
+            ctx.accounts.trade_yes_ata.to_account_info(),
+            ctx.accounts.yes_mint.to_account_info(),
+            ctx.accounts.pair_vault.to_account_info(),
+        ], Some((PAIR_VAULT_SEED, &market_key, ctx.accounts.pair_vault.bump)))?;
+        // 5. pay the user the released remainder: q - spent
+        let vault_mid = token_amount(&ctx.accounts.quote_vault.to_account_info())?;
+        let spent = vault_before.checked_sub(vault_mid).ok_or(HarnessError::AmountOverflow)?;
+        let payout = q_atoms.checked_sub(spent).ok_or(HarnessError::InsolventRedeem)?;
+        token_cpi(&tp, SPL_TRANSFER, payout, vec![
+            AccountMeta::new(ctx.accounts.quote_vault.key(), false),
+            AccountMeta::new(ctx.accounts.user_quote.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.pair_vault.key(), true),
+        ], &[
+            ctx.accounts.quote_vault.to_account_info(),
+            ctx.accounts.user_quote.to_account_info(),
+            ctx.accounts.pair_vault.to_account_info(),
+        ], Some((PAIR_VAULT_SEED, &market_key, ctx.accounts.pair_vault.bump)))?;
+        // 6. the invariant: vault delta == liability delta == -q, exactly
+        let vault_after = token_amount(&ctx.accounts.quote_vault.to_account_info())?;
+        require!(
+            vault_before.checked_sub(vault_after) == Some(q_atoms),
+            HarnessError::VaultInvariantViolated
+        );
+        let pv = &mut ctx.accounts.pair_vault;
+        pv.liability_atoms = pv.liability_atoms.checked_sub(q_atoms).ok_or(HarnessError::AmountOverflow)?;
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -778,4 +997,230 @@ pub enum HarnessError {
     HeaderVerificationFailed,
     #[msg("fee-admin account is not the pinned unsignable sentinel")]
     WrongSentinel,
+    #[msg("account does not match the bound pair (mint or vault)")]
+    WrongPairAccount,
+    #[msg("only the bound collateral vault may fund or receive quote")]
+    WrongCollateralVault,
+    #[msg("not the exact program Yes-trade ATA")]
+    WrongTradeAta,
+    #[msg("redeem would spend more than it releases; reverting")]
+    InsolventRedeem,
+    #[msg("vault delta does not equal the released collateral; reverting")]
+    VaultInvariantViolated,
+}
+
+// --- G5: pair collateral model -----------------------------------------
+// A minimal, faithful model of Meridian's pair mechanics: one PairVault per
+// Venue Market holds quote collateral and is the mint authority of both
+// outcome mints. Liability is atom-denominated and supply-derived (ADR-0002:
+// 1 outcome atom == 1 quote atom). The vault NEVER pays lamports, rent, or
+// penalties — only quote collateral, and only along the Redemption family.
+
+pub const PAIR_VAULT_SEED: &[u8] = b"pair_vault";
+
+#[derive(Accounts)]
+pub struct InitPair<'info> {
+    #[account(mut, address = config.admin @ HarnessError::NotAdmin)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump)]
+    pub config: Account<'info, Config>,
+    /// CHECK: the Venue Market this pair binds to; identity only.
+    pub market: UncheckedAccount<'info>,
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + PairVault::INIT_SPACE,
+        seeds = [PAIR_VAULT_SEED, market.key().as_ref()],
+        bump,
+    )]
+    pub pair_vault: Account<'info, PairVault>,
+    /// CHECK: outcome mint; authority must be the PairVault PDA (probed by first mint_pair).
+    pub yes_mint: UncheckedAccount<'info>,
+    /// CHECK: outcome mint; authority must be the PairVault PDA.
+    pub no_mint: UncheckedAccount<'info>,
+    /// CHECK: quote ATA owned by the PairVault PDA.
+    pub quote_vault: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct MintPair<'info> {
+    pub user: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [PAIR_VAULT_SEED, pair_vault.market.as_ref()],
+        bump = pair_vault.bump,
+    )]
+    pub pair_vault: Account<'info, PairVault>,
+    /// CHECK: pinned to the bound mint.
+    #[account(mut, address = pair_vault.yes_mint @ HarnessError::WrongPairAccount)]
+    pub yes_mint: UncheckedAccount<'info>,
+    /// CHECK: pinned to the bound mint.
+    #[account(mut, address = pair_vault.no_mint @ HarnessError::WrongPairAccount)]
+    pub no_mint: UncheckedAccount<'info>,
+    /// CHECK: only the bound collateral vault may receive.
+    #[account(mut, address = pair_vault.quote_vault @ HarnessError::WrongCollateralVault)]
+    pub quote_vault: UncheckedAccount<'info>,
+    /// CHECK: validated by the token program.
+    #[account(mut)]
+    pub user_quote: UncheckedAccount<'info>,
+    /// CHECK: validated by the token program.
+    #[account(mut)]
+    pub user_yes: UncheckedAccount<'info>,
+    /// CHECK: validated by the token program.
+    #[account(mut)]
+    pub user_no: UncheckedAccount<'info>,
+    /// CHECK: validated against known token program id by CPI target.
+    pub token_program: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct RedeemPairDirect<'info> {
+    pub user: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [PAIR_VAULT_SEED, pair_vault.market.as_ref()],
+        bump = pair_vault.bump,
+    )]
+    pub pair_vault: Account<'info, PairVault>,
+    /// CHECK: pinned to the bound mint.
+    #[account(mut, address = pair_vault.yes_mint @ HarnessError::WrongPairAccount)]
+    pub yes_mint: UncheckedAccount<'info>,
+    /// CHECK: pinned to the bound mint.
+    #[account(mut, address = pair_vault.no_mint @ HarnessError::WrongPairAccount)]
+    pub no_mint: UncheckedAccount<'info>,
+    /// CHECK: only the bound collateral vault may pay.
+    #[account(mut, address = pair_vault.quote_vault @ HarnessError::WrongCollateralVault)]
+    pub quote_vault: UncheckedAccount<'info>,
+    /// CHECK: validated by the token program.
+    #[account(mut)]
+    pub user_quote: UncheckedAccount<'info>,
+    /// CHECK: validated by the token program.
+    #[account(mut)]
+    pub user_yes: UncheckedAccount<'info>,
+    /// CHECK: validated by the token program.
+    #[account(mut)]
+    pub user_no: UncheckedAccount<'info>,
+    /// CHECK: validated against known token program id by CPI target.
+    pub token_program: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct RedeemNoViaMarket<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump)]
+    pub config: Account<'info, Config>,
+    #[account(
+        seeds = [VENUE_GATE_SEED, market.key().as_ref()],
+        bump,
+        constraint = venue_gate.market == market.key() @ HarnessError::WrongGate,
+    )]
+    pub venue_gate: Account<'info, VenueGate>,
+    /// CHECK: open_orders_admin PDA.
+    #[account(seeds = [VENUE_AUTHORITY_SEED], bump = config.venue_authority_bump)]
+    pub venue_authority: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        seeds = [PAIR_VAULT_SEED, pair_vault.market.as_ref()],
+        bump = pair_vault.bump,
+        constraint = pair_vault.market == market.key() @ HarnessError::WrongGate,
+    )]
+    pub pair_vault: Account<'info, PairVault>,
+    /// CHECK: pinned to the bound mint.
+    #[account(mut, address = pair_vault.yes_mint @ HarnessError::WrongPairAccount)]
+    pub yes_mint: UncheckedAccount<'info>,
+    /// CHECK: pinned to the bound mint.
+    #[account(mut, address = pair_vault.no_mint @ HarnessError::WrongPairAccount)]
+    pub no_mint: UncheckedAccount<'info>,
+    /// CHECK: ONLY the bound collateral vault can fund the Yes purchase.
+    #[account(mut, address = pair_vault.quote_vault @ HarnessError::WrongCollateralVault)]
+    pub quote_vault: UncheckedAccount<'info>,
+    /// CHECK: the exact program Yes-trade ATA — ATA(yes_mint, pair_vault).
+    #[account(
+        mut,
+        address = anchor_lang::solana_program::pubkey::Pubkey::find_program_address(
+            &[pair_vault.key().as_ref(), token_program.key().as_ref(), pair_vault.yes_mint.as_ref()],
+            &ATA_PROGRAM_ID,
+        ).0 @ HarnessError::WrongTradeAta,
+    )]
+    pub trade_yes_ata: UncheckedAccount<'info>,
+    /// CHECK: validated by the token program.
+    #[account(mut)]
+    pub user_quote: UncheckedAccount<'info>,
+    /// CHECK: validated by the token program.
+    #[account(mut)]
+    pub user_no: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    #[account(mut)]
+    pub market: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    pub market_authority: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    #[account(mut)]
+    pub bids: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    #[account(mut)]
+    pub asks: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    #[account(mut)]
+    pub market_base_vault: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    #[account(mut)]
+    pub market_quote_vault: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    #[account(mut)]
+    pub event_heap: UncheckedAccount<'info>,
+    /// CHECK: fail closed on any program identity mismatch.
+    #[account(executable, address = config.openbook_program @ HarnessError::WrongOpenbookProgram)]
+    pub openbook_program: UncheckedAccount<'info>,
+    /// CHECK: validated by the token program CPI target.
+    pub token_program: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+/// Associated Token Program id (for exact trade-ATA derivation).
+pub const ATA_PROGRAM_ID: Pubkey =
+    anchor_lang::solana_program::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+
+#[account]
+#[derive(InitSpace)]
+pub struct PairVault {
+    pub market: Pubkey,
+    pub yes_mint: Pubkey,
+    pub no_mint: Pubkey,
+    pub quote_vault: Pubkey,
+    /// Collateral Liability in atoms (ADR-0002).
+    pub liability_atoms: u64,
+    pub bump: u8,
+}
+
+fn token_cpi(
+    token_program: &AccountInfo,
+    tag: u8,
+    amount: u64,
+    accounts: Vec<AccountMeta>,
+    infos: &[AccountInfo],
+    signer_seeds: Option<(&[u8], &Pubkey, u8)>,
+) -> Result<()> {
+    let mut data = vec![tag];
+    data.extend_from_slice(&amount.to_le_bytes());
+    let ix = Instruction {
+        program_id: token_program.key(),
+        accounts,
+        data,
+    };
+    match signer_seeds {
+        Some((seed, market, bump)) => {
+            let b = [bump];
+            let seeds: &[&[u8]] = &[seed, market.as_ref(), &b];
+            invoke_signed(&ix, infos, &[seeds])?;
+        }
+        None => anchor_lang::solana_program::program::invoke(&ix, infos)?,
+    }
+    Ok(())
+}
+
+fn token_amount(acc: &AccountInfo) -> Result<u64> {
+    Ok(read_u64(&acc.try_borrow_data()?, TOKEN_AMOUNT_OFFSET))
 }

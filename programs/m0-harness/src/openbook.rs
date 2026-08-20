@@ -105,3 +105,8 @@ pub const MARKET_TAKER_FEE_OFFSET: usize = 488;
 pub fn read_pubkey(data: &[u8], off: usize) -> anchor_lang::prelude::Pubkey {
     anchor_lang::prelude::Pubkey::new_from_array(data[off..off + 32].try_into().unwrap())
 }
+
+/// Classic SPL Token instruction tags used by the pair-collateral model.
+pub const SPL_TRANSFER: u8 = 3;
+pub const SPL_MINT_TO: u8 = 7;
+pub const SPL_BURN: u8 = 8;

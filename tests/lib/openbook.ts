@@ -501,3 +501,119 @@ export function closeOoAccountIx(owner: PublicKey, indexer: PublicKey, ooAccount
     data: disc("close_open_orders_account"),
   });
 }
+
+// --- G5: pair collateral model -----------------------------------------
+export const pairVaultPda = (market: PublicKey) =>
+  PublicKey.findProgramAddressSync([Buffer.from("pair_vault"), market.toBuffer()], HARNESS_PID)[0];
+
+export function harnessInitPairIx(admin: PublicKey, opts: {
+  market: PublicKey; yesMint: PublicKey; noMint: PublicKey; quoteVault: PublicKey;
+}): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: HARNESS_PID,
+    keys: [
+      { pubkey: admin, isSigner: true, isWritable: true },
+      { pubkey: harnessConfigPda(), isSigner: false, isWritable: false },
+      { pubkey: opts.market, isSigner: false, isWritable: false },
+      { pubkey: pairVaultPda(opts.market), isSigner: false, isWritable: true },
+      { pubkey: opts.yesMint, isSigner: false, isWritable: false },
+      { pubkey: opts.noMint, isSigner: false, isWritable: false },
+      { pubkey: opts.quoteVault, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: disc("init_pair"),
+  });
+}
+
+const u64buf = (n: bigint) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(n); return b; };
+
+function pairAccounts(user: PublicKey, market: PublicKey, opts: {
+  yesMint: PublicKey; noMint: PublicKey; quoteVault: PublicKey;
+  userQuote: PublicKey; userYes: PublicKey; userNo: PublicKey;
+}) {
+  return [
+    { pubkey: user, isSigner: true, isWritable: false },
+    { pubkey: pairVaultPda(market), isSigner: false, isWritable: true },
+    { pubkey: opts.yesMint, isSigner: false, isWritable: true },
+    { pubkey: opts.noMint, isSigner: false, isWritable: true },
+    { pubkey: opts.quoteVault, isSigner: false, isWritable: true },
+    { pubkey: opts.userQuote, isSigner: false, isWritable: true },
+    { pubkey: opts.userYes, isSigner: false, isWritable: true },
+    { pubkey: opts.userNo, isSigner: false, isWritable: true },
+    { pubkey: TOKEN_PID, isSigner: false, isWritable: false },
+  ];
+}
+
+export function harnessMintPairIx(user: PublicKey, market: PublicKey, qAtoms: bigint, opts: Parameters<typeof pairAccounts>[2]): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: HARNESS_PID,
+    keys: pairAccounts(user, market, opts),
+    data: Buffer.concat([disc("mint_pair"), u64buf(qAtoms)]),
+  });
+}
+
+export function harnessRedeemPairDirectIx(user: PublicKey, market: PublicKey, qAtoms: bigint, opts: Parameters<typeof pairAccounts>[2]): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: HARNESS_PID,
+    keys: pairAccounts(user, market, opts),
+    data: Buffer.concat([disc("redeem_pair_direct"), u64buf(qAtoms)]),
+  });
+}
+
+export function harnessRedeemNoViaMarketIx(user: PublicKey, opts: {
+  market: PublicKey; yesMint: PublicKey; noMint: PublicKey; quoteVault: PublicKey;
+  tradeYesAta: PublicKey; userQuote: PublicKey; userNo: PublicKey;
+  bids: PublicKey; asks: PublicKey; eventHeap: PublicKey;
+  marketBaseVault: PublicKey; marketQuoteVault: PublicKey;
+  makerOoAccounts: PublicKey[]; qLots: bigint; priceLots: bigint;
+}): TransactionInstruction {
+  const data = Buffer.alloc(24);
+  disc("redeem_no_via_market").copy(data);
+  data.writeBigInt64LE(opts.qLots, 8);
+  data.writeBigInt64LE(opts.priceLots, 16);
+  const keys = [
+    { pubkey: user, isSigner: true, isWritable: true },
+    { pubkey: harnessConfigPda(), isSigner: false, isWritable: false },
+    { pubkey: venueGatePda(opts.market), isSigner: false, isWritable: false },
+    { pubkey: venueAuthorityPda(), isSigner: false, isWritable: false },
+    { pubkey: pairVaultPda(opts.market), isSigner: false, isWritable: true },
+    { pubkey: opts.yesMint, isSigner: false, isWritable: true },
+    { pubkey: opts.noMint, isSigner: false, isWritable: true },
+    { pubkey: opts.quoteVault, isSigner: false, isWritable: true },
+    { pubkey: opts.tradeYesAta, isSigner: false, isWritable: true },
+    { pubkey: opts.userQuote, isSigner: false, isWritable: true },
+    { pubkey: opts.userNo, isSigner: false, isWritable: true },
+    { pubkey: opts.market, isSigner: false, isWritable: true },
+    { pubkey: marketAuthorityPda(opts.market), isSigner: false, isWritable: false },
+    { pubkey: opts.bids, isSigner: false, isWritable: true },
+    { pubkey: opts.asks, isSigner: false, isWritable: true },
+    { pubkey: opts.marketBaseVault, isSigner: false, isWritable: true },
+    { pubkey: opts.marketQuoteVault, isSigner: false, isWritable: true },
+    { pubkey: opts.eventHeap, isSigner: false, isWritable: true },
+    { pubkey: OPENBOOK_PID, isSigner: false, isWritable: false },
+    { pubkey: TOKEN_PID, isSigner: false, isWritable: false },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+  ];
+  for (const oo of opts.makerOoAccounts) keys.push({ pubkey: oo, isSigner: false, isWritable: true });
+  return new TransactionInstruction({ programId: HARNESS_PID, keys, data });
+}
+
+/** Builder-side knowing-self-cross check (G5): scan the user's own OpenOrders
+ * for resting asks at or below the intended buy price. Meridian's builder must
+ * refuse and route to cancel/settle/direct Pair Redemption instead. */
+export function wouldKnowinglySelfCross(ooData: Buffer, side: "buy", priceLots: bigint): boolean {
+  // OpenOrdersAccount: 8 disc + owner 32 + market 32 + name 32 + delegate 32
+  //   + account_num 4 + bump 1 + padding 3 -> Position, then open_orders[24]
+  // Each OpenOrder: id u128 (16) + client_id u64 (8) + locked_price i64 (8)
+  //   + is_free u8 + side_and_tree u8 + padding[6] => 40 bytes? verify by scan:
+  // we detect resting asks by side_and_tree odd values with locked_price <= price.
+  const OO_ARRAY_TAIL = ooData.length - 24 * 40;
+  for (let i = 0; i < 24; i++) {
+    const off = OO_ARRAY_TAIL + i * 40;
+    const isFree = ooData[off + 32];
+    const sideAndTree = ooData[off + 33];
+    const lockedPrice = ooData.readBigInt64LE(off + 24);
+    if (isFree === 0 && (sideAndTree & 1) === 1 && lockedPrice <= priceLots) return true;
+  }
+  return false;
+}
