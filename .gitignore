@@ -65,3 +65,7 @@ scratch/
 .validator-test.log
 services/indexer/.indexer.sqlite*
 services/*/node_modules/
+.demo-config.json
+.frontend-demo.log
+.indexer-demo.log
+.validator-demo.log
