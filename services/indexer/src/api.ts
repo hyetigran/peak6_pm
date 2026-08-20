@@ -5,11 +5,24 @@ import { createMintToInstruction, createAssociatedTokenAccountIdempotentInstruct
 import { Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import fs from "node:fs";
 import { decodeBookSide, ladder, ownersFor, type BookLevel } from "./layout.js";
+import { readPaused, setGlobalPause, settleMarket, type SettleRow } from "./admin.js";
 
 function json(res: http.ServerResponse, code: number, body: unknown) {
   const s = JSON.stringify(body);
-  res.writeHead(code, { "content-type": "application/json", "access-control-allow-origin": "*" });
+  res.writeHead(code, {
+    "content-type": "application/json",
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-headers": "content-type",
+  });
   res.end(s);
+}
+
+function readBody(req: http.IncomingMessage): Promise<any> {
+  return new Promise((resolve) => {
+    let d = ""; req.on("data", (c) => (d += c));
+    req.on("end", () => { try { resolve(d ? JSON.parse(d) : {}); } catch { resolve({}); } });
+  });
 }
 
 /** History Completeness: report the indexer's last-seen slot vs the chain tip. */
@@ -23,7 +36,34 @@ export function serve(db: Database.Database, conn: Connection, port: number) {
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://x");
+      if (req.method === "OPTIONS") { res.writeHead(204, { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "content-type" }); return res.end(); }
       if (url.pathname === "/health") return json(res, 200, { ok: true, ...(await completeness(conn, db)) });
+
+      // --- Admin / Ops console (localnet demo: signs with .demo-config.json roles) ---
+      if (url.pathname === "/admin/state") {
+        try { return json(res, 200, { paused: await readPaused(conn) }); }
+        catch (e) { return json(res, 200, { paused: false, error: (e as Error).message }); }
+      }
+      if (url.pathname === "/admin/pause" && req.method === "POST") {
+        try {
+          const { paused } = await readBody(req);
+          const sig = await setGlobalPause(conn, !!paused);
+          return json(res, 200, { ok: true, paused: !!paused, sig });
+        } catch (e) { return json(res, 503, { error: "pause failed: " + (e as Error).message }); }
+      }
+      const sMatch = url.pathname.match(/^\/admin\/settle\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
+      if (sMatch && req.method === "POST") {
+        try {
+          const row = db.prepare("SELECT pubkey,ticker_id,trading_day,strike_1e6,close_ts,settled_ts,settlement_record FROM markets WHERE pubkey=?").get(sMatch[1]) as SettleRow | undefined;
+          if (!row) return json(res, 404, { error: "market not found" });
+          if (row.settled_ts) return json(res, 409, { error: "already settled" });
+          const body = await readBody(req);
+          const close1e6 = body.price != null ? BigInt(Math.round(Number(body.price) * 1e6)) : BigInt(row.strike_1e6) + 5_000_000n;
+          const r = await settleMarket(conn, row, close1e6);
+          return json(res, 200, { ok: true, ...r, close_1e6: close1e6.toString() });
+        } catch (e) { return json(res, 503, { error: "settle failed: " + (e as Error).message }); }
+      }
+
       if (url.pathname === "/markets") {
         const rows = db.prepare("SELECT * FROM markets ORDER BY ticker, CAST(strike_1e6 AS INTEGER)").all();
         return json(res, 200, { markets: rows, meta: await completeness(conn, db) });

@@ -55,14 +55,23 @@ async function main() {
   const now = BigInt(Math.floor(Date.now() / 1000));
   const to = now - 30n, mo = to - 1800n, cl = to + 6n * 3600n; // trading open, closes in ~6h
   let created = 0;
+  const transports: Record<number, string> = {}; // tickerId -> delivery feed (needed to settle)
 
-  for (const [tid, name, prior, strikes] of SET) {
-    await send([m.registerTransportIx({ governance: gov.publicKey, versionId: 1, tickerId: tid, feed: Keypair.generate().publicKey })], [gov]);
+  // A ticker+day binds a single official close, so the optional "closes soon"
+  // demo market lives on its own ticker (TSLA, id 7) — never mixed into a
+  // ticker whose other strikes close at the normal 4pm.
+  const FULL: [number, string, number, number[], bigint][] = SET.map(([t, n, p, s]) => [t, n, p, s, cl]);
+  if (process.env.DEMO_SETTLE) FULL.push([7, "TSLA", 349, [350], now + 90n]);
+
+  for (const [tid, name, prior, strikes, close] of FULL) {
+    const feed = Keypair.generate(); // demo delivery-feed identity, pinned per ticker
+    transports[tid] = feed.publicKey.toBase58();
+    await send([m.registerTransportIx({ governance: gov.publicKey, versionId: 1, tickerId: tid, feed: feed.publicKey })], [gov]);
     for (const s of strikes) {
       const strike = BigInt(s) * 1_000_000n;
       await send([m.createOutcomeMarketIx({
         operator: operator.publicKey, quoteMint, tickerId: tid, tradingDay: DAY, strike,
-        versionId: 1, priorClose: BigInt(prior) * 1_000_000n, mintOpenTs: mo, tradeOpenTs: to, closeTs: cl,
+        versionId: 1, priorClose: BigInt(prior) * 1_000_000n, mintOpenTs: mo, tradeOpenTs: to, closeTs: close,
         metadataManifest: Buffer.alloc(32, 7), normalDelaySecs: 0, overrideDelaySecs: 0,
       })], [operator]);
       // attach a venue so the market is Active
@@ -86,7 +95,7 @@ async function main() {
     }
   }
   fs.writeFileSync(".demo-faucet.json", JSON.stringify({ quoteMint: quoteMint.toBase58(), authority: [...gov.secretKey] }));
-  fs.writeFileSync(".demo-config.json", JSON.stringify({ quoteMint: quoteMint.toBase58(), governance: [...gov.secretKey], operator: [...operator.secretKey], day: DAY }, null, 2));
+  fs.writeFileSync(".demo-config.json", JSON.stringify({ quoteMint: quoteMint.toBase58(), governance: [...gov.secretKey], operator: [...operator.secretKey], day: DAY, transports }, null, 2));
   console.log(`\ndone: ${created} Active markets across ${SET.length} tickers. quoteMint=${quoteMint.toBase58()}`);
 }
 main().catch((e) => { console.error(e); process.exit(1); });

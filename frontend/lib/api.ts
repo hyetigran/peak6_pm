@@ -31,6 +31,21 @@ export const getHealth = () => j<Health & { ok: boolean }>("/health");
 export const getPortfolio = (wallet: string) =>
   j<{ owner: string; positions: any[] }>(`/portfolio/${wallet}`);
 
+// --- Admin / Ops console ---
+async function post<T>(path: string, body?: unknown): Promise<T> {
+  const r = await fetch(`${INDEXER}${path}`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error ?? `${path} -> ${r.status}`);
+  return d;
+}
+export const getAdminState = () => j<{ paused: boolean; error?: string }>("/admin/state");
+export const setPause = (paused: boolean) => post<{ ok: boolean; paused: boolean; sig: string }>("/admin/pause", { paused });
+export const settleMarket = (pk: string, price?: number) =>
+  post<{ ok: boolean; sig: string; finalized: boolean; close_1e6: string }>(`/admin/settle/${pk}`, price != null ? { price } : {});
+
 /** Market Phase — the user-visible projection (PRD), not raw MarketState. */
 export function marketPhase(m: Market, now = Math.floor(Date.now() / 1000)): string {
   if (m.state_name === "Abandoned") return "Abandoned";

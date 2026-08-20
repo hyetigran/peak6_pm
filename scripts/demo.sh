@@ -28,7 +28,7 @@ echo "[demo] seeding markets…"
 npx tsx scripts/seed-demo.ts
 
 echo "[demo] starting indexer on :8787…"
-( cd services/indexer && INDEXER_DB=.indexer.sqlite PORT=8787 DEMO_FAUCET="$ROOT/.demo-faucet.json" npx tsx src/index.ts > "$ROOT/.indexer-demo.log" 2>&1 & echo $! > /tmp/mrd_idx.pid )
+( cd services/indexer && INDEXER_DB=.indexer.sqlite PORT=8787 DEMO_FAUCET="$ROOT/.demo-faucet.json" DEMO_CONFIG="$ROOT/.demo-config.json" npx tsx src/index.ts > "$ROOT/.indexer-demo.log" 2>&1 & echo $! > /tmp/mrd_idx.pid )
 IDX_PID="$(cat /tmp/mrd_idx.pid)"
 sleep 4
 curl -s localhost:8787/markets | python3 -c "import json,sys; print('[demo] indexer sees', len(json.load(sys.stdin)['markets']), 'markets')" 2>/dev/null || echo "[demo] indexer starting…"

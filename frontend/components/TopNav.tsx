@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useWallet } from "@/lib/wallet";
-import { getHealth, faucet, type Health } from "@/lib/api";
+import { getHealth, getAdminState, faucet, type Health } from "@/lib/api";
 import { short } from "@/lib/format";
 
 const LINKS = [["/markets", "Markets"], ["/trade", "Trade"], ["/portfolio", "Portfolio"], ["/history", "History"], ["/admin", "Admin"]];
@@ -12,10 +12,14 @@ export function TopNav() {
   const path = usePathname();
   const { pubkey, sol, external, connect, connectBurner, disconnect } = useWallet();
   const [health, setHealth] = useState<Health | null>(null);
+  const [paused, setPaused] = useState(false);
   const [open, setOpen] = useState(false);
   useEffect(() => {
-    const t = setInterval(() => getHealth().then(setHealth).catch(() => setHealth(null)), 4000);
-    getHealth().then(setHealth).catch(() => {});
+    const poll = () => {
+      getHealth().then(setHealth).catch(() => setHealth(null));
+      getAdminState().then((s) => setPaused(s.paused)).catch(() => {});
+    };
+    poll(); const t = setInterval(poll, 4000);
     return () => clearInterval(t);
   }, []);
   const recovery = health && !health.complete;
@@ -63,6 +67,11 @@ export function TopNav() {
           </div>
         </div>
       </nav>
+      {paused && (
+        <div className="banner"><div className="wrap">
+          <b>Minting paused by admin.</b> Exits stay open — you can always sell, close, or redeem.
+        </div></div>
+      )}
       {recovery && (
         <div className="banner"><div className="wrap">
           <b>Recovery-only Mode</b> — indexed state is behind the chain (lag {health!.lag} slots). Exits stay open; new orders are held until state is fresh.
