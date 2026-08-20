@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useWallet } from "@/lib/wallet";
-import { getHealth, type Health } from "@/lib/api";
+import { getHealth, faucet, type Health } from "@/lib/api";
 import { short } from "@/lib/format";
 
 const LINKS = [["/markets", "Markets"], ["/portfolio", "Portfolio"], ["/history", "History"]];
@@ -31,7 +31,10 @@ export function TopNav() {
           </div>
           <div className="nav-right">
             {pubkey ? (
-              <span className="wallet-chip"><span className="bal mono">{sol.toFixed(2)} SOL</span><span className="mono">{short(pubkey.toBase58())}</span></span>
+              <>
+                <button className="wallet-chip" onClick={() => faucet(pubkey.toBase58())} title="Mint 1000 test USDC (localnet)">+1000 USDC</button>
+                <span className="wallet-chip"><span className="bal mono">{sol.toFixed(2)} SOL</span><span className="mono">{short(pubkey.toBase58())}</span></span>
+              </>
             ) : (
               <button className="wallet-chip" onClick={connect}>Connect wallet</button>
             )}

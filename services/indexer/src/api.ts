@@ -1,6 +1,9 @@
 import http from "node:http";
 import type Database from "better-sqlite3";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey, Keypair } from "@solana/web3.js";
+import { createMintToInstruction, createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import fs from "node:fs";
 import { decodeBookSide, ladder, ownersFor, type BookLevel } from "./layout.js";
 
 function json(res: http.ServerResponse, code: number, body: unknown) {
@@ -29,6 +32,23 @@ export function serve(db: Database.Database, conn: Connection, port: number) {
       if (mMatch) {
         const row = db.prepare("SELECT * FROM markets WHERE pubkey=?").get(mMatch[1]);
         return row ? json(res, 200, row) : json(res, 404, { error: "not found" });
+      }
+      const fMatch = url.pathname.match(/^\/faucet\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
+      if (fMatch) {
+        // localnet demo faucet: mint 1000 test USDC to the address.
+        try {
+          const cfg = JSON.parse(fs.readFileSync(process.env.DEMO_FAUCET ?? ".demo-faucet.json", "utf8"));
+          const auth = Keypair.fromSecretKey(Uint8Array.from(cfg.authority));
+          const mint = new PublicKey(cfg.quoteMint);
+          const owner = new PublicKey(fMatch[1]);
+          const ata = getAssociatedTokenAddressSync(mint, owner);
+          const tx = new Transaction().add(
+            createAssociatedTokenAccountIdempotentInstruction(auth.publicKey, ata, owner, mint),
+            createMintToInstruction(mint, ata, auth.publicKey, 1000_000_000n),
+          );
+          const sig = await sendAndConfirmTransaction(conn, tx, [auth], { commitment: "confirmed" });
+          return json(res, 200, { ok: true, minted: "1000", mint: mint.toBase58(), sig });
+        } catch (e) { return json(res, 503, { error: "faucet unavailable: " + (e as Error).message }); }
       }
       const bMatch = url.pathname.match(/^\/book\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
       if (bMatch) {

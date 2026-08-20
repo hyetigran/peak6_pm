@@ -74,6 +74,7 @@ async function main() {
       process.stdout.write(`\rseeded ${created} markets  `);
     }
   }
+  fs.writeFileSync(".demo-faucet.json", JSON.stringify({ quoteMint: quoteMint.toBase58(), authority: [...gov.secretKey] }));
   fs.writeFileSync(".demo-config.json", JSON.stringify({ quoteMint: quoteMint.toBase58(), governance: [...gov.secretKey], operator: [...operator.secretKey], day: DAY }, null, 2));
   console.log(`\ndone: ${created} Active markets across ${SET.length} tickers. quoteMint=${quoteMint.toBase58()}`);
 }

@@ -70,3 +70,4 @@ services/*/node_modules/
 .indexer-demo.log
 .validator-demo.log
 .book-market.txt
+.demo-faucet.json

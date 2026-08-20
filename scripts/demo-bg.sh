@@ -10,7 +10,7 @@ make build >/dev/null 2>&1
 ./scripts/localnet.sh --ledger .validator > .validator-demo.log 2>&1 &
 for i in $(seq 1 60); do solana cluster-version -u localhost >/dev/null 2>&1 && break; sleep 1; done
 npx tsx scripts/seed-demo.ts > .seed-demo.log 2>&1
-( cd services/indexer && INDEXER_DB=.indexer.sqlite PORT=8787 npx tsx src/index.ts > "$ROOT/.indexer-demo.log" 2>&1 & echo $! > /tmp/mrd_idx.pid )
+( cd services/indexer && INDEXER_DB=.indexer.sqlite PORT=8787 DEMO_FAUCET="$ROOT/.demo-faucet.json" npx tsx src/index.ts > "$ROOT/.indexer-demo.log" 2>&1 & echo $! > /tmp/mrd_idx.pid )
 ( cd frontend && npm run dev -- -p ${FE_PORT:-3100} > "$ROOT/.frontend-demo.log" 2>&1 & echo $! > /tmp/mrd_fe.pid )
 # wait for next dev to be ready
 for i in $(seq 1 60); do curl -s localhost:${FE_PORT:-3100} >/dev/null 2>&1 && break; sleep 1; done

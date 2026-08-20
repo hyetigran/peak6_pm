@@ -25,6 +25,8 @@ export interface Book {
   bid_owners: string[]; ask_owners: string[]; note?: string;
 }
 export const getBook = (pk: string) => j<Book>(`/book/${pk}`);
+export const faucet = (address: string) =>
+  fetch(`${INDEXER}/faucet/${address}`).then((r) => r.json());
 export const getHealth = () => j<Health & { ok: boolean }>("/health");
 export const getPortfolio = (wallet: string) =>
   j<{ owner: string; positions: any[] }>(`/portfolio/${wallet}`);

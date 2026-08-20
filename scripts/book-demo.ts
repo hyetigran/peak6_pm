@@ -44,6 +44,7 @@ async function main() {
     obMarket: obM.publicKey, bids: bids.publicKey, asks: asks.publicKey, eventHeap: heap.publicKey, marketVault: ob.ataFor(yes, auth),
     args: { side: ob.Side.Ask, priceLots: 60n, maxBaseLots: 3n, maxQuoteLotsIncludingFees: 180n, clientOrderId: 2n, orderType: ob.PlaceOrderType.PostOnly, expiryTimestamp: 0n, selfTradeBehavior: ob.SelfTradeBehavior.AbortTransaction, limit: 16 } })], [b]);
   fs.writeFileSync(".book-market.txt", market.toBase58());
+  fs.writeFileSync(".demo-faucet.json", JSON.stringify({ quoteMint: quote.toBase58(), authority: [...gov.secretKey] }));
   console.log("BOOK_MARKET", market.toBase58());
 }
 main().catch((e) => { console.error(e); process.exit(1); });
