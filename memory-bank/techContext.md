@@ -29,7 +29,7 @@ Re-read from the pinned v1.7 release in M0, not from `master`:
 - `consume_events_admin = None` → permissionless consume.
 - `close_market_admin` controls `set_market_expired` / prune / close. `set_market_expired` requires not-yet-expired and sets `time_expiry = -1`: a true one-way fuse (G3-proven).
 - `MAX_OPEN_ORDERS = 24` resting orders per OpenOrders account (`OpenOrdersFull` beyond).
-- `collect_fee_admin` is still a required pubkey even at zero fees → unsignable sentinel, never a Meridian PDA.
+- `collect_fee_admin` sentinel (G9-proven): PDA("meridian_fee_admin_sentinel", System Program) = `EhAss6gb…` — off-curve + System Program never signs. sweep_fees `has_one` makes any real signer fail ConstraintHasOne.
 - Majority of OpenBook repo is MIT; GPL is behind `enable-gpl`. Use `client`/`cpi` only.
 
 ## Compile-time / config constants

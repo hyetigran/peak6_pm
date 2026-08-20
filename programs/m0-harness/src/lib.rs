@@ -23,6 +23,14 @@ declare_id!("3MmdMxRUF4NWPNdwoQcLhoqfmiKReoaSQR9GwSeQEpRr");
 pub const VENUE_AUTHORITY_SEED: &[u8] = b"venue_authority";
 pub const CONFIG_SEED: &[u8] = b"config";
 pub const VENUE_GATE_SEED: &[u8] = b"venue_gate";
+/// ADR-scoped unsignable fee-admin sentinel: a System-Program PDA. Off-curve
+/// (no private key can exist) and the System Program has no `invoke_signed`
+/// path, so NOTHING can ever produce this signature. G9-proven.
+pub const FEE_ADMIN_SENTINEL_SEED: &[u8] = b"meridian_fee_admin_sentinel";
+/// V1 production lot scheme (G10): one whole Yes Token per base lot,
+/// one cent per price lot.
+pub const PINNED_BASE_LOT_SIZE: i64 = 1_000_000;
+pub const PINNED_QUOTE_LOT_SIZE: i64 = 10_000;
 
 #[program]
 pub mod m0_harness {
@@ -35,6 +43,111 @@ pub mod m0_harness {
         config.admin = ctx.accounts.admin.key();
         config.openbook_program = ctx.accounts.openbook_program.key();
         config.venue_authority_bump = ctx.bumps.venue_authority;
+        Ok(())
+    }
+
+    /// Create a Venue Market via CPI with EVERY safety field pinned in code
+    /// (G9 + the G1 create-golden residual): zero fees, unsignable
+    /// collect_fee_admin sentinel, `venue_authority` as open_orders_admin and
+    /// close_market_admin, consume_events_admin None (permissionless crank),
+    /// no oracles, production lot sizes. No caller-supplied header value is
+    /// forwarded. Post-CPI the wrapper re-reads the market account and
+    /// verifies every pinned field byte-for-byte — fail closed on any drift.
+    pub fn create_venue_market(
+        ctx: Context<CreateVenueMarket>,
+        name: String,
+        time_expiry: i64,
+    ) -> Result<()> {
+        let ob = ctx.accounts.openbook_program.key();
+        let (sentinel, _) = Pubkey::find_program_address(
+            &[FEE_ADMIN_SENTINEL_SEED],
+            &anchor_lang::system_program::ID,
+        );
+        // borsh args: name, OracleConfigParams{conf_filter f32, staleness None},
+        // quote_lot, base_lot, maker_fee, taker_fee, time_expiry
+        let mut data = DISC_CREATE_MARKET.to_vec();
+        (name, 0.1f32, Option::<u32>::None).serialize(&mut data)?;
+        (
+            PINNED_QUOTE_LOT_SIZE,
+            PINNED_BASE_LOT_SIZE,
+            0i64, // maker_fee: zero, always
+            0i64, // taker_fee: zero, always
+            time_expiry,
+        )
+            .serialize(&mut data)?;
+        let metas = vec![
+            AccountMeta::new(ctx.accounts.market.key(), true),
+            AccountMeta::new_readonly(ctx.accounts.market_authority.key(), false),
+            AccountMeta::new(ctx.accounts.bids.key(), false),
+            AccountMeta::new(ctx.accounts.asks.key(), false),
+            AccountMeta::new(ctx.accounts.event_heap.key(), false),
+            AccountMeta::new(ctx.accounts.admin.key(), true), // payer: operator, never a vault
+            AccountMeta::new(ctx.accounts.market_base_vault.key(), false),
+            AccountMeta::new(ctx.accounts.market_quote_vault.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.base_mint.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.quote_mint.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.system_program.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.token_program.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.associated_token_program.key(), false),
+            AccountMeta::new_readonly(ob, false), // oracle_a: None
+            AccountMeta::new_readonly(ob, false), // oracle_b: None
+            AccountMeta::new_readonly(sentinel, false), // collect_fee_admin: unsignable
+            AccountMeta::new_readonly(ctx.accounts.venue_authority.key(), false), // open_orders_admin
+            AccountMeta::new_readonly(ob, false), // consume_events_admin: None
+            AccountMeta::new_readonly(ctx.accounts.venue_authority.key(), false), // close_market_admin
+            AccountMeta::new_readonly(ctx.accounts.event_authority.key(), false),
+            AccountMeta::new_readonly(ob, false),
+        ];
+        let ix = Instruction {
+            program_id: ob,
+            accounts: metas,
+            data,
+        };
+        anchor_lang::solana_program::program::invoke(
+            &ix,
+            &[
+                ctx.accounts.market.to_account_info(),
+                ctx.accounts.market_authority.to_account_info(),
+                ctx.accounts.bids.to_account_info(),
+                ctx.accounts.asks.to_account_info(),
+                ctx.accounts.event_heap.to_account_info(),
+                ctx.accounts.admin.to_account_info(),
+                ctx.accounts.market_base_vault.to_account_info(),
+                ctx.accounts.market_quote_vault.to_account_info(),
+                ctx.accounts.base_mint.to_account_info(),
+                ctx.accounts.quote_mint.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+                ctx.accounts.token_program.to_account_info(),
+                ctx.accounts.associated_token_program.to_account_info(),
+                ctx.accounts.venue_authority.to_account_info(),
+                ctx.accounts.fee_admin_sentinel.to_account_info(),
+                ctx.accounts.event_authority.to_account_info(),
+                ctx.accounts.openbook_program.to_account_info(),
+            ],
+        )?;
+
+        // post-CPI header verification: every pinned field, byte-for-byte
+        let data = ctx.accounts.market.try_borrow_data()?;
+        require!(
+            *ctx.accounts.market.owner == ob,
+            HarnessError::HeaderVerificationFailed
+        );
+        let va = ctx.accounts.venue_authority.key();
+        let checks = [
+            (read_pubkey(&data, MARKET_COLLECT_FEE_ADMIN_OFFSET) == sentinel),
+            (read_pubkey(&data, MARKET_OPEN_ORDERS_ADMIN_OFFSET) == va),
+            (read_pubkey(&data, MARKET_CONSUME_EVENTS_ADMIN_OFFSET) == Pubkey::default()),
+            (read_pubkey(&data, MARKET_CLOSE_MARKET_ADMIN_OFFSET) == va),
+            (read_i64(&data, MARKET_TIME_EXPIRY_OFFSET) == time_expiry),
+            (read_i64(&data, MARKET_MAKER_FEE_OFFSET) == 0),
+            (read_i64(&data, MARKET_TAKER_FEE_OFFSET) == 0),
+            (read_i64(&data, MARKET_QUOTE_LOT_SIZE_OFFSET) == PINNED_QUOTE_LOT_SIZE),
+            (read_i64(&data, MARKET_BASE_LOT_SIZE_OFFSET) == PINNED_BASE_LOT_SIZE),
+        ];
+        require!(
+            checks.iter().all(|c| *c),
+            HarnessError::HeaderVerificationFailed
+        );
         Ok(())
     }
 
@@ -427,6 +540,55 @@ pub struct PlaceTakeOrderCpi<'info> {
 }
 
 #[derive(Accounts)]
+pub struct CreateVenueMarket<'info> {
+    #[account(mut, address = config.admin @ HarnessError::NotAdmin)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [CONFIG_SEED], bump)]
+    pub config: Account<'info, Config>,
+    /// CHECK: becomes open_orders_admin AND close_market_admin.
+    #[account(seeds = [VENUE_AUTHORITY_SEED], bump = config.venue_authority_bump)]
+    pub venue_authority: UncheckedAccount<'info>,
+    /// CHECK: created by OpenBook (init); must sign.
+    #[account(mut)]
+    pub market: Signer<'info>,
+    /// CHECK: OpenBook PDA ["Market", market]; validated by OpenBook.
+    pub market_authority: UncheckedAccount<'info>,
+    /// CHECK: pre-created zeroed book account; validated by OpenBook.
+    #[account(mut)]
+    pub bids: UncheckedAccount<'info>,
+    /// CHECK: pre-created zeroed book account; validated by OpenBook.
+    #[account(mut)]
+    pub asks: UncheckedAccount<'info>,
+    /// CHECK: pre-created zeroed heap account; validated by OpenBook.
+    #[account(mut)]
+    pub event_heap: UncheckedAccount<'info>,
+    /// CHECK: ATA(base_mint, market_authority), created by the CPI.
+    #[account(mut)]
+    pub market_base_vault: UncheckedAccount<'info>,
+    /// CHECK: ATA(quote_mint, market_authority), created by the CPI.
+    #[account(mut)]
+    pub market_quote_vault: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    pub base_mint: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    pub quote_mint: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+    /// CHECK: validated by OpenBook
+    pub token_program: UncheckedAccount<'info>,
+    /// CHECK: validated by OpenBook
+    pub associated_token_program: UncheckedAccount<'info>,
+    /// CHECK: OpenBook #[event_cpi] authority PDA.
+    pub event_authority: UncheckedAccount<'info>,
+    /// CHECK: the provably unsignable sentinel; address re-derived here so a
+    /// wrong account fails closed before the CPI.
+    #[account(address = Pubkey::find_program_address(&[FEE_ADMIN_SENTINEL_SEED], &anchor_lang::system_program::ID).0 @ HarnessError::HeaderVerificationFailed)]
+    pub fee_admin_sentinel: UncheckedAccount<'info>,
+    /// CHECK: fail closed on any program identity mismatch.
+    #[account(executable, address = config.openbook_program @ HarnessError::WrongOpenbookProgram)]
+    pub openbook_program: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
 pub struct CreateVenueGate<'info> {
     #[account(mut, address = config.admin @ HarnessError::NotAdmin)]
     pub admin: Signer<'info>,
@@ -608,4 +770,6 @@ pub enum HarnessError {
     SelfTradeMustAbort,
     #[msg("order was not posted (PostOnly would cross, or expiry already passed); failing closed")]
     OrderNotPosted,
+    #[msg("post-create Venue Market header verification failed")]
+    HeaderVerificationFailed,
 }

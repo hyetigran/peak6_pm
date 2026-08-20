@@ -18,6 +18,8 @@ pub const DISC_SET_MARKET_EXPIRED: [u8; 8] = [219, 82, 219, 236, 60, 115, 197, 6
 pub const DISC_PRUNE_ORDERS: [u8; 8] = [27, 213, 159, 191, 12, 116, 112, 121];
 /// `sha256("global:close_market")[..8]`
 pub const DISC_CLOSE_MARKET: [u8; 8] = [88, 154, 248, 186, 48, 14, 123, 244];
+/// `sha256("global:create_market")[..8]`
+pub const DISC_CREATE_MARKET: [u8; 8] = [103, 226, 97, 235, 200, 188, 251, 254];
 
 /// IDL `Side`
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
@@ -88,4 +90,18 @@ pub fn read_i64(data: &[u8], off: usize) -> i64 {
 }
 pub fn read_u64(data: &[u8], off: usize) -> u64 {
     u64::from_le_bytes(data[off..off + 8].try_into().unwrap())
+}
+
+/// Pinned Market byte offsets used by post-create header verification
+/// (state/market.rs field order at 796a470).
+pub const MARKET_TIME_EXPIRY_OFFSET: usize = 48;
+pub const MARKET_COLLECT_FEE_ADMIN_OFFSET: usize = 56;
+pub const MARKET_OPEN_ORDERS_ADMIN_OFFSET: usize = 88;
+pub const MARKET_CONSUME_EVENTS_ADMIN_OFFSET: usize = 120;
+pub const MARKET_CLOSE_MARKET_ADMIN_OFFSET: usize = 152;
+pub const MARKET_MAKER_FEE_OFFSET: usize = 480;
+pub const MARKET_TAKER_FEE_OFFSET: usize = 488;
+
+pub fn read_pubkey(data: &[u8], off: usize) -> anchor_lang::prelude::Pubkey {
+    anchor_lang::prelude::Pubkey::new_from_array(data[off..off + 32].try_into().unwrap())
 }

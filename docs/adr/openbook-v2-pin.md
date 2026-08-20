@@ -245,3 +245,20 @@ reports success for orders it never posted**. Any Meridian order path that
 does not verify the returned order id would silently strand user intent;
 the wrapper's `OrderNotPosted` check is therefore load-bearing for M1, and M1
 should surface the order id via CPI return data rather than log-scraping.
+
+## 12. G9 evidence — zero-fee enforcement and the create-path goldens
+
+Proven on localnet against the pinned bytes (`tests/g9.test.ts`, `make g9`).
+
+| Fact | Evidence |
+| --- | --- |
+| **The unsignable sentinel** | `collect_fee_admin` = PDA(`"meridian_fee_admin_sentinel"`, System Program) = `EhAss6gbDU57Cmwwyeq3RwHBVRvBK4CkzLS8yvddFZ1E`. Provably unsignable: off-curve (no private key can exist — asserted `isOnCurve == false`) AND the System Program contains no `invoke_signed` path, so no PDA signature can ever be produced for it |
+| `create_venue_market` wrapper | takes ONLY name + expiry; zero fees, sentinel, `venue_authority` as open_orders/close_market admin, `consume_events_admin = None`, no oracles, production lots — all compiled in; post-CPI the wrapper re-reads the market and verifies every pinned field byte-for-byte (fail closed `HeaderVerificationFailed`); on-chain header independently re-verified by the test |
+| Fee collection impossible | `accounts_ix/sweep_fees.rs`: `has_one = collect_fee_admin` + `Signer` — any real signer fails `ConstraintHasOne` (proven), and the only account that could pass is the sentinel, which can never sign |
+| Fee counters stay zero | after a maker + Market Action session: `fees_accrued`, `fees_to_referrers`, `referrer_rebates_accrued`, `fees_available` all zero (offsets 496/512/528/536) |
+| **Header-mutation enumeration** | source scan of all 24 instruction files at `796a470`: exactly TWO safety-field writers exist — `set_market_expired` → `time_expiry = -1` (close-admin-gated, §8) and `sweep_fees` → `fees_available = 0` (sentinel-gated, above). **No instruction can set admins, fees, lots, or oracles after create.** Discriminator goldens protect all three related encodings |
+| No Meridian fee surface | harness source scan: no public instruction contains fee/treasury/collect/sweep/withdraw. The real IDL check re-runs against the M1 program |
+
+`attach_venue` (accepting an externally created market) is an M1 instruction;
+the created-path header verification above is the M0-provable surface, and
+M1's attach must re-verify the same field set against the same offsets.
