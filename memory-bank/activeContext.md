@@ -2,7 +2,18 @@
 
 ## Current focus
 
-The working freeze is PRD **v0.7** + ARCHITECTURE **v1.1** + ADRs 0001–0030 (0029 invalidated, superseded by 0030). **M0 underway; G2 is GREEN on localnet (7/7)** via the m0-harness at the canonical OpenBook ID. **G1 is reopened**: v1.7's compiled-in `declare_id` makes any re-ID'd copy inert (the `923gY…` devnet deployment is permanently inert, 7.21 SOL sunk), and a binary patch is unprovable (second inlined ID copy). The artifact runs ONLY at canonical `opnb2LAf…`, whose devnet deployment retains an external upgrade authority. ADR-0030 (approved 2026-08-20) binds V1 to the canonical deployment with monitored fail-closed identity checks; PRD v0.7.1 / ARCHITECTURE v1.1.1 carry the revised G1 clause. Harness: `programs/m0-harness` (anchor 0.31, MIT-IDL hand-rolled CPI = G1 fallback-adapter proof), `tests/g2.test.ts`, `scripts/run-g2.sh`, pinned fixture in `fixtures/`.
+The working freeze is PRD **v0.7.1** + ARCHITECTURE **v1.1.1** + ADRs **0001–0030**. **M0 is deep in progress: an executable validation harness (`programs/m0-harness`, anchor 0.31, MIT-IDL hand-rolled OpenBook CPI + a faithful pair-collateral model) proves gates G1, G2, G3, G4, G5, G6, G7, G9, G10, G12 — 57 tests green on localnet against the pinned OpenBook v1.7 bytes (`make m0`).** Every gate was two-axis code-reviewed and hardened. Remaining M0: **G11** (blocked on the Official-Close provider, #9) and the **G8 evidence already done**. What's left is human-owned: provider (#9), alert webhook (#10), Squads members (#11), Emergency Expiry disposition (#15), the G2 devnet evidence run (#8, needs devnet funding), and the signed go/no-go (#17). Still no production program — the harness is validation scaffolding, explicitly not M1.
+
+## Gate results worth carrying (all in `docs/adr/openbook-v2-pin.md` §5–16)
+
+- G1 canonical `opnb2LAf…` binding (ADR-0030 monitored identity); harness at `3MmdMxRU…`.
+- G2 PDA order gate; G3 time/pause/expiry (program-clock-exact) + one-way fuse; G4 full-fill-or-revert.
+- G5 Sell-No/`redeem_no_via_market` exact vault==liability==−q invariant; token program pinned.
+- **G6: practical inline-fill capacity is 11, not 15** (SBF heap OOM); heap filled to 600 empirically, 601st panics; consume 8/ix owner-required; drain ~3 txs.
+- **G7: first-use Buy-No-limit fits ONE approval (936B) — the named waiver is NOT needed.** Redeem inline cap 10 distinct makers. ALT frozen + immutable proven.
+- G8 rent budget ≈567.8 SOL/5-day; G9 zero-fee + unsignable sentinel `EhAss6gb…` + create-CPI wire golden + IDL enumeration.
+- G10 lot/price/order semantics; **PostOnly-cross & past-expiry are venue silent no-ops** — order paths require the returned id.
+- G12 quote-mint pin, metadata-ORDERING gate, recovery in each state, **Squads V4 2-of-3 loader drill on the immutable mainnet fixture** (1 fails / 2 execute a real SetAuthority).
 
 ## What is true right now (2026-08-19 evening)
 
