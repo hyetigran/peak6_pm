@@ -1,0 +1,16 @@
+{
+  "name": "meridian-m0",
+  "private": true,
+  "description": "Meridian M0 validation harness tests (G1-G12)",
+  "type": "module",
+  "scripts": {
+    "test:g2": "tsx --test tests/g2.test.ts"
+  },
+  "devDependencies": {
+    "@solana/spl-token": "^0.4.9",
+    "@solana/web3.js": "^1.95.8",
+    "@types/node": "^26.2.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

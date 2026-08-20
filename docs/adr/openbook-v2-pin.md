@@ -1,6 +1,6 @@
 # OpenBook V2 pin evidence (G1)
 
-**Status: G1 identity requirements GREEN against the Meridian deployment (ADR-0029).** The canonical devnet deployment failed G1 on a retained upgrade authority (§6, preserved below as the finding that forced ADR-0029). Per that ADR, V1 binds to Meridian's own finalized, byte-identical copy, verified in §0. G1's remaining golden-test items (§5 closing note) are still open M0 work.
+**Status: ADR-0029 INVALIDATED by execution evidence (§7); the §0 deployment is inert. G1 identity disposition is reopened — decision pending.** The canonical devnet deployment failed G1 on a retained upgrade authority (§6). ADR-0029's byte-identical copy was deployed and verified (§0) but cannot execute (§7). G1's remaining golden-test items (§5 closing note) are still open M0 work.
 
 ## 0. Meridian deployment (the V1 binding identity)
 
@@ -86,3 +86,36 @@ This cannot be waived and cannot be fixed by Meridian-side checks alone: the per
 3. **Stop** until the OpenBook deployer burns the authority (outside Meridian's control; no basis to expect it).
 
 **Resolution:** option 1 was adopted as ADR-0029 on 2026-08-19 and executed on 2026-08-20; the Meridian deployment in §0 is the V1 binding identity. The canonical deployment is no longer load-bearing for Meridian.
+
+## 7. ADR-0029 execution evidence: a re-ID'd copy cannot run
+
+The M0 harness's first G2 run against the §0 deployment failed on **every**
+instruction with anchor error 4100 `DeclaredProgramIdMismatch`: v1.7 is
+compiled with `declare_id!("opnb2LAf…")` and anchor's entrypoint compares it
+to the executing program ID. The §0 deployment is therefore permanently inert
+(finalized programs cannot be closed; its 7.21148568 SOL rent is sunk).
+
+A surgical binary patch was then tested: the canonical ID occurs exactly once
+as a contiguous 32-byte constant (offset `0xe259b`); patching it and loading
+the artifact at a fresh ID got create_market past the entry check but failed
+at the anchor `#[event_cpi]` self-invoke with `Unknown program opnb2LAf…` —
+**the binary embeds at least one more copy of the canonical ID, inlined in
+code and invisible to byte search**. No byte-patch can be proven complete;
+the patch route is rejected fail-closed.
+
+Empirical matrix (G2 suite, localnet, same artifact):
+
+| Configuration | Result |
+| --- | --- |
+| Unpatched artifact at canonical `opnb2LAf…` | **7/7 pass** |
+| Unpatched artifact at new ID (`923gY…`, devnet §0) | 0/7 — error 4100 on every instruction |
+| Single-site patched artifact at new ID | 0/7 — second inlined ID copy breaks event CPI |
+
+Conclusion: **this artifact executes only at the canonical program ID.** The
+immutability G1 demands and the pinned official bytes are jointly satisfiable
+on devnet only by the canonical deployment — which retains an upgrade
+authority (§6). Building from patched source would require `enable-gpl` and
+abandons the official-artifact property entirely. The remaining real choice
+is the §6 option 2 (canonical deployment + monitored fail-closed identity
+checks, with a PRD revision of the G1 immutability clause), and that decision
+is owned by stakeholders.

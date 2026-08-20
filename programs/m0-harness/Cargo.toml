@@ -1,0 +1,18 @@
+[package]
+name = "m0-harness"
+version = "0.1.0"
+edition = "2021"
+description = "Meridian M0 validation harness — proves G2-G10 against the pinned OpenBook V2 v1.7 deployment. NOT the production program."
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "m0_harness"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "0.31.1"
