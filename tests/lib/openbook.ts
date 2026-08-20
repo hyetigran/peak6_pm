@@ -429,20 +429,23 @@ export const MARKET_FEES_AVAILABLE_OFFSET = 536;    // u64
 /** Market.time_expiry lives at offset 48: 8 disc + bump,base_dec,quote_dec,padding1[5] (=8) + market_authority (32). */
 export const readTimeExpiry = (marketData: Buffer): bigint => marketData.readBigInt64LE(48);
 
-/** Permissionless crank (consume_events_admin = None on harness Venue Markets). */
-export function consumeEventsIx(market: PublicKey, eventHeap: PublicKey, limit: bigint): TransactionInstruction {
-  const data = Buffer.alloc(16);
+/** Permissionless crank (consume_events_admin = None on harness Venue Markets).
+ * At the pin (instructions/consume_events.rs): limit caps at
+ * MAX_EVENTS_CONSUME = 8; each event's owner OpenOrders account MUST be in
+ * remaining accounts or the event is SKIPPED (left on the heap); args carry a
+ * trailing slots: Option<Vec<usize>> (None here). */
+export function consumeEventsIx(market: PublicKey, eventHeap: PublicKey, limit: bigint, ownerOos: PublicKey[] = []): TransactionInstruction {
+  const data = Buffer.alloc(17);
   disc("consume_events").copy(data);
   data.writeBigUInt64LE(limit, 8);
-  return new TransactionInstruction({
-    programId: OPENBOOK_PID,
-    keys: [
-      NONE, // consume_events_admin: None => permissionless
-      { pubkey: market, isSigner: false, isWritable: true },
-      { pubkey: eventHeap, isSigner: false, isWritable: true },
-    ],
-    data,
-  });
+  data[16] = 0; // slots: None
+  const keys = [
+    NONE, // consume_events_admin: None => permissionless
+    { pubkey: market, isSigner: false, isWritable: true },
+    { pubkey: eventHeap, isSigner: false, isWritable: true },
+    ...ownerOos.map(k => ({ pubkey: k, isSigner: false, isWritable: true })),
+  ];
+  return new TransactionInstruction({ programId: OPENBOOK_PID, keys, data });
 }
 
 export function harnessPruneOrdersIx(admin: PublicKey, opts: {
