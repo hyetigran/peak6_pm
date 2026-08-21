@@ -156,11 +156,24 @@ async function main() {
       && k.openbook_market && k.openbook_market !== "11111111111111111111111111111111");
   };
 
-  // initial seed
+  // initial seed. OpenOrders accounts must be created in order (the OO indexer's
+  // created_counter is sequential), so create them all first, then mint+quote
+  // several markets concurrently for speed.
+  const markets = await activeMarkets();
+  for (const k of markets) {
+    if (ooIndex.has(k.pubkey)) continue;
+    const idx = nextIndex++;
+    try { await send([ob.createOoAccountIx(mm.publicKey, mm.publicKey, idx, new PublicKey(k.openbook_market))], [mm]); ooIndex.set(k.pubkey, idx); }
+    catch (e) { console.error(`[mm] oo ${k.ticker} failed:`, (e as Error).message.slice(0, 100)); }
+  }
   let seeded = 0;
-  for (const k of await activeMarkets()) {
-    try { await quoteMarket(k, true); seeded++; console.log(`[mm] seeded ${k.ticker} $${Number(k.strike_1e6) / 1e6} @ fair ${fairCents(k.ticker, Number(k.strike_1e6) / 1e6)}¢`); }
-    catch (e) { console.error(`[mm] seed ${k.ticker} failed:`, (e as Error).message.slice(0, 100)); }
+  const CONC = 4;
+  const ready = markets.filter((k) => ooIndex.has(k.pubkey));
+  for (let i = 0; i < ready.length; i += CONC) {
+    await Promise.all(ready.slice(i, i + CONC).map(async (k) => {
+      try { await quoteMarket(k, true); seeded++; console.log(`[mm] seeded ${k.ticker} $${Number(k.strike_1e6) / 1e6}`); }
+      catch (e) { console.error(`[mm] seed ${k.ticker} failed:`, (e as Error).message.slice(0, 100)); }
+    }));
     writeStatus(seeded);
   }
   console.log(`[mm] seeded ${seeded} markets · ${ordersPosted} orders`);

@@ -19,4 +19,12 @@ sleep 3
 ( cd frontend && pnpm exec next dev -p ${FE_PORT:-3100} > "$ROOT/.frontend-demo.log" 2>&1 & echo $! > /tmp/mrd_fe.pid )
 # wait for next dev to be ready
 for i in $(seq 1 60); do curl -s localhost:${FE_PORT:-3100} >/dev/null 2>&1 && break; sleep 1; done
-echo "DEMO_UP markets=$(curl -s localhost:8787/markets | python3 -c 'import json,sys;print(len(json.load(sys.stdin)["markets"]))' 2>/dev/null)"
+# wait for the market-maker to fill every book (a market has a mark once quoted)
+for i in $(seq 1 90); do
+  ready=$(curl -s localhost:8787/markets 2>/dev/null | python3 -c 'import json,sys
+try:
+ d=json.load(sys.stdin)["markets"]; print(1 if d and all(m.get("mark") is not None for m in d) else 0)
+except: print(0)' 2>/dev/null)
+  [ "$ready" = "1" ] && break; sleep 3
+done
+echo "DEMO_UP markets=$(curl -s localhost:8787/markets | python3 -c 'import json,sys;print(len(json.load(sys.stdin)["markets"]))' 2>/dev/null) books=$ready"

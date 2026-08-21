@@ -50,6 +50,18 @@ echo "[demo] starting frontend on :${FE_PORT:-3100}…"
 ( cd frontend && pnpm exec next dev -p ${FE_PORT:-3100} > "$ROOT/.frontend-demo.log" 2>&1 & echo $! > /tmp/mrd_fe.pid )
 FE_PID="$(cat /tmp/mrd_fe.pid)"
 
+echo "[demo] seeding order books (market-maker)… this takes ~60-90s"
+for i in $(seq 1 90); do
+  nt=$(curl -s localhost:8787/markets 2>/dev/null | python3 -c 'import json,sys
+try:
+ d=json.load(sys.stdin)["markets"]; print(sum(1 for m in d if m.get("mark") is not None), len(d))
+except: print(0,0)' 2>/dev/null)
+  printf "\r[demo]   books ready: %s   " "$nt"
+  set -- $nt; [ -n "$1" ] && [ "$2" != "0" ] && [ "$1" = "$2" ] && break
+  sleep 3
+done
+echo
+
 echo
 echo "==================================================================="
 echo "  Meridian demo is live:"
