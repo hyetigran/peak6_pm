@@ -66,7 +66,7 @@ async function main() {
   for (const [tid, name, prior, strikes, close] of FULL) {
     const feed = ob.mockFeedPda(tid); // the harness mock delivery feed Meridian reads at settlement
     transports[tid] = feed.toBase58();
-    await send([m.registerTransportIx({ governance: gov.publicKey, versionId: 1, tickerId: tid, feed })], [gov]);
+    await send([m.registerTransportIx({ governance: gov.publicKey, versionId: 1, tickerId: tid, feed, oracleProgram: ob.HARNESS_PID })], [gov]);
     for (const s of strikes) {
       const strike = BigInt(s) * 1_000_000n;
       await send([m.createOutcomeMarketIx({

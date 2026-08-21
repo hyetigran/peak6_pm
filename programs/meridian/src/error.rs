@@ -52,4 +52,6 @@ pub enum MeridianError {
     WrongRefundDestination,
     #[msg("arithmetic overflow")]
     Overflow,
+    #[msg("settlement delivery feed is not owned by the pinned oracle program")]
+    WrongDeliveryOwner,
 }

@@ -63,11 +63,13 @@ export function initializeConfigIx(opts: {
 
 export function registerTransportIx(opts: {
   governance: PublicKey; versionId: number; tickerId: number; feed: PublicKey;
+  oracleProgram?: PublicKey; // owner Meridian pins the feed to (harness on localnet, Switchboard on devnet)
 }): TransactionInstruction {
   const z = Buffer.alloc(32);
+  const oracle = (opts.oracleProgram ?? PublicKey.default).toBuffer();
   const data = Buffer.concat([
     disc("register_transport"), u32(opts.versionId), u8(opts.tickerId),
-    z, z, u64(0n), z, z, opts.feed.toBuffer(), z, u16(1), u16(1), u32(0),
+    oracle, z, u64(0n), z, z, opts.feed.toBuffer(), z, u16(1), u16(1), u32(0),
   ]);
   const keys: AccountMeta[] = [
     { pubkey: opts.governance, isSigner: true, isWritable: true },

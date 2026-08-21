@@ -90,7 +90,7 @@ before(async () => {
     openbookExecutableSha256: Buffer.alloc(32, 0xaa), openbookUpgradeAuthority: PublicKey.default,
     minSamples: 3, maxStaleSlots: 1_000_000n, maxPriceBandBps: 50,
   })], [gov]);
-  await send([m.registerTransportIx({ governance: gov.publicKey, versionId: 1, tickerId: AAPL, feed })], [gov]);
+  await send([m.registerTransportIx({ governance: gov.publicKey, versionId: 1, tickerId: AAPL, feed, oracleProgram: ob.HARNESS_PID })], [gov]);
   const now = BigInt(Math.floor(Date.now() / 1000));
   // localnet build: close ~40s out (margin for setup), normal delay 0
   CLOSE = now + 40n;

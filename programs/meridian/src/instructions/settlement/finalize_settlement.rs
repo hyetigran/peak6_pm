@@ -58,10 +58,18 @@ pub fn finalize_normal(
     sample_count: u8,
     raw_response_sha256: [u8; 32],
 ) -> Result<()> {
-    // On localnet the Official Close is READ from the pinned delivery feed
-    // account (a harness mock; Switchboard On-Demand on devnet), never trusted
-    // from the caller. The account-read path is identical to production; only
-    // the writer differs.
+    // The delivery feed is pinned by address (account constraint) AND by owner:
+    // it must be owned by the oracle program snapshotted in the record (the
+    // harness mock on localnet, Switchboard On-Demand on devnet). Address alone
+    // is insufficient — the owner proves it is a genuine oracle account.
+    require!(
+        ctx.accounts.delivery.owner == &ctx.accounts.record.switchboard_program_id,
+        MeridianError::WrongDeliveryOwner
+    );
+
+    // On localnet the Official Close is READ from that feed account, never
+    // trusted from the caller. The account-read path is identical to
+    // production; only the writer differs.
     #[cfg(feature = "localnet")]
     let (official_close_1e6, halt_status, delivery_slot, sample_count) = {
         let d = ctx.accounts.delivery.try_borrow_data()?;
