@@ -9,7 +9,7 @@
  * liquidity, not a real strategy.
  */
 import {
-  Connection, Keypair, PublicKey, Transaction, TransactionInstruction, sendAndConfirmTransaction,
+  Connection, Keypair, PublicKey, Transaction, TransactionInstruction, ComputeBudgetProgram, sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import {
   getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, createMintToInstruction,
@@ -103,10 +103,6 @@ async function main() {
       const idx = nextIndex++;
       await send([ob.createOoAccountIx(mm.publicKey, mm.publicKey, idx, new PublicKey(k.openbook_market))], [mm]);
       ooIndex.set(k.pubkey, idx);
-      await send([
-        createAssociatedTokenAccountIdempotentInstruction(mm.publicKey, yesAta, mm.publicKey, yesMint),
-        createAssociatedTokenAccountIdempotentInstruction(mm.publicKey, noAta, mm.publicKey, noMint),
-      ], [mm]);
     }
     const oo = ob.ooAccountPda(mm.publicKey, ooIndex.get(k.pubkey)!);
     const fair = fairCents(k.ticker, Number(k.strike_1e6) / 1e6);
@@ -116,25 +112,32 @@ async function main() {
     if (!needBids && !needAsks) return 0;
 
     const lad = ladder(k.pubkey);
-    // mint enough Yes inventory to back the full ask ladder (only when reposting asks)
-    if (needAsks) await send([m.mintPairIx(mm.publicKey, new PublicKey(k.pubkey), lad.reduce((a, l) => a + l.size, 0n) * LOT, {
-      yesMint, noMint, collateralVault: new PublicKey(k.collateral_vault), userQuote: usdc, userYes: yesAta, userNo: noAta,
-    })], [mm]);
+    // create the Yes/No ATAs AND mint the ask-backing inventory in ONE tx — a
+    // separate ATA tx races the mint's simulation at "confirmed" and fails.
+    if (needAsks) await send([
+      createAssociatedTokenAccountIdempotentInstruction(mm.publicKey, yesAta, mm.publicKey, yesMint),
+      createAssociatedTokenAccountIdempotentInstruction(mm.publicKey, noAta, mm.publicKey, noMint),
+      m.mintPairIx(mm.publicKey, new PublicKey(k.pubkey), lad.reduce((a, l) => a + l.size, 0n) * LOT, {
+        yesMint, noMint, collateralVault: new PublicKey(k.collateral_vault), userQuote: usdc, userYes: yesAta, userNo: noAta,
+      }),
+    ], [mm]);
 
+    // build the deduped ladder as instructions, then post in batches for speed
+    const build = (sign: 1 | -1, ixOf: (p: number, s: bigint) => TransactionInstruction) => {
+      const used = new Set<number>(); const out: TransactionInstruction[] = [];
+      for (const { d, size } of lad) { const p = clampCents(fair + sign * d); if (used.has(p)) continue; used.add(p); out.push(ixOf(p, size)); }
+      return out;
+    };
+    const orders = [
+      ...(needBids ? build(-1, (p, s) => bidIx(mm.publicKey, oo, usdc, k, p, s)) : []),
+      ...(needAsks ? build(1, (p, s) => askIx(mm.publicKey, oo, yesAta, k, p, s)) : []),
+    ];
+    const cu = ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 });
     let posted = 0;
-    if (needBids) {
-      const used = new Set<number>();
-      for (const { d, size } of lad) {
-        const price = clampCents(fair - d); if (used.has(price)) continue; used.add(price);
-        try { await send([bidIx(mm.publicKey, oo, usdc, k, price, size)], [mm]); posted++; } catch (e) { if (seed) console.error(`[mm] bid ${k.ticker} ${price}¢:`, (e as Error).message.slice(0, 120)); }
-      }
-    }
-    if (needAsks) {
-      const used = new Set<number>();
-      for (const { d, size } of lad) {
-        const price = clampCents(fair + d); if (used.has(price)) continue; used.add(price);
-        try { await send([askIx(mm.publicKey, oo, yesAta, k, price, size)], [mm]); posted++; } catch (e) { if (seed) console.error(`[mm] ask ${k.ticker} ${price}¢:`, (e as Error).message.slice(0, 120)); }
-      }
+    for (let i = 0; i < orders.length; i += 4) {
+      const batch = orders.slice(i, i + 4);
+      try { await send([cu, ...batch], [mm]); posted += batch.length; }
+      catch (e) { if (seed) console.error(`[mm] ${k.ticker} order batch:`, (e as Error).message.slice(0, 120)); }
     }
     ordersPosted += posted;
     return posted;
