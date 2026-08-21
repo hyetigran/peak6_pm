@@ -47,6 +47,8 @@ export interface Keeper {
   markets?: number; settled_total?: number; events_cranked?: number; wallet_sol?: number; actions?: string[]; error?: string;
 }
 export const getKeeper = () => j<Keeper>("/admin/keeper");
+export interface MarketMaker { running: boolean; age?: number; wallet?: string; markets_quoted?: number; orders_posted?: number; }
+export const getMarketMaker = () => j<MarketMaker>("/admin/marketmaker");
 export const setPause = (paused: boolean) => post<{ ok: boolean; paused: boolean; sig: string }>("/admin/pause", { paused });
 export const settleMarket = (pk: string, price?: number) =>
   post<{ ok: boolean; sig: string; finalized: boolean; close_1e6: string }>(`/admin/settle/${pk}`, price != null ? { price } : {});

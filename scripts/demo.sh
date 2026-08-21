@@ -9,8 +9,10 @@ cleanup() {
   echo; echo "[demo] shutting down…"
   [ -n "${IDX_PID:-}" ] && kill "$IDX_PID" 2>/dev/null
   [ -n "${KEEPER_PID:-}" ] && kill "$KEEPER_PID" 2>/dev/null
+  [ -n "${MM_PID:-}" ] && kill "$MM_PID" 2>/dev/null
   [ -n "${FE_PID:-}" ] && kill "$FE_PID" 2>/dev/null
   pkill -f "services/keeper" 2>/dev/null
+  pkill -f "services/marketmaker" 2>/dev/null
   pkill -9 -f solana-test-validator 2>/dev/null
   exit 0
 }
@@ -30,7 +32,7 @@ echo "[demo] seeding markets…"
 npx tsx scripts/seed-demo.ts
 
 echo "[demo] starting indexer on :8787…"
-( cd services/indexer && INDEXER_DB=.indexer.sqlite PORT=8787 DEMO_FAUCET="$ROOT/.demo-faucet.json" DEMO_CONFIG="$ROOT/.demo-config.json" KEEPER_STATUS="$ROOT/.keeper-status.json" npx tsx src/index.ts > "$ROOT/.indexer-demo.log" 2>&1 & echo $! > /tmp/mrd_idx.pid )
+( cd services/indexer && INDEXER_DB=.indexer.sqlite PORT=8787 DEMO_FAUCET="$ROOT/.demo-faucet.json" DEMO_CONFIG="$ROOT/.demo-config.json" KEEPER_STATUS="$ROOT/.keeper-status.json" MM_STATUS="$ROOT/.mm-status.json" npx tsx src/index.ts > "$ROOT/.indexer-demo.log" 2>&1 & echo $! > /tmp/mrd_idx.pid )
 IDX_PID="$(cat /tmp/mrd_idx.pid)"
 sleep 4
 curl -s localhost:8787/markets | python3 -c "import json,sys; print('[demo] indexer sees', len(json.load(sys.stdin)['markets']), 'markets')" 2>/dev/null || echo "[demo] indexer starting…"
@@ -38,6 +40,10 @@ curl -s localhost:8787/markets | python3 -c "import json,sys; print('[demo] inde
 echo "[demo] starting keeper (EventHeap crank + settlement)…"
 ( DEMO_CONFIG="$ROOT/.demo-config.json" KEEPER_STATUS="$ROOT/.keeper-status.json" KEEPER_INDEXER=http://127.0.0.1:8787 npx tsx services/keeper/src/index.ts > "$ROOT/.keeper-demo.log" 2>&1 & echo $! > /tmp/mrd_keeper.pid )
 KEEPER_PID="$(cat /tmp/mrd_keeper.pid)"
+
+echo "[demo] starting market-maker (live liquidity)…"
+( DEMO_CONFIG="$ROOT/.demo-config.json" MM_STATUS="$ROOT/.mm-status.json" MM_INDEXER=http://127.0.0.1:8787 npx tsx services/marketmaker/src/index.ts > "$ROOT/.mm-demo.log" 2>&1 & echo $! > /tmp/mrd_mm.pid )
+MM_PID="$(cat /tmp/mrd_mm.pid)"
 
 echo "[demo] starting frontend on :${FE_PORT:-3100}…"
 ( cd frontend && npm run dev -- -p ${FE_PORT:-3100} > "$ROOT/.frontend-demo.log" 2>&1 & echo $! > /tmp/mrd_fe.pid )

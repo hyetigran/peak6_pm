@@ -51,6 +51,13 @@ export function serve(db: Database.Database, conn: Connection, port: number) {
           return json(res, 200, { ...s, age, running: age <= 20 }); // stale after ~20s
         } catch { return json(res, 200, { running: false }); }
       }
+      if (url.pathname === "/admin/marketmaker") {
+        try {
+          const s = JSON.parse(fs.readFileSync(process.env.MM_STATUS ?? ".mm-status.json", "utf8"));
+          const age = Math.floor(Date.now() / 1000) - (s.ts ?? 0);
+          return json(res, 200, { ...s, age, running: age <= 30 });
+        } catch { return json(res, 200, { running: false }); }
+      }
       if (url.pathname === "/admin/pause" && req.method === "POST") {
         try {
           const { paused } = await readBody(req);

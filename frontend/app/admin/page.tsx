@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { getMarkets, getHealth, getAdminState, getKeeper, setPause, settleMarket, overrideSettle, settleAll, marketPhase, type Market, type Health, type Keeper } from "@/lib/api";
+import { getMarkets, getHealth, getAdminState, getKeeper, getMarketMaker, setPause, settleMarket, overrideSettle, settleAll, marketPhase, type Market, type Health, type Keeper, type MarketMaker } from "@/lib/api";
 import { strikeUsd, usd, countdown } from "@/lib/format";
 
 type Stage = { time: string; label: string; status: string; state: "done" | "live" | "queued" };
@@ -10,6 +10,7 @@ export default function Admin() {
   const [health, setHealth] = useState<(Health & { ok?: boolean }) | null>(null);
   const [paused, setPaused] = useState(false);
   const [keeper, setKeeper] = useState<Keeper | null>(null);
+  const [mm, setMm] = useState<MarketMaker | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [settleTarget, setSettleTarget] = useState<Market | null>(null);
@@ -22,6 +23,7 @@ export default function Admin() {
       getHealth().then(setHealth).catch(() => setHealth(null));
       getAdminState().then((s) => setPaused(s.paused)).catch(() => {});
       getKeeper().then(setKeeper).catch(() => setKeeper(null));
+      getMarketMaker().then(setMm).catch(() => setMm(null));
     };
     load(); const t = setInterval(load, 3000); const c = setInterval(() => tick((x) => x + 1), 1000);
     return () => { clearInterval(t); clearInterval(c); };
@@ -197,6 +199,7 @@ export default function Admin() {
                 ["Auto-settled", keeper?.settled_total != null ? String(keeper.settled_total) : "—"],
                 ["Events cranked", keeper?.events_cranked != null ? String(keeper.events_cranked) : "—"],
                 ["Keeper wallet SOL", keeper?.wallet_sol != null ? keeper.wallet_sol.toFixed(2) : "—"],
+                ["Market-maker", mm?.running ? `online · ${mm.markets_quoted ?? 0} quoted · ${mm.orders_posted ?? 0} orders` : "offline"],
                 ["Indexed slot", health ? String(health.indexed_slot) : "—"],
                 ["Chain lag", health ? `${health.lag} slots` : "—"],
                 ["Indexer state", health ? (health.complete ? "fresh ✓" : "recovering") : "offline"]].map(([k, v]) => (
