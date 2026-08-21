@@ -7,6 +7,26 @@ import fs from "node:fs";
 import { decodeBookSide, ladder, ownersFor, type BookLevel } from "./layout.js";
 import { readPaused, setGlobalPause, settleMarket, overrideSettle, type SettleRow } from "./admin.js";
 
+const SYS_KEY = "11111111111111111111111111111111";
+
+/** Attach a live YES mark (cents) + yes_prob to each venued market row. */
+async function attachMarks(conn: Connection, rows: any[]) {
+  const venued = rows.filter((r) => r.bids && r.bids !== SYS_KEY && r.asks && r.asks !== SYS_KEY);
+  if (!venued.length) return;
+  const keys = venued.flatMap((r) => [new PublicKey(r.bids), new PublicKey(r.asks)]);
+  const infos: (Awaited<ReturnType<Connection["getMultipleAccountsInfo"]>>[number])[] = [];
+  for (let i = 0; i < keys.length; i += 100) infos.push(...await conn.getMultipleAccountsInfo(keys.slice(i, i + 100)));
+  venued.forEach((r, i) => {
+    const bidsInfo = infos[i * 2], asksInfo = infos[i * 2 + 1];
+    const bids = ladder(bidsInfo ? decodeBookSide(bidsInfo.data as Buffer) : [], "bid");
+    const asks = ladder(asksInfo ? decodeBookSide(asksInfo.data as Buffer) : [], "ask");
+    const bb = bids[0]?.price ?? null, ba = asks[0]?.price ?? null;
+    const mark = bb != null && ba != null ? (bb + ba) / 2 : bb ?? ba ?? null;
+    r.mark = mark;
+    r.yes_prob = mark != null ? +(mark / 100).toFixed(4) : null;
+  });
+}
+
 function json(res: http.ServerResponse, code: number, body: unknown) {
   const s = JSON.stringify(body);
   res.writeHead(code, {
@@ -104,7 +124,8 @@ export function serve(db: Database.Database, conn: Connection, port: number) {
       }
 
       if (url.pathname === "/markets") {
-        const rows = db.prepare("SELECT * FROM markets ORDER BY ticker, CAST(strike_1e6 AS INTEGER)").all();
+        const rows = db.prepare("SELECT * FROM markets ORDER BY ticker, CAST(strike_1e6 AS INTEGER)").all() as any[];
+        await attachMarks(conn, rows); // live YES mark per market for the market cards
         return json(res, 200, { markets: rows, meta: await completeness(conn, db) });
       }
       const mMatch = url.pathname.match(/^\/markets\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);

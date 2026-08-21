@@ -16,11 +16,15 @@ const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
 const OPENBOOK_PROGRAMDATA = new PublicKey("DktN5HJ9uHKVRZ7FXGap4PEGVnEdc2VNBCXTt1AqJQYB");
 const conn = new Connection(RPC, "confirmed");
 
-// tickers: [id, name, priorClose$, strikes$]
+// all 7 MAG7 tickers: [id, name, priorClose$, strikes$ ($10 multiples)]
 const SET: [number, string, number, number[]][] = [
   [1, "AAPL", 231, [220, 230, 240]],
-  [6, "NVDA", 178, [170, 180]],
+  [2, "AMZN", 241, [230, 240, 250]],
+  [3, "GOOGL", 204, [200, 210]],
+  [4, "META", 682, [660, 680, 700, 720]],
   [5, "MSFT", 512, [500, 520]],
+  [6, "NVDA", 178, [170, 180]],
+  [7, "TSLA", 349, [340, 360]],
 ];
 const DAY = 20260825;
 
@@ -57,14 +61,14 @@ async function main() {
   let created = 0;
   const transports: Record<number, string> = {}; // tickerId -> delivery feed (needed to settle)
 
-  // A ticker+day binds a single official close, so the optional "closes soon"
-  // demo market lives on its own ticker (TSLA, id 7) — never mixed into a
-  // ticker whose other strikes close at the normal 4pm.
-  const FULL: [number, string, number, number[], bigint][] = SET.map(([t, n, p, s]) => [t, n, p, s, cl]);
-  // closing-soon markets for the settlement walkthrough; window is tunable
-  // (DEMO_SETTLE_SECS, default 90s for automated tests — set ~300 for a manual run).
+  // For the settlement walkthrough, DEMO_SETTLE makes TSLA (7) + GOOGL (3)
+  // close soon — ALL their strikes, so the single per-ticker/day Settlement
+  // Record stays consistent (a mixed close within one ticker/day would clash).
+  // Window is tunable (DEMO_SETTLE_SECS: default 90s for tests, ~300 manual).
   const soonClose = now + BigInt(Number(process.env.DEMO_SETTLE_SECS ?? 90));
-  if (process.env.DEMO_SETTLE) { FULL.push([7, "TSLA", 349, [350], soonClose]); FULL.push([3, "GOOGL", 204, [200], soonClose]); }
+  const soonTickers = new Set(process.env.DEMO_SETTLE ? [3, 7] : []);
+  const FULL: [number, string, number, number[], bigint][] =
+    SET.map(([t, n, p, s]) => [t, n, p, s, soonTickers.has(t) ? soonClose : cl]);
 
   for (const [tid, name, prior, strikes, close] of FULL) {
     const feed = ob.mockFeedPda(tid); // the harness mock delivery feed Meridian reads at settlement

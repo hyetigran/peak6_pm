@@ -8,6 +8,7 @@ export interface Market {
   settled_ts: number; yes_mint: string; no_mint: string; collateral_vault: string;
   openbook_market: string; bids: string; asks: string; event_heap: string;
   openbook_base_vault: string; openbook_quote_vault: string; collateral_liability_atoms: string;
+  mark?: number | null; yes_prob?: number | null; // live YES mark (cents) attached by /markets
 }
 export interface Health { indexed_slot: number; chain_slot: number; lag: number; complete: boolean; }
 
