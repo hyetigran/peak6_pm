@@ -7,10 +7,11 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import {
-  Connection, Keypair, PublicKey, Transaction, TransactionInstruction, sendAndConfirmTransaction,
+  Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, sendAndConfirmTransaction,
 } from "@solana/web3.js";
 
 const MERIDIAN_PID = new PublicKey("FF6mu5FFb1q1Qz88x1HnhkePdF8Q1dXWnTfUUSkzUT3t");
+const HARNESS_PID = new PublicKey("3MmdMxRUF4NWPNdwoQcLhoqfmiKReoaSQR9GwSeQEpRr");
 const CONFIG_PAUSED_OFFSET = 332; // 8 disc + 2 + 8*32 roles + 32 + 32 + 1 + 1
 
 const disc = (name: string) => createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
@@ -76,6 +77,17 @@ export async function settleMarket(conn: Connection, row: SettleRow, close1e6: b
     if (!feedB58) throw new Error(`no transport feed recorded for ticker ${row.ticker_id}; re-seed the demo`);
     const feed = new PublicKey(feedB58);
     const slot = BigInt(await conn.getSlot("confirmed"));
+    // publish the Official Close to the harness mock feed; Meridian reads it back
+    const publishIx = new TransactionInstruction({
+      programId: HARNESS_PID,
+      keys: [
+        { pubkey: op.publicKey, isSigner: true, isWritable: true },
+        { pubkey: feed, isSigner: false, isWritable: true },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      data: Buffer.concat([disc("publish_mock_feed"), Buffer.from([row.ticker_id]), u64(close1e6)]),
+    });
+    await sendAndConfirmTransaction(conn, new Transaction().add(publishIx), [op], { commitment: "confirmed" });
     const finalizeIx = new TransactionInstruction({
       programId: MERIDIAN_PID,
       keys: [

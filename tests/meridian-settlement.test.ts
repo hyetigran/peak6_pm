@@ -13,6 +13,7 @@ import {
 } from "@solana/web3.js";
 import { createAssociatedTokenAccount, createMint, getAccount, mintTo } from "@solana/spl-token";
 import * as m from "./lib/meridian.js";
+import * as ob from "./lib/openbook.js";
 
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
 let conn: Connection;
@@ -81,7 +82,7 @@ before(async () => {
     await conn.confirmTransaction(await conn.requestAirdrop(kp.publicKey, 20_000_000_000), "confirmed");
   }
   quoteMint = await createMint(conn, gov, gov.publicKey, null, 6);
-  feed = Keypair.generate().publicKey; // mock delivery feed identity
+  feed = ob.mockFeedPda(AAPL); // the harness mock delivery feed Meridian reads
   await send([m.initializeConfigIx({
     governance: gov.publicKey, quoteMint, openbookProgramData: OPENBOOK_PROGRAMDATA,
     operator: operator.publicKey, pauseAuthority: gov.publicKey, overrideAuthority: gov.publicKey,
@@ -117,9 +118,13 @@ test("S1 finalize the shared Settlement Record (normal path)", async () => {
   for (let i = 0; i < 90; i++) { if (await chainNow() >= CLOSE) break; await new Promise(r => setTimeout(r, 1000)); }
   assert.ok(await chainNow() >= CLOSE, "past close_ts");
   const slot = BigInt(await conn.getSlot("confirmed"));
-  await send([finalizeNormalIx(operator.publicKey, 235_000_000n, slot)], [operator]); // $235 close
+  // publish the Official Close to the mock feed; finalize (localnet) reads it.
+  // Pass 0 as the close arg: the program requires official_close > 0, so a
+  // FinalOracle result here proves the value came from the feed, not the arg.
+  await send([ob.publishMockFeedIx(operator.publicKey, AAPL, 235_000_000n)], [operator]); // $235 close
+  await send([finalizeNormalIx(operator.publicKey, 0n, slot)], [operator]);
   const rec = (await conn.getAccountInfo(m.settlementRecordPda(AAPL, DAY)))!.data;
-  assert.equal(rec[8], 1, "record state FinalOracle");
+  assert.equal(rec[8], 1, "record state FinalOracle (read from feed, not the 0 arg)");
 });
 
 test("S2 settle_market derives Yes (close $235 >= strike $230)", async () => {

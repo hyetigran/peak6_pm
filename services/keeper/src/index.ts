@@ -11,9 +11,10 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import {
-  Connection, Keypair, PublicKey, Transaction, TransactionInstruction, sendAndConfirmTransaction,
+  Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, sendAndConfirmTransaction,
 } from "@solana/web3.js";
 
+const HARNESS_PID = new PublicKey("3MmdMxRUF4NWPNdwoQcLhoqfmiKReoaSQR9GwSeQEpRr");
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
 const INDEXER = process.env.KEEPER_INDEXER ?? "http://127.0.0.1:8787";
 const CONFIG = process.env.DEMO_CONFIG ?? ".demo-config.json";
@@ -56,6 +57,18 @@ function finalizeNormalIx(op: PublicKey, record: PublicKey, feed: PublicKey, clo
     ],
     data: Buffer.concat([disc("finalize_settlement_normal"), u64(close1e6), Buffer.from([1]),
       i64(now), u64(slot), Buffer.from([3]), Buffer.alloc(32, 9)]),
+  });
+}
+/** Publish the Official Close to the harness mock feed; Meridian reads it back. */
+function publishMockFeedIx(payer: PublicKey, feed: PublicKey, tickerId: number, price1e6: bigint): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: HARNESS_PID,
+    keys: [
+      { pubkey: payer, isSigner: true, isWritable: true },
+      { pubkey: feed, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([disc("publish_mock_feed"), Buffer.from([tickerId]), u64(price1e6)]),
   });
 }
 function settleMarketIx(op: PublicKey, market: PublicKey, record: PublicKey): TransactionInstruction {
@@ -129,9 +142,11 @@ async function main() {
           const record = settlementRecordPda(m.ticker_id, m.trading_day);
           const recInfo = await conn.getAccountInfo(record);
           const close1e6 = BigInt(Math.round((spot[m.ticker] ?? SPOT_BASE[m.ticker] ?? Number(m.strike_1e6) / 1e6) * 1e6));
-          if (!recInfo || recInfo.data[8] === 0) { // Pending -> finalize once per ticker/day
+          if (!recInfo || recInfo.data[8] === 0) { // Pending -> publish feed, then finalize once per ticker/day
+            const feed = new PublicKey(feedB58);
             const slot = BigInt(await conn.getSlot("confirmed"));
-            await sendAndConfirmTransaction(conn, new Transaction().add(finalizeNormalIx(op.publicKey, record, new PublicKey(feedB58), close1e6, slot, BigInt(now))), [op], { commitment: "confirmed" });
+            await sendAndConfirmTransaction(conn, new Transaction().add(publishMockFeedIx(op.publicKey, feed, m.ticker_id, close1e6)), [op], { commitment: "confirmed" });
+            await sendAndConfirmTransaction(conn, new Transaction().add(finalizeNormalIx(op.publicKey, record, feed, close1e6, slot, BigInt(now))), [op], { commitment: "confirmed" });
           }
           await sendAndConfirmTransaction(conn, new Transaction().add(settleMarketIx(op.publicKey, new PublicKey(m.pubkey), record)), [op], { commitment: "confirmed" });
           settledTotal++;

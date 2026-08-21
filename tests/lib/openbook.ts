@@ -220,6 +220,24 @@ export function directPlaceTakeOrderIx(opts: {
 }
 
 // --- Harness instructions ----------------------------------------------
+/** Mock settlement-delivery feed PDA (harness), one per ticker. */
+export const mockFeedPda = (tickerId: number) =>
+  PublicKey.findProgramAddressSync([Buffer.from("mock_feed"), Buffer.from([tickerId])], HARNESS_PID)[0];
+
+/** Publish an Official Close to a ticker's mock feed; Meridian reads it back. */
+export function publishMockFeedIx(payer: PublicKey, tickerId: number, price1e6: bigint): TransactionInstruction {
+  const data = Buffer.concat([disc("publish_mock_feed"), Buffer.from([tickerId]), (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(price1e6); return b; })()]);
+  return new TransactionInstruction({
+    programId: HARNESS_PID,
+    keys: [
+      { pubkey: payer, isSigner: true, isWritable: true },
+      { pubkey: mockFeedPda(tickerId), isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data,
+  });
+}
+
 export function harnessInitializeIx(admin: PublicKey, quoteMint: PublicKey): TransactionInstruction {
   return new TransactionInstruction({
     programId: HARNESS_PID,

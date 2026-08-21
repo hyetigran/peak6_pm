@@ -23,6 +23,12 @@ declare_id!("3MmdMxRUF4NWPNdwoQcLhoqfmiKReoaSQR9GwSeQEpRr");
 pub const VENUE_AUTHORITY_SEED: &[u8] = b"venue_authority";
 pub const CONFIG_SEED: &[u8] = b"config";
 pub const VENUE_GATE_SEED: &[u8] = b"venue_gate";
+/// Mock settlement-delivery feed (localnet only): a stand-in for the
+/// Switchboard On-Demand feed that Meridian's `finalize_settlement_normal`
+/// reads. One per ticker; whoever operates settlement publishes the Official
+/// Close here and Meridian reads it back — the same account-read path the real
+/// Switchboard feed would exercise on devnet.
+pub const MOCK_FEED_SEED: &[u8] = b"mock_feed";
 /// ADR-scoped unsignable fee-admin sentinel: a System-Program PDA. Off-curve
 /// (no private key can exist) and the System Program has no `invoke_signed`
 /// path, so NOTHING can ever produce this signature. G9-proven.
@@ -191,6 +197,21 @@ pub mod m0_harness {
     /// available because they never pass through these wrappers.
     pub fn set_paused(ctx: Context<SetPaused>, paused: bool) -> Result<()> {
         ctx.accounts.venue_gate.paused = paused;
+        Ok(())
+    }
+
+    /// Publish an Official Close to a ticker's mock settlement feed (localnet).
+    /// Stamps the current slot/timestamp so Meridian's freshness bound passes.
+    /// NormalOfficialClose, sample_count above any configured floor.
+    pub fn publish_mock_feed(ctx: Context<PublishMockFeed>, _ticker_id: u8, price_1e6: u64) -> Result<()> {
+        let clock = Clock::get()?;
+        let f = &mut ctx.accounts.feed;
+        f.official_close_1e6 = price_1e6;
+        f.delivery_slot = clock.slot;
+        f.observed_ts = clock.unix_timestamp;
+        f.halt_status = 1; // HaltOrContingencyStatus::NormalOfficialClose
+        f.sample_count = 8;
+        f.raw_response_sha256 = [7u8; 32];
         Ok(())
     }
 
@@ -887,6 +908,22 @@ pub struct CreateVenueGate<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(ticker_id: u8)]
+pub struct PublishMockFeed<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        init_if_needed,
+        payer = payer,
+        space = 8 + MockFeed::INIT_SPACE,
+        seeds = [MOCK_FEED_SEED, &[ticker_id]],
+        bump,
+    )]
+    pub feed: Account<'info, MockFeed>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct SetPaused<'info> {
     #[account(address = config.admin @ HarnessError::NotAdmin)]
     pub admin: Signer<'info>,
@@ -1010,6 +1047,20 @@ pub struct VenueGate {
     pub paused: bool,
     /// ADR-0027: the only account venue close paths may refund rent to.
     pub rent_refund: Pubkey,
+}
+
+/// Mock settlement-delivery feed (localnet). Byte layout after the 8-byte
+/// Anchor discriminator is the normalized delivery payload Meridian reads:
+/// close@8(u64) slot@16(u64) ts@24(i64) halt@32(u8) samples@33(u8) hash@34(32).
+#[account]
+#[derive(InitSpace)]
+pub struct MockFeed {
+    pub official_close_1e6: u64,
+    pub delivery_slot: u64,
+    pub observed_ts: i64,
+    pub halt_status: u8,
+    pub sample_count: u8,
+    pub raw_response_sha256: [u8; 32],
 }
 
 #[account]

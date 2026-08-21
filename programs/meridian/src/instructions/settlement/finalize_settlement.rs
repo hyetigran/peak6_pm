@@ -34,6 +34,21 @@ pub struct FinalizeSettlementNormal<'info> {
 
 /// A minimal delivery payload the mock feed and the (future) Switchboard
 /// adapter both produce: official close + observation slot + status.
+/// Offsets of the normalized delivery payload within the feed account's data
+/// (after the account's 8-byte header). The localnet mock feed and a devnet
+/// Switchboard adapter both present this layout.
+#[cfg(feature = "localnet")]
+mod delivery {
+    pub const CLOSE_1E6: usize = 8;
+    pub const SLOT: usize = 16;
+    pub const HALT: usize = 32;
+    pub const SAMPLES: usize = 33;
+    pub const MIN_LEN: usize = 66;
+}
+
+// On localnet the close/slot/halt/samples args are ignored in favour of the
+// feed account, so they read as unused there.
+#[cfg_attr(feature = "localnet", allow(unused_variables))]
 pub fn finalize_normal(
     ctx: Context<FinalizeSettlementNormal>,
     official_close_1e6: u64,
@@ -43,6 +58,18 @@ pub fn finalize_normal(
     sample_count: u8,
     raw_response_sha256: [u8; 32],
 ) -> Result<()> {
+    // On localnet the Official Close is READ from the pinned delivery feed
+    // account (a harness mock; Switchboard On-Demand on devnet), never trusted
+    // from the caller. The account-read path is identical to production; only
+    // the writer differs.
+    #[cfg(feature = "localnet")]
+    let (official_close_1e6, halt_status, delivery_slot, sample_count) = {
+        let d = ctx.accounts.delivery.try_borrow_data()?;
+        require!(d.len() >= delivery::MIN_LEN, MeridianError::SettlementHeaderMismatch);
+        let read_u64 = |o: usize| u64::from_le_bytes(d[o..o + 8].try_into().unwrap());
+        (read_u64(delivery::CLOSE_1E6), d[delivery::HALT], read_u64(delivery::SLOT), d[delivery::SAMPLES])
+    };
+
     let now = Clock::get()?.unix_timestamp;
     let r = &mut ctx.accounts.record;
     require!(r.state == SettlementRecordState::Pending as u8, MeridianError::AlreadyFinalized);

@@ -64,9 +64,9 @@ async function main() {
   if (process.env.DEMO_SETTLE) { FULL.push([7, "TSLA", 349, [350], now + 90n]); FULL.push([3, "GOOGL", 204, [200], now + 90n]); }
 
   for (const [tid, name, prior, strikes, close] of FULL) {
-    const feed = Keypair.generate(); // demo delivery-feed identity, pinned per ticker
-    transports[tid] = feed.publicKey.toBase58();
-    await send([m.registerTransportIx({ governance: gov.publicKey, versionId: 1, tickerId: tid, feed: feed.publicKey })], [gov]);
+    const feed = ob.mockFeedPda(tid); // the harness mock delivery feed Meridian reads at settlement
+    transports[tid] = feed.toBase58();
+    await send([m.registerTransportIx({ governance: gov.publicKey, versionId: 1, tickerId: tid, feed })], [gov]);
     for (const s of strikes) {
       const strike = BigInt(s) * 1_000_000n;
       await send([m.createOutcomeMarketIx({
