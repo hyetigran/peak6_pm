@@ -121,6 +121,36 @@ const FEE_ADMIN_SENTINEL = PublicKey.findProgramAddressSync(
 
 const str = (s: string) => { const b = Buffer.from(s); const l = Buffer.alloc(4); l.writeUInt32LE(b.length); return Buffer.concat([l, b]); };
 
+export const TOKEN_METADATA_PID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
+const SYSVAR_RENT = new PublicKey("SysvarRent111111111111111111111111111111111");
+export const metadataPda = (mint: PublicKey) =>
+  PublicKey.findProgramAddressSync([Buffer.from("metadata"), TOKEN_METADATA_PID.toBuffer(), mint.toBuffer()], TOKEN_METADATA_PID)[0];
+
+export function publishMetadataIx(o: {
+  operator: PublicKey; market: PublicKey; yesMint: PublicKey; noMint: PublicKey;
+  yesName: string; yesSymbol: string; noName: string; noSymbol: string; uri: string;
+}): TransactionInstruction {
+  const data = Buffer.concat([
+    disc("publish_metadata"), str(o.yesName), str(o.yesSymbol), str(o.noName), str(o.noSymbol), str(o.uri),
+  ]);
+  return new TransactionInstruction({
+    programId: MERIDIAN_PID,
+    keys: [
+      { pubkey: o.operator, isSigner: true, isWritable: true },
+      { pubkey: configPda(), isSigner: false, isWritable: false },
+      { pubkey: o.market, isSigner: false, isWritable: false },
+      { pubkey: o.yesMint, isSigner: false, isWritable: false },
+      { pubkey: o.noMint, isSigner: false, isWritable: false },
+      { pubkey: metadataPda(o.yesMint), isSigner: false, isWritable: true },
+      { pubkey: metadataPda(o.noMint), isSigner: false, isWritable: true },
+      { pubkey: TOKEN_METADATA_PID, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: SYSVAR_RENT, isSigner: false, isWritable: false },
+    ],
+    data,
+  });
+}
+
 export function createVenueMarketIx(opts: {
   operator: PublicKey; market: PublicKey; obMarket: PublicKey; bids: PublicKey;
   asks: PublicKey; eventHeap: PublicKey; yesMint: PublicKey; quoteMint: PublicKey;

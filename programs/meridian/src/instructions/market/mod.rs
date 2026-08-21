@@ -1,7 +1,9 @@
 pub mod create_outcome_market;
 pub mod abandon_market;
+pub mod publish_metadata;
 pub use create_outcome_market::*;
 pub use abandon_market::*;
+pub use publish_metadata::*;
 
 use crate::error::MeridianError;
 use anchor_lang::prelude::*;

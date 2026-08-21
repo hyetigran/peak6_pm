@@ -88,6 +88,18 @@ pub mod meridian {
         abandon_market::handler(ctx)
     }
 
+    /// Publish permanent Metaplex Token Metadata for the Yes/No Pair mints.
+    pub fn publish_metadata(
+        ctx: Context<PublishMetadata>,
+        yes_name: String,
+        yes_symbol: String,
+        no_name: String,
+        no_symbol: String,
+        uri: String,
+    ) -> Result<()> {
+        publish_metadata::handler(ctx, yes_name, yes_symbol, no_name, no_symbol, uri)
+    }
+
     /// Attach the single Yes/USDC OpenBook Venue Market (Created -> Active).
     pub fn create_venue_market(ctx: Context<CreateVenueMarket>, name: String, time_expiry: i64) -> Result<()> {
         create_venue_market::handler(ctx, name, time_expiry)

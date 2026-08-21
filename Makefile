@@ -3,6 +3,7 @@
 fixture-verify:
 	@echo "a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8  fixtures/openbook_v2-v1.7.so" | shasum -a 256 -c -
 	@echo "dec8d3e0fae58c7c8f2416e5f67c25e673f047afd6dd2bba4a47e0b29a01d34c  fixtures/squads_v4.so" | shasum -a 256 -c -
+	@echo "31f0a627dba051a938de650464e55cc5397a4be0fd496929c1f9cf02fe5e9011  fixtures/mpl_token_metadata.so" | shasum -a 256 -c -
 
 build: fixture-verify
 	cargo build-sbf --manifest-path programs/m0-harness/Cargo.toml

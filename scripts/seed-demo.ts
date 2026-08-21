@@ -90,6 +90,14 @@ async function main() {
         bids: bids.publicKey, asks: asks.publicKey, eventHeap: heap.publicKey,
         yesMint, quoteMint, name: `${name}-${s}`, timeExpiry: 0n,
       })], [operator, obMarket]);
+      // permanent Metaplex metadata for the Yes/No mints (names in wallets)
+      try {
+        await send([m.publishMetadataIx({
+          operator: operator.publicKey, market, yesMint, noMint: m.noMintPda(market),
+          yesName: `${name} $${s} YES`, yesSymbol: "mYES", noName: `${name} $${s} NO`, noSymbol: "mNO",
+          uri: "https://meridian.markets",
+        })], [operator]);
+      } catch (e) { console.error(`\n[meta] ${name}-${s}:`, (e as Error).message.slice(0, 120)); }
       created++;
       process.stdout.write(`\rseeded ${created} markets  `);
     }

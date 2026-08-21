@@ -21,6 +21,10 @@ pub const OPENBOOK_PROGRAM_ID: Pubkey =
 /// Provably unsignable fee-admin sentinel (G9): PDA("meridian_fee_admin_sentinel", System).
 pub const FEE_ADMIN_SENTINEL: Pubkey =
     anchor_lang::solana_program::pubkey!("EhAss6gbDU57Cmwwyeq3RwHBVRvBK4CkzLS8yvddFZ1E");
+
+/// Metaplex Token Metadata program (canonical mainnet/devnet address).
+pub const TOKEN_METADATA_PROGRAM_ID: Pubkey =
+    anchor_lang::solana_program::pubkey!("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
 pub const FEE_ADMIN_SENTINEL_SEED: &[u8] = b"meridian_fee_admin_sentinel";
 
 // --- Lot scheme (G10) --------------------------------------------------
