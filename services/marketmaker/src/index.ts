@@ -5,9 +5,8 @@
  *
  * It mints Yes/No pairs for inventory and rests PostOnly Yes bids/asks around a
  * fair value derived from a mock spot (same base map the keeper uses). Funds a
- * fresh wallet each run (validator is --reset). Standalone package: its
- * instruction builders are vendored under src/lib. This is demo liquidity, not
- * a real strategy.
+ * fresh wallet each run (validator is --reset). Builders come from the shared @meridian/sdk workspace package. This is demo
+ * liquidity, not a real strategy.
  */
 import {
   Connection, Keypair, PublicKey, Transaction, TransactionInstruction, sendAndConfirmTransaction,
@@ -16,8 +15,8 @@ import {
   getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, createMintToInstruction,
 } from "@solana/spl-token";
 import fs from "node:fs";
-import * as m from "./lib/meridian.js";
-import * as ob from "./lib/openbook.js";
+import * as m from "@meridian/sdk/meridian";
+import * as ob from "@meridian/sdk/openbook";
 
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
 const INDEXER = process.env.MM_INDEXER ?? "http://127.0.0.1:8787";

@@ -1,0 +1,18 @@
+{
+  "name": "@meridian/sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Meridian instruction builders (Anchor-compatible, no IDL client) shared by tests, scripts and services.",
+  "exports": {
+    "./meridian": "./src/meridian.ts",
+    "./openbook": "./src/openbook.ts"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.3"
+  }
+}

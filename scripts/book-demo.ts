@@ -2,8 +2,8 @@
 import { Connection, Keypair, PublicKey, Transaction, TransactionInstruction, sendAndConfirmTransaction } from "@solana/web3.js";
 import { createAssociatedTokenAccount, createMint, mintTo } from "@solana/spl-token";
 import fs from "node:fs";
-import * as m from "../tests/lib/meridian.js";
-import * as ob from "../tests/lib/openbook.js";
+import * as m from "@meridian/sdk/meridian";
+import * as ob from "@meridian/sdk/openbook";
 
 const conn = new Connection("http://127.0.0.1:8899", "confirmed");
 const OPD = new PublicKey("DktN5HJ9uHKVRZ7FXGap4PEGVnEdc2VNBCXTt1AqJQYB");

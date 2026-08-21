@@ -9,8 +9,8 @@ import {
 } from "@solana/web3.js";
 import { createMint, createAssociatedTokenAccount, mintTo } from "@solana/spl-token";
 import fs from "node:fs";
-import * as m from "../tests/lib/meridian.js";
-import * as ob from "../tests/lib/openbook.js";
+import * as m from "@meridian/sdk/meridian";
+import * as ob from "@meridian/sdk/openbook";
 
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
 const OPENBOOK_PROGRAMDATA = new PublicKey("DktN5HJ9uHKVRZ7FXGap4PEGVnEdc2VNBCXTt1AqJQYB");

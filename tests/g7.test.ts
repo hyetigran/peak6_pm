@@ -32,7 +32,7 @@ import {
   createAssociatedTokenAccountInstruction, createMint, getAccount,
   getAssociatedTokenAddressSync, mintTo,
 } from "@solana/spl-token";
-import * as ob from "./lib/openbook.js";
+import * as ob from "@meridian/sdk/openbook";
 import { createAlt } from "./lib/v0.js";
 
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";

@@ -21,7 +21,7 @@ import {
   type TransactionInstruction,
 } from "@solana/web3.js";
 import { createAssociatedTokenAccount, createMint, getAccount, mintTo } from "@solana/spl-token";
-import * as ob from "./lib/openbook.js";
+import * as ob from "@meridian/sdk/openbook";
 
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
 let conn: Connection;

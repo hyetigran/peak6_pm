@@ -11,7 +11,7 @@ import {
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import { createMint, getMint, getAccount } from "@solana/spl-token";
-import * as m from "./lib/meridian.js";
+import * as m from "@meridian/sdk/meridian";
 
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
 let conn: Connection;

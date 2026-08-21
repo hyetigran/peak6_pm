@@ -23,7 +23,7 @@ import {
   createAssociatedTokenAccountInstruction, createMintToInstruction, createMint,
   getAssociatedTokenAddressSync, createAssociatedTokenAccount, mintTo, getAccount,
 } from "@solana/spl-token";
-import * as ob from "./lib/openbook.js";
+import * as ob from "@meridian/sdk/openbook";
 import { createAlt, sendV0 as sendV0raw } from "./lib/v0.js";
 import fs from "node:fs";
 
