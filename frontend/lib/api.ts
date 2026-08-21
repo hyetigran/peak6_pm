@@ -42,6 +42,11 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   return d;
 }
 export const getAdminState = () => j<{ paused: boolean; error?: string }>("/admin/state");
+export interface Keeper {
+  running: boolean; ts?: number; age?: number; operator?: string; ticks?: number;
+  markets?: number; settled_total?: number; events_cranked?: number; wallet_sol?: number; actions?: string[]; error?: string;
+}
+export const getKeeper = () => j<Keeper>("/admin/keeper");
 export const setPause = (paused: boolean) => post<{ ok: boolean; paused: boolean; sig: string }>("/admin/pause", { paused });
 export const settleMarket = (pk: string, price?: number) =>
   post<{ ok: boolean; sig: string; finalized: boolean; close_1e6: string }>(`/admin/settle/${pk}`, price != null ? { price } : {});

@@ -1,0 +1,5 @@
+[keeper] operator 5bd18UKDD25HZdTZ7QTFfZuVnUa2dfURkx9TnqAwdrtG · indexer http://127.0.0.1:8787 · tick 5s
+[keeper] tick 15: settle GOOGL failed: Simulation failed. 
+Message: Transaction simulation failed: Error processing Ins | settle TSLA failed: Simulation failed. 
+Message: Transaction simulation failed: Error processing Ins
+[keeper] tick 16: settled GOOGL $200 @ close $203.76 | settled TSLA $350 @ close $346.28

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { getMarkets, getHealth, getAdminState, setPause, settleMarket, overrideSettle, settleAll, marketPhase, type Market, type Health } from "@/lib/api";
+import { getMarkets, getHealth, getAdminState, getKeeper, setPause, settleMarket, overrideSettle, settleAll, marketPhase, type Market, type Health, type Keeper } from "@/lib/api";
 import { strikeUsd, usd, countdown } from "@/lib/format";
 
 type Stage = { time: string; label: string; status: string; state: "done" | "live" | "queued" };
@@ -9,6 +9,7 @@ export default function Admin() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [health, setHealth] = useState<(Health & { ok?: boolean }) | null>(null);
   const [paused, setPaused] = useState(false);
+  const [keeper, setKeeper] = useState<Keeper | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [settleTarget, setSettleTarget] = useState<Market | null>(null);
@@ -20,6 +21,7 @@ export default function Admin() {
       getMarkets().then((d) => setMarkets(d.markets)).catch(() => {});
       getHealth().then(setHealth).catch(() => setHealth(null));
       getAdminState().then((s) => setPaused(s.paused)).catch(() => {});
+      getKeeper().then(setKeeper).catch(() => setKeeper(null));
     };
     load(); const t = setInterval(load, 3000); const c = setInterval(() => tick((x) => x + 1), 1000);
     return () => { clearInterval(t); clearInterval(c); };
@@ -185,15 +187,30 @@ export default function Admin() {
           </div>
 
           <div className="card-2" style={{ padding: 18 }}>
-            <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 12 }}>Indexer &amp; automation</div>
+            <div className="hd" style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 17, fontWeight: 600 }}>Keeper &amp; indexer</div>
+              <span className="pos-tag" style={{ background: keeper?.running ? "var(--yes-soft)" : "var(--no-soft)", color: keeper?.running ? "var(--yes-hi)" : "var(--no-hi)" }}>{keeper?.running ? "keeper online" : "keeper offline"}</span>
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 9 }} className="mono">
-              {[["Indexed slot", health ? String(health.indexed_slot) : "—"],
-                ["Chain slot", health ? String(health.chain_slot) : "—"],
-                ["Lag", health ? `${health.lag} slots` : "—"],
-                ["State", health ? (health.complete ? "fresh ✓" : "recovering") : "offline"]].map(([k, v]) => (
-                <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "var(--ink-70)" }}><span>{k}</span><span style={{ color: k === "State" && health && !health.complete ? "oklch(0.82 0.13 75)" : undefined }}>{v}</span></div>
+              {[["Last heartbeat", keeper?.running ? `${keeper.age ?? 0}s ago` : "—"],
+                ["Ticks", keeper?.ticks != null ? String(keeper.ticks) : "—"],
+                ["Auto-settled", keeper?.settled_total != null ? String(keeper.settled_total) : "—"],
+                ["Events cranked", keeper?.events_cranked != null ? String(keeper.events_cranked) : "—"],
+                ["Keeper wallet SOL", keeper?.wallet_sol != null ? keeper.wallet_sol.toFixed(2) : "—"],
+                ["Indexed slot", health ? String(health.indexed_slot) : "—"],
+                ["Chain lag", health ? `${health.lag} slots` : "—"],
+                ["Indexer state", health ? (health.complete ? "fresh ✓" : "recovering") : "offline"]].map(([k, v]) => (
+                <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "var(--ink-70)" }}><span>{k}</span><span style={{ color: k === "Indexer state" && health && !health.complete ? "oklch(0.82 0.13 75)" : undefined }}>{v}</span></div>
               ))}
             </div>
+            {keeper?.actions && keeper.actions.length > 0 && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--line-2)" }}>
+                <div className="eyebrow" style={{ marginBottom: 6 }}>Recent keeper activity</div>
+                {keeper.actions.slice().reverse().map((a, i) => (
+                  <div key={i} className="mono" style={{ fontSize: 11.5, color: a.includes("failed") ? "var(--no)" : "var(--ink-60)", padding: "1px 0" }}>{a}</div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

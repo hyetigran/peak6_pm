@@ -44,6 +44,13 @@ export function serve(db: Database.Database, conn: Connection, port: number) {
         try { return json(res, 200, { paused: await readPaused(conn) }); }
         catch (e) { return json(res, 200, { paused: false, error: (e as Error).message }); }
       }
+      if (url.pathname === "/admin/keeper") {
+        try {
+          const s = JSON.parse(fs.readFileSync(process.env.KEEPER_STATUS ?? ".keeper-status.json", "utf8"));
+          const age = Math.floor(Date.now() / 1000) - (s.ts ?? 0);
+          return json(res, 200, { ...s, age, running: age <= 20 }); // stale after ~20s
+        } catch { return json(res, 200, { running: false }); }
+      }
       if (url.pathname === "/admin/pause" && req.method === "POST") {
         try {
           const { paused } = await readBody(req);

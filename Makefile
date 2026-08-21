@@ -1,4 +1,4 @@
-.PHONY: build fixture-verify localnet g2 g3 g4 g5 g6 g7 g8 g9 g10 g12 m0 meridian-test demo indexer
+.PHONY: build fixture-verify localnet keeper g2 g3 g4 g5 g6 g7 g8 g9 g10 g12 m0 meridian-test demo indexer
 
 fixture-verify:
 	@echo "a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8  fixtures/openbook_v2-v1.7.so" | shasum -a 256 -c -
@@ -38,6 +38,9 @@ demo: build
 
 indexer:
 	cd services/indexer && npm install --silent && PORT=8787 npm start
+
+keeper:
+	DEMO_CONFIG=.demo-config.json KEEPER_STATUS=.keeper-status.json npx tsx services/keeper/src/index.ts
 
 meridian-test: build
 	./scripts/run-suite.sh tests/meridian-foundation.test.ts
