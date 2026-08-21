@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { getMarkets, getHealth, getAdminState, setPause, settleMarket, marketPhase, type Market, type Health } from "@/lib/api";
+import { getMarkets, getHealth, getAdminState, setPause, settleMarket, overrideSettle, settleAll, marketPhase, type Market, type Health } from "@/lib/api";
 import { strikeUsd, usd, countdown } from "@/lib/format";
 
 type Stage = { time: string; label: string; status: string; state: "done" | "live" | "queued" };
@@ -13,6 +13,7 @@ export default function Admin() {
   const [msg, setMsg] = useState<string | null>(null);
   const [settleTarget, setSettleTarget] = useState<Market | null>(null);
   const [settlePrice, setSettlePrice] = useState("");
+  const [mode, setMode] = useState<"normal" | "override">("normal");
   const [, tick] = useState(0);
   useEffect(() => {
     const load = () => {
@@ -26,17 +27,23 @@ export default function Admin() {
 
   const run = async (label: string, fn: () => Promise<any>) => {
     setBusy(true); setMsg(null);
-    try { const r = await fn(); setMsg(`${label} ✓${r?.sig ? " · " + String(r.sig).slice(0, 8) : ""}`); }
+    try { const r = await fn(); setMsg(r?.msg ?? `${label} ✓${r?.sig ? " · " + String(r.sig).slice(0, 8) : ""}`); }
     catch (e: any) { setMsg(`${label} failed: ${(e.message ?? "error").slice(0, 160)}`); }
     finally { setBusy(false); }
   };
   const togglePause = () => run(paused ? "Resume" : "Pause minting", async () => {
     const r = await setPause(!paused); setPaused(r.paused); return r;
   });
-  const openSettle = (m: Market) => { setSettleTarget(m); setSettlePrice(strikeUsd(m.strike_1e6)); setMsg(null); };
-  const confirmSettle = () => run("Settle", async () => {
-    const r = await settleMarket(settleTarget!.pubkey, Number(settlePrice));
+  const openSettle = (m: Market) => { setSettleTarget(m); setSettlePrice(strikeUsd(m.strike_1e6)); setMode("normal"); setMsg(null); };
+  const confirmSettle = () => run(mode === "override" ? "Override settle" : "Settle", async () => {
+    const r = mode === "override"
+      ? await overrideSettle(settleTarget!.pubkey, Number(settlePrice))
+      : await settleMarket(settleTarget!.pubkey, Number(settlePrice));
     setSettleTarget(null); return r;
+  });
+  const settleEverything = () => run("Settle all closed", async () => {
+    const r = await settleAll();
+    return { msg: `Settled ${r.settled}/${r.eligible} closed market${r.eligible === 1 ? "" : "s"} ✓${r.errors.length ? ` · ${r.errors.length} failed` : ""}` };
   });
 
   const now = Date.now() / 1000;
@@ -45,6 +52,8 @@ export default function Admin() {
   const trading = markets.filter((m) => marketPhase(m) === "Trading").length;
   const settled = markets.filter((m) => m.state_name === "Settled").length;
   const nextClose = markets.filter((m) => !m.settled_ts && m.close_ts > now).map((m) => m.close_ts).sort((a, b) => a - b)[0];
+  const closeableMarkets = markets.filter((m) => !m.settled_ts && now >= m.close_ts && m.state_name !== "Abandoned");
+  const openOverride = () => { const m = closeableMarkets[0]; if (!m) return; setSettleTarget(m); setSettlePrice(strikeUsd(m.strike_1e6)); setMode("override"); setMsg(null); };
 
   const stages: Stage[] = [
     { time: "08:00", label: "strikes generated", status: n ? `Done · ${n} strikes` : "Waiting", state: n ? "done" : "queued" },
@@ -65,6 +74,7 @@ export default function Admin() {
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           {msg && <span className="mono" style={{ fontSize: 12, color: msg.includes("✓") ? "var(--pos)" : "var(--no)", maxWidth: 280, textAlign: "right" }}>{msg}</span>}
+          <button className="btn btn-ghost" disabled={busy || closeableMarkets.length === 0} onClick={settleEverything} title={closeableMarkets.length ? "" : "No markets past close"}>Settle all closed{closeableMarkets.length ? ` (${closeableMarkets.length})` : ""}</button>
           <button className="btn" disabled={busy} onClick={togglePause} style={{ background: paused ? "var(--yes-soft)" : "oklch(0.30 0.09 60)", border: `1px solid ${paused ? "var(--yes-border)" : "oklch(0.45 0.12 60)"}`, color: "var(--ink)" }}>{busy ? "…" : paused ? "Resume minting" : "Pause minting"}</button>
         </div>
       </div>
@@ -76,16 +86,24 @@ export default function Admin() {
       )}
 
       {settleTarget && (
-        <div className="card" style={{ padding: 16, marginBottom: 16, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-          <div><div className="eyebrow">Settle market</div><div style={{ fontWeight: 600, marginTop: 2 }}>{settleTarget.ticker} &gt; ${strikeUsd(settleTarget.strike_1e6)}</div></div>
+        <div className="card" style={{ padding: 16, marginBottom: 16, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", borderColor: mode === "override" ? "oklch(0.45 0.12 60)" : "var(--line)" }}>
+          <div>
+            <div className="eyebrow">{mode === "override" ? "Manual settlement override" : "Settle market"}</div>
+            <div style={{ fontWeight: 600, marginTop: 2 }}>{settleTarget.ticker} &gt; ${strikeUsd(settleTarget.strike_1e6)}</div>
+          </div>
+          <div style={{ display: "flex", gap: 3, padding: 3, borderRadius: 9, background: "var(--chip)" }}>
+            {(["normal", "override"] as const).map((mm) => (
+              <button key={mm} onClick={() => setMode(mm)} style={{ padding: "6px 12px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, background: mode === mm ? "var(--accent)" : "transparent", color: mode === mm ? "var(--on-accent)" : "var(--ink-60)" }}>{mm === "normal" ? "Oracle" : "Override"}</button>
+            ))}
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className="sub" style={{ fontSize: 13 }}>Official close $</span>
+            <span className="sub" style={{ fontSize: 13 }}>{mode === "override" ? "Evidenced close $" : "Official close $"}</span>
             <input className="mono" value={settlePrice} onChange={(e) => setSettlePrice(e.target.value)} style={{ width: 110, padding: "8px 10px", borderRadius: 8, background: "var(--chip)", border: "1px solid var(--line)", color: "var(--ink)", fontFamily: "var(--mono)" }} />
           </div>
           <span className="sub" style={{ fontSize: 13 }}>→ winner is {Number(settlePrice) >= Number(strikeUsd(settleTarget.strike_1e6)) ? <b style={{ color: "var(--yes)" }}>YES</b> : <b style={{ color: "var(--no)" }}>NO</b>}</span>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
             <button className="btn btn-ghost" disabled={busy} onClick={() => setSettleTarget(null)}>Cancel</button>
-            <button className="btn btn-yes" disabled={busy || !settlePrice} onClick={confirmSettle}>{busy ? "…" : "Confirm settle"}</button>
+            <button className="btn btn-yes" disabled={busy || !settlePrice} onClick={confirmSettle}>{busy ? "…" : mode === "override" ? "Override & settle" : "Confirm settle"}</button>
           </div>
         </div>
       )}
@@ -153,12 +171,17 @@ export default function Admin() {
               ))}
             </div>
             <div style={{ marginTop: 14, display: "flex", justifyContent: "space-between" }} className="mono sub"><span>Treasury balance</span><span>$0.00</span></div>
+            <div className="sub" style={{ marginTop: 10, fontSize: 12, lineHeight: 1.5 }}>Fees are disabled at the protocol level (ADR-0001/0007) — there is no on-chain fee switch to toggle.</div>
           </div>
 
           <div style={{ borderRadius: 12, border: "1px solid oklch(0.40 0.10 60)", background: "oklch(0.22 0.03 60)", padding: 18 }}>
             <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 8 }}>Settlement override</div>
-            <div style={{ fontSize: 14, color: "oklch(0.86 0.03 60)", lineHeight: 1.55 }}>Available only if the oracle still fails after the retry window. Guarded by a mandatory delay.</div>
-            <div style={{ marginTop: 14, textAlign: "center", padding: 11, borderRadius: 9, border: "1px solid oklch(0.45 0.10 60)", fontSize: 14, color: "oklch(0.78 0.05 60)" }}>Locked</div>
+            <div style={{ fontSize: 14, color: "oklch(0.86 0.03 60)", lineHeight: 1.55 }}>Override Authority path for when the oracle is unavailable. Requires two equal evidenced values; guarded on-chain by a mandatory delay after close.</div>
+            {closeableMarkets.length > 0 ? (
+              <button className="btn" disabled={busy} onClick={openOverride} style={{ marginTop: 14, width: "100%", background: "oklch(0.55 0.12 60)", color: "oklch(0.16 0.02 60)" }}>Open override · {closeableMarkets.length} eligible</button>
+            ) : (
+              <div style={{ marginTop: 14, textAlign: "center", padding: 11, borderRadius: 9, border: "1px solid oklch(0.45 0.10 60)", fontSize: 14, color: "oklch(0.78 0.05 60)" }}>Locked — no markets past close</div>
+            )}
           </div>
 
           <div className="card-2" style={{ padding: 18 }}>

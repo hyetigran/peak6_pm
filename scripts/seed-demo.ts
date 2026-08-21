@@ -61,7 +61,7 @@ async function main() {
   // demo market lives on its own ticker (TSLA, id 7) — never mixed into a
   // ticker whose other strikes close at the normal 4pm.
   const FULL: [number, string, number, number[], bigint][] = SET.map(([t, n, p, s]) => [t, n, p, s, cl]);
-  if (process.env.DEMO_SETTLE) FULL.push([7, "TSLA", 349, [350], now + 90n]);
+  if (process.env.DEMO_SETTLE) { FULL.push([7, "TSLA", 349, [350], now + 90n]); FULL.push([3, "GOOGL", 204, [200], now + 90n]); }
 
   for (const [tid, name, prior, strikes, close] of FULL) {
     const feed = Keypair.generate(); // demo delivery-feed identity, pinned per ticker
@@ -88,7 +88,7 @@ async function main() {
       await send([m.createVenueMarketIx({
         operator: operator.publicKey, market, obMarket: obMarket.publicKey,
         bids: bids.publicKey, asks: asks.publicKey, eventHeap: heap.publicKey,
-        yesMint, quoteMint, name: `${name}-${s}-YES/USD`, timeExpiry: 0n,
+        yesMint, quoteMint, name: `${name}-${s}`, timeExpiry: 0n,
       })], [operator, obMarket]);
       created++;
       process.stdout.write(`\rseeded ${created} markets  `);

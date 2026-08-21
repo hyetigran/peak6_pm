@@ -5,7 +5,7 @@ import { createMintToInstruction, createAssociatedTokenAccountIdempotentInstruct
 import { Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import fs from "node:fs";
 import { decodeBookSide, ladder, ownersFor, type BookLevel } from "./layout.js";
-import { readPaused, setGlobalPause, settleMarket, type SettleRow } from "./admin.js";
+import { readPaused, setGlobalPause, settleMarket, overrideSettle, type SettleRow } from "./admin.js";
 
 function json(res: http.ServerResponse, code: number, body: unknown) {
   const s = JSON.stringify(body);
@@ -62,6 +62,31 @@ export function serve(db: Database.Database, conn: Connection, port: number) {
           const r = await settleMarket(conn, row, close1e6);
           return json(res, 200, { ok: true, ...r, close_1e6: close1e6.toString() });
         } catch (e) { return json(res, 503, { error: "settle failed: " + (e as Error).message }); }
+      }
+      const oMatch = url.pathname.match(/^\/admin\/override\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
+      if (oMatch && req.method === "POST") {
+        try {
+          const row = db.prepare("SELECT pubkey,ticker_id,trading_day,strike_1e6,close_ts,settled_ts,settlement_record FROM markets WHERE pubkey=?").get(oMatch[1]) as SettleRow | undefined;
+          if (!row) return json(res, 404, { error: "market not found" });
+          if (row.settled_ts) return json(res, 409, { error: "already settled" });
+          const body = await readBody(req);
+          if (body.price == null) return json(res, 400, { error: "override requires an explicit close price" });
+          const close1e6 = BigInt(Math.round(Number(body.price) * 1e6));
+          const r = await overrideSettle(conn, row, close1e6, body.reason ?? 1);
+          return json(res, 200, { ok: true, ...r, close_1e6: close1e6.toString() });
+        } catch (e) { return json(res, 503, { error: "override failed: " + (e as Error).message }); }
+      }
+      if (url.pathname === "/admin/settle-all" && req.method === "POST") {
+        try {
+          const now = Math.floor(Date.now() / 1000);
+          const rows = db.prepare("SELECT pubkey,ticker_id,trading_day,strike_1e6,close_ts,settled_ts,settlement_record FROM markets WHERE (settled_ts IS NULL OR settled_ts=0) AND close_ts<=? ORDER BY ticker_id, CAST(strike_1e6 AS INTEGER)").all(now) as SettleRow[];
+          const settled: string[] = [], errors: { market: string; error: string }[] = [];
+          for (const row of rows) {
+            try { await settleMarket(conn, row, BigInt(row.strike_1e6) + 5_000_000n); settled.push(row.pubkey); }
+            catch (e) { errors.push({ market: row.pubkey, error: (e as Error).message }); }
+          }
+          return json(res, 200, { ok: true, eligible: rows.length, settled: settled.length, errors });
+        } catch (e) { return json(res, 503, { error: "settle-all failed: " + (e as Error).message }); }
       }
 
       if (url.pathname === "/markets") {

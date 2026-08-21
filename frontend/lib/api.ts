@@ -45,6 +45,10 @@ export const getAdminState = () => j<{ paused: boolean; error?: string }>("/admi
 export const setPause = (paused: boolean) => post<{ ok: boolean; paused: boolean; sig: string }>("/admin/pause", { paused });
 export const settleMarket = (pk: string, price?: number) =>
   post<{ ok: boolean; sig: string; finalized: boolean; close_1e6: string }>(`/admin/settle/${pk}`, price != null ? { price } : {});
+export const overrideSettle = (pk: string, price: number, reason = 1) =>
+  post<{ ok: boolean; sig: string; finalized: boolean; close_1e6: string }>(`/admin/override/${pk}`, { price, reason });
+export const settleAll = () =>
+  post<{ ok: boolean; eligible: number; settled: number; errors: { market: string; error: string }[] }>("/admin/settle-all");
 
 /** Market Phase — the user-visible projection (PRD), not raw MarketState. */
 export function marketPhase(m: Market, now = Math.floor(Date.now() / 1000)): string {

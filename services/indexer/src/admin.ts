@@ -14,6 +14,7 @@ const MERIDIAN_PID = new PublicKey("FF6mu5FFb1q1Qz88x1HnhkePdF8Q1dXWnTfUUSkzUT3t
 const CONFIG_PAUSED_OFFSET = 332; // 8 disc + 2 + 8*32 roles + 32 + 32 + 1 + 1
 
 const disc = (name: string) => createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
+const u16 = (n: number) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b; };
 const u32 = (n: number) => { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b; };
 const u64 = (n: bigint) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(n); return b; };
 const i64 = (n: bigint) => { const b = Buffer.alloc(8); b.writeBigInt64LE(n); return b; };
@@ -67,10 +68,10 @@ export async function settleMarket(conn: Connection, row: SettleRow, close1e6: b
 
   const record = settlementRecordPda(row.ticker_id, row.trading_day);
   const recInfo = await conn.getAccountInfo(record);
-  const alreadyFinal = !!recInfo && recInfo.data[8] === 1; // SettlementRecordState::FinalOracle
+  const pending = !recInfo || recInfo.data[8] === 0; // SettlementRecordState::Pending
   let finalized = false;
 
-  if (!alreadyFinal) {
+  if (pending) {
     const feedB58 = cfg.transports?.[String(row.ticker_id)];
     if (!feedB58) throw new Error(`no transport feed recorded for ticker ${row.ticker_id}; re-seed the demo`);
     const feed = new PublicKey(feedB58);
@@ -90,15 +91,53 @@ export async function settleMarket(conn: Connection, row: SettleRow, close1e6: b
     finalized = true;
   }
 
-  const settleIx = new TransactionInstruction({
+  const sig = await sendAndConfirmTransaction(conn, new Transaction().add(settleMarketIx(op.publicKey, row.pubkey, record)), [op], { commitment: "confirmed" });
+  return { sig, finalized };
+}
+
+function settleMarketIx(cranker: PublicKey, market: string, record: PublicKey): TransactionInstruction {
+  return new TransactionInstruction({
     programId: MERIDIAN_PID,
     keys: [
-      { pubkey: op.publicKey, isSigner: true, isWritable: true },
-      { pubkey: new PublicKey(row.pubkey), isSigner: false, isWritable: true },
+      { pubkey: cranker, isSigner: true, isWritable: true },
+      { pubkey: new PublicKey(market), isSigner: false, isWritable: true },
       { pubkey: record, isSigner: false, isWritable: false },
     ],
     data: disc("settle_market"),
   });
-  const sig = await sendAndConfirmTransaction(conn, new Transaction().add(settleIx), [op], { commitment: "confirmed" });
+}
+
+/**
+ * Manual Settlement Override: finalize the record via the Override Authority
+ * (governance in demo) with two equal evidenced values, then settle. Used when
+ * the oracle path is unavailable. Gated on-chain by the override delay.
+ */
+export async function overrideSettle(conn: Connection, row: SettleRow, close1e6: bigint, reasonCode = 1): Promise<{ sig: string; finalized: boolean }> {
+  const cfg = loadCfg();
+  const gov = kp(cfg.governance); // override authority in demo
+  const op = kp(cfg.operator);
+  const now = Math.floor(Date.now() / 1000);
+  if (now < row.close_ts) throw new Error(`market not closed yet (closes in ${row.close_ts - now}s)`);
+
+  const record = settlementRecordPda(row.ticker_id, row.trading_day);
+  const recInfo = await conn.getAccountInfo(record);
+  const pending = !recInfo || recInfo.data[8] === 0;
+  let finalized = false;
+
+  if (pending) {
+    const finalizeIx = new TransactionInstruction({
+      programId: MERIDIAN_PID,
+      keys: [
+        { pubkey: gov.publicKey, isSigner: true, isWritable: true },
+        { pubkey: configPda(), isSigner: false, isWritable: false },
+        { pubkey: record, isSigner: false, isWritable: true },
+      ],
+      data: Buffer.concat([disc("finalize_settlement_manual"), u64(close1e6), u64(close1e6), u16(reasonCode), Buffer.alloc(32, 0x0d)]),
+    });
+    await sendAndConfirmTransaction(conn, new Transaction().add(finalizeIx), [gov], { commitment: "confirmed" });
+    finalized = true;
+  }
+
+  const sig = await sendAndConfirmTransaction(conn, new Transaction().add(settleMarketIx(op.publicKey, row.pubkey, record)), [op], { commitment: "confirmed" });
   return { sig, finalized };
 }
