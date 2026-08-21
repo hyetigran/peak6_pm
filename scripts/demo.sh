@@ -20,6 +20,7 @@ trap cleanup INT TERM
 
 echo "[demo] building programs (localnet feature)…"
 make build >/dev/null 2>&1
+for s in indexer keeper marketmaker; do [ -d "services/$s/node_modules" ] || ( cd "services/$s" && npm install --silent ); done
 
 echo "[demo] starting validator…"
 pkill -9 -f solana-test-validator 2>/dev/null; sleep 1
@@ -38,11 +39,11 @@ sleep 4
 curl -s localhost:8787/markets | python3 -c "import json,sys; print('[demo] indexer sees', len(json.load(sys.stdin)['markets']), 'markets')" 2>/dev/null || echo "[demo] indexer starting…"
 
 echo "[demo] starting keeper (EventHeap crank + settlement)…"
-( DEMO_CONFIG="$ROOT/.demo-config.json" KEEPER_STATUS="$ROOT/.keeper-status.json" KEEPER_INDEXER=http://127.0.0.1:8787 npx tsx services/keeper/src/index.ts > "$ROOT/.keeper-demo.log" 2>&1 & echo $! > /tmp/mrd_keeper.pid )
+( cd services/keeper && DEMO_CONFIG="$ROOT/.demo-config.json" KEEPER_STATUS="$ROOT/.keeper-status.json" KEEPER_INDEXER=http://127.0.0.1:8787 npm start > "$ROOT/.keeper-demo.log" 2>&1 & echo $! > /tmp/mrd_keeper.pid )
 KEEPER_PID="$(cat /tmp/mrd_keeper.pid)"
 
 echo "[demo] starting market-maker (live liquidity)…"
-( DEMO_CONFIG="$ROOT/.demo-config.json" MM_STATUS="$ROOT/.mm-status.json" MM_INDEXER=http://127.0.0.1:8787 npx tsx services/marketmaker/src/index.ts > "$ROOT/.mm-demo.log" 2>&1 & echo $! > /tmp/mrd_mm.pid )
+( cd services/marketmaker && DEMO_CONFIG="$ROOT/.demo-config.json" MM_STATUS="$ROOT/.mm-status.json" MM_INDEXER=http://127.0.0.1:8787 npm start > "$ROOT/.mm-demo.log" 2>&1 & echo $! > /tmp/mrd_mm.pid )
 MM_PID="$(cat /tmp/mrd_mm.pid)"
 
 echo "[demo] starting frontend on :${FE_PORT:-3100}…"

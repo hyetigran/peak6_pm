@@ -1,4 +1,4 @@
-.PHONY: build fixture-verify localnet keeper marketmaker g2 g3 g4 g5 g6 g7 g8 g9 g10 g12 m0 meridian-test demo indexer
+.PHONY: build fixture-verify localnet keeper marketmaker services-install g2 g3 g4 g5 g6 g7 g8 g9 g10 g12 m0 meridian-test demo indexer
 
 fixture-verify:
 	@echo "a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8  fixtures/openbook_v2-v1.7.so" | shasum -a 256 -c -
@@ -41,10 +41,16 @@ indexer:
 	cd services/indexer && npm install --silent && PORT=8787 npm start
 
 keeper:
-	DEMO_CONFIG=.demo-config.json KEEPER_STATUS=.keeper-status.json npx tsx services/keeper/src/index.ts
+	cd services/keeper && npm install --silent && DEMO_CONFIG=$(CURDIR)/.demo-config.json KEEPER_STATUS=$(CURDIR)/.keeper-status.json npm start
 
 marketmaker:
-	DEMO_CONFIG=.demo-config.json MM_STATUS=.mm-status.json npx tsx services/marketmaker/src/index.ts
+	cd services/marketmaker && npm install --silent && DEMO_CONFIG=$(CURDIR)/.demo-config.json MM_STATUS=$(CURDIR)/.mm-status.json npm start
+
+# install all service dependencies (each service is a standalone package)
+services-install:
+	cd services/indexer && npm install --silent
+	cd services/keeper && npm install --silent
+	cd services/marketmaker && npm install --silent
 
 meridian-test: build
 	./scripts/run-suite.sh tests/meridian-foundation.test.ts
