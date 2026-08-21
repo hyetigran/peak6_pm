@@ -11,7 +11,7 @@ for i in $(seq 1 60); do
   kill -0 "$VPID" 2>/dev/null || { echo "validator died:"; tail -20 .validator-test.log; exit 1; }
   sleep 1
 done
-npx tsx --test "$@"
+pnpm exec tsx --test "$@"
 status=$?
 kill "$VPID" 2>/dev/null
 exit $status

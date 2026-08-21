@@ -5,7 +5,8 @@
   "description": "Read-only indexer: projects Meridian program accounts into SQLite and serves a JSON API.",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts"
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@solana/web3.js": "^1.95.8",

@@ -37,20 +37,18 @@ g12: build
 demo: build
 	./scripts/demo.sh
 
-indexer:
-	cd services/indexer && npm install --silent && PORT=8787 npm start
+indexer: services-install
+	cd services/indexer && PORT=8787 pnpm start
 
-keeper:
-	cd services/keeper && npm install --silent && DEMO_CONFIG=$(CURDIR)/.demo-config.json KEEPER_STATUS=$(CURDIR)/.keeper-status.json npm start
+keeper: services-install
+	cd services/keeper && DEMO_CONFIG=$(CURDIR)/.demo-config.json KEEPER_STATUS=$(CURDIR)/.keeper-status.json pnpm start
 
-marketmaker:
-	cd services/marketmaker && npm install --silent && DEMO_CONFIG=$(CURDIR)/.demo-config.json MM_STATUS=$(CURDIR)/.mm-status.json npm start
+marketmaker: services-install
+	cd services/marketmaker && DEMO_CONFIG=$(CURDIR)/.demo-config.json MM_STATUS=$(CURDIR)/.mm-status.json pnpm start
 
-# install all service dependencies (each service is a standalone package)
+# one pnpm install covers the whole workspace (root + all services + frontend)
 services-install:
-	cd services/indexer && npm install --silent
-	cd services/keeper && npm install --silent
-	cd services/marketmaker && npm install --silent
+	pnpm install
 
 meridian-test: build
 	./scripts/run-suite.sh tests/meridian-foundation.test.ts

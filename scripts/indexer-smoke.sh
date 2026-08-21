@@ -6,8 +6,8 @@ rm -rf .validator services/indexer/.indexer.sqlite*
 ./scripts/localnet.sh --ledger .validator > .validator-test.log 2>&1 &
 VPID=$!
 for i in $(seq 1 60); do solana cluster-version -u localhost >/dev/null 2>&1 && break; sleep 1; done
-npx tsx --test tests/meridian-foundation.test.ts >/dev/null 2>&1 || true
-( cd services/indexer && INDEXER_DB=.indexer.sqlite PORT=8787 npx tsx src/index.ts > /tmp/indexer.log 2>&1 & echo $! > /tmp/indexer.pid )
+pnpm exec tsx --test tests/meridian-foundation.test.ts >/dev/null 2>&1 || true
+( cd services/indexer && INDEXER_DB=.indexer.sqlite PORT=8787 pnpm start > /tmp/indexer.log 2>&1 & echo $! > /tmp/indexer.pid )
 sleep 7
 echo "=== /health ==="; curl -s localhost:8787/health
 echo; echo "=== /markets ==="

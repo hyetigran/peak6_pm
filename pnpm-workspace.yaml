@@ -1,0 +1,12 @@
+packages:
+  - services/*
+  - frontend
+
+# native install scripts allowed to run during `pnpm install`.
+# better-sqlite3 backs the indexer; the rest are optional esbuild/ws accelerators.
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+  bigint-buffer: true
+  bufferutil: true
+  utf-8-validate: true
