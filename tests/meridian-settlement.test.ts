@@ -23,6 +23,8 @@ let feed: PublicKey;
 let aliceQuote: PublicKey, aliceYes: PublicKey, aliceNo: PublicKey;
 const OPENBOOK_PROGRAMDATA = new PublicKey("DktN5HJ9uHKVRZ7FXGap4PEGVnEdc2VNBCXTt1AqJQYB");
 const AAPL = 1, DAY = 20260822, STRIKE = 230_000_000n;
+const MSFT = 5, MSFT_STRIKE = 500_000_000n; // negative-owner case
+const WRONG_ORACLE = Keypair.generate().publicKey; // not the harness => owner mismatch
 let CLOSE = 0n;
 const LOT = 1_000_000n;
 
@@ -108,6 +110,15 @@ before(async () => {
   await send([m.mintPairIx(alice.publicKey, market, 10n * LOT, {
     yesMint, noMint, collateralVault: vault, userQuote: aliceQuote, userYes: aliceYes, userNo: aliceNo,
   })], [alice]);
+
+  // negative-owner case (S4): an MSFT transport pinned to a NON-harness oracle
+  // program, same close window as AAPL so no extra wait is needed.
+  await send([m.registerTransportIx({ governance: gov.publicKey, versionId: 1, tickerId: MSFT, feed: ob.mockFeedPda(MSFT), oracleProgram: WRONG_ORACLE })], [gov]);
+  await send([m.createOutcomeMarketIx({
+    operator: operator.publicKey, quoteMint, tickerId: MSFT, tradingDay: DAY, strike: MSFT_STRIKE,
+    versionId: 1, priorClose: 490_000_000n, mintOpenTs: now - 100n, tradeOpenTs: now - 50n, closeTs: CLOSE,
+    metadataManifest: Buffer.alloc(32, 7), normalDelaySecs: 0, overrideDelaySecs: 0,
+  })], [operator]);
 });
 
 async function chainNow(): Promise<bigint> {
@@ -144,4 +155,27 @@ test("S3 Outcome Redemption: winning Yes token pays $1, losing No pays 0", async
   assert.equal((await getAccount(conn, aliceYes)).amount, 0n, "Yes burned");
   // the losing No is still held but worth 0 (no redemption path pays it)
   assert.equal((await getAccount(conn, aliceNo)).amount, 10n * LOT, "No tokens remain, worth 0");
+});
+
+test("S4 finalize rejects a feed not owned by the pinned oracle program", async () => {
+  const slot = BigInt(await conn.getSlot("confirmed"));
+  // publish the MSFT feed (harness-owned, valid data) so this exercises the
+  // OWNER pin specifically: the MSFT record pins a different oracle program.
+  await send([ob.publishMockFeedIx(operator.publicKey, MSFT, 505_000_000n)], [operator]);
+  const msftFinalize = new TransactionInstruction({
+    programId: m.MERIDIAN_PID,
+    keys: [
+      { pubkey: operator.publicKey, isSigner: true, isWritable: true },
+      { pubkey: m.configPda(), isSigner: false, isWritable: false },
+      { pubkey: m.settlementRecordPda(MSFT, DAY), isSigner: false, isWritable: true },
+      { pubkey: ob.mockFeedPda(MSFT), isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([m.disc("finalize_settlement_normal"), u64(505_000_000n), Buffer.from([1]),
+      i64(BigInt(Math.floor(Date.now() / 1000))), u64(slot), Buffer.from([3]), Buffer.alloc(32, 9)]),
+  });
+  await assert.rejects(
+    () => send([msftFinalize], [operator]),
+    /0x1789|6025|WrongDeliveryOwner/i,
+    "wrong-owner feed must reject with WrongDeliveryOwner",
+  );
 });
