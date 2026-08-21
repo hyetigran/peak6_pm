@@ -61,7 +61,10 @@ async function main() {
   // demo market lives on its own ticker (TSLA, id 7) — never mixed into a
   // ticker whose other strikes close at the normal 4pm.
   const FULL: [number, string, number, number[], bigint][] = SET.map(([t, n, p, s]) => [t, n, p, s, cl]);
-  if (process.env.DEMO_SETTLE) { FULL.push([7, "TSLA", 349, [350], now + 90n]); FULL.push([3, "GOOGL", 204, [200], now + 90n]); }
+  // closing-soon markets for the settlement walkthrough; window is tunable
+  // (DEMO_SETTLE_SECS, default 90s for automated tests — set ~300 for a manual run).
+  const soonClose = now + BigInt(Number(process.env.DEMO_SETTLE_SECS ?? 90));
+  if (process.env.DEMO_SETTLE) { FULL.push([7, "TSLA", 349, [350], soonClose]); FULL.push([3, "GOOGL", 204, [200], soonClose]); }
 
   for (const [tid, name, prior, strikes, close] of FULL) {
     const feed = ob.mockFeedPda(tid); // the harness mock delivery feed Meridian reads at settlement
