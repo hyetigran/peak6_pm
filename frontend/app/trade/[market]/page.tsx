@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { PublicKey } from "@solana/web3.js";
-import { getMarket, getMarkets, getBook, getOrders, marketPhase, type Market, type Book, type OpenOrder } from "@/lib/api";
+import { getMarket, getMarkets, getBook, getOrders, getFills, marketPhase, type Market, type Book, type OpenOrder, type MarketFill } from "@/lib/api";
 import { strikeUsd, usd, countdown } from "@/lib/format";
 import { useWallet } from "@/lib/wallet";
 import { useTokenBalance } from "@/components/useBalances";
@@ -11,7 +11,6 @@ import * as mx from "@/lib/meridian";
 type Outcome = "YES" | "NO";
 type Side = "Buy" | "Sell";
 type Level = { price: number; shares: number };
-type Fill = { ts: number; side: "BUY" | "SELL"; outcome: Outcome; price: number; shares: number };
 
 // reference spot per ticker (demo data — no live feed on localnet)
 const SPOT: Record<string, number> = { AAPL: 231.08, AMZN: 241.19, GOOGL: 204.77, META: 682.40, MSFT: 512.34, NVDA: 178.62, TSLA: 349.86 };
@@ -28,7 +27,7 @@ export default function Trade() {
   const [msg, setMsg] = useState<string | null>(null);
   const [bookView, setBookView] = useState<Outcome>("YES");
   const [openOrders, setOpenOrders] = useState<OpenOrder[]>([]);
-  const [fills, setFills] = useState<Fill[]>([]);
+  const [fills, setFills] = useState<MarketFill[]>([]);
   const [, force] = useState(0);
   // order form
   const [outcome, setOutcome] = useState<Outcome>("YES");
@@ -55,9 +54,11 @@ export default function Trade() {
     const load = () => getOrders(pk, oo).then((d) => setOpenOrders(d.orders)).catch(() => {});
     load(); const t = setInterval(load, 2000); return () => clearInterval(t);
   }, [pk, pubkey?.toBase58()]);
-  // your recent fills (taker trades), persisted per market
-  useEffect(() => { try { setFills(JSON.parse(localStorage.getItem(`mrd-fills:${pk}`) || "[]")); } catch { setFills([]); } }, [pk]);
-  const recordFill = (f: Fill) => setFills((prev) => { const next = [f, ...prev].slice(0, 15); try { localStorage.setItem(`mrd-fills:${pk}`, JSON.stringify(next)); } catch {} return next; });
+  // market-wide recent fills (decoded from the EventHeap by the indexer)
+  useEffect(() => {
+    const load = () => getFills(pk).then((d) => setFills(d.fills)).catch(() => {});
+    load(); const t = setInterval(load, 2000); return () => clearInterval(t);
+  }, [pk]);
 
   const yesBal = useTokenBalance(m?.yes_mint);
   const noBal = useTokenBalance(m?.no_mint);
@@ -129,16 +130,6 @@ export default function Trade() {
         await send([...pre, mx.createTradeAtaIx(pubkey!, new PublicKey(pk), yesM),
           mx.redeemNoViaMarketIx(pubkey!, { market: new PublicKey(pk), yesMint: yesM, noMint: noM, collateralVault: new PublicKey(m.collateral_vault), userQuote: usdcAta()!, userNo: mx.ataFor(noM, pubkey!), obMarket, bids: new PublicKey(m.bids), asks: new PublicKey(m.asks), baseVault, quoteVault, eventHeap: new PublicKey(m.event_heap), makerOos: owners, qLots: q, priceLots: px })]);
       }
-    }
-    // Record a fill only for taker (market-executed) trades — limit orders that
-    // rest show up under "Your open orders" instead.
-    const isTake = (outcome === "YES" && market) || (outcome === "NO" && side === "Sell");
-    if (isTake) {
-      const pxN = Math.max(0, Math.floor(Number(price || "0")));
-      const fp = outcome === "YES"
-        ? (side === "Buy" ? (book?.best_ask ?? pxN) : (book?.best_bid ?? pxN))
-        : (100 - (book?.best_ask ?? 100 - pxN));
-      recordFill({ ts: Date.now(), side: side.toUpperCase() as "BUY" | "SELL", outcome, price: fp, shares: Number(q) });
     }
   });
 
@@ -263,9 +254,13 @@ export default function Trade() {
                 ))}
               </div>
             )}
-            {noSellLimit && <div className="sub" style={{ fontSize: 12 }}>Sell No is market-only in V1 — it buys Yes and redeems the pair.</div>}
-
-            {(!market || outcome === "NO") && !noSellLimit && (
+            {/* price / mode slot — same height in every mode so the CTA never jumps */}
+            {noSellLimit ? (
+              <div>
+                <div className="sub" style={{ fontSize: 13, marginBottom: 6, visibility: "hidden" }}>x</div>
+                <div style={{ ...fieldBox, opacity: 0.6 }}><span className="sub" style={{ fontSize: 12.5 }}>Sell No is market-only — buys Yes & redeems the pair.</span></div>
+              </div>
+            ) : (!market || outcome === "NO") ? (
               <div>
                 <div className="sub" style={{ fontSize: 13, marginBottom: 6 }}>Limit price (¢)</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, ...fieldBox }}>
@@ -273,6 +268,11 @@ export default function Trade() {
                   <span className="sub" style={{ fontSize: 15 }}>¢</span>
                   <span className="sub" style={{ marginLeft: "auto", fontSize: 12 }}>expires 16:00 ET</span>
                 </div>
+              </div>
+            ) : (
+              <div>
+                <div className="sub" style={{ fontSize: 13, marginBottom: 6, visibility: "hidden" }}>x</div>
+                <div style={{ ...fieldBox, opacity: 0.6 }}><span className="sub" style={{ fontSize: 12.5 }}>Market order — fills at the best available price.</span></div>
               </div>
             )}
 
@@ -405,8 +405,8 @@ function OrderBook({ book, view, setView }: { book: Book | null; view: "YES" | "
   );
 }
 
-function FillsPanel({ fills, orders, connected }: { fills: Fill[]; orders: OpenOrder[]; connected: boolean }) {
-  const hhmm = (ts: number) => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+function FillsPanel({ fills, orders, connected }: { fills: MarketFill[]; orders: OpenOrder[]; connected: boolean }) {
+  const hhmm = (ts: number) => new Date(ts * 1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
   return (
     <div className="card-2" style={{ padding: 16 }}>
       <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Recent fills</div>
@@ -415,12 +415,12 @@ function FillsPanel({ fills, orders, connected }: { fills: Fill[]; orders: OpenO
           {fills.map((f, i) => (
             <div key={i} style={{ display: "contents" }}>
               <span style={{ color: "var(--ink-40)" }}>{hhmm(f.ts)}</span>
-              <span style={{ color: f.outcome === "YES" ? "var(--pos)" : "var(--no)" }}>{f.side} {f.outcome} {f.price}¢</span>
-              <span style={{ textAlign: "right", color: "var(--ink-70)" }}>{f.shares}</span>
+              <span style={{ color: f.side === 0 ? "var(--pos)" : "var(--no)" }}>{f.side === 0 ? "BUY" : "SELL"} YES {f.price}¢</span>
+              <span style={{ textAlign: "right", color: "var(--ink-70)" }}>{f.qty}</span>
             </div>
           ))}
         </div>
-      ) : <div className="sub" style={{ fontSize: 13, lineHeight: 1.5 }}>No fills yet. Your executed (market) trades appear here.</div>}
+      ) : <div className="sub" style={{ fontSize: 13, lineHeight: 1.5 }}>No fills yet. Executed trades on this book appear here.</div>}
       <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--line-2)" }}>
         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Your open orders</div>
         {!connected ? <div className="sub" style={{ fontSize: 13 }}>Connect a wallet to see your orders.</div>

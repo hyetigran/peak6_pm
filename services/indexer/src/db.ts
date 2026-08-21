@@ -16,8 +16,22 @@ export function openDb(path = ".indexer.sqlite") {
       updated_slot INTEGER
     );
     CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
+    CREATE TABLE IF NOT EXISTS fills (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, market TEXT, ts INTEGER, side INTEGER, price INTEGER, qty INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS fills_market_id ON fills(market, id DESC);
   `);
   return db;
+}
+
+export interface DiffFill { ts: number; side: number; price: number; qty: number }
+export function insertFills(db: Database.Database, market: string, fills: DiffFill[]) {
+  if (!fills.length) return;
+  const stmt = db.prepare("INSERT INTO fills(market,ts,side,price,qty) VALUES(?,?,?,?,?)");
+  const tx = db.transaction((fs: DiffFill[]) => { for (const f of fs) stmt.run(market, f.ts, f.side, f.price, f.qty); });
+  tx(fills);
+  // keep the table bounded per market
+  db.prepare("DELETE FROM fills WHERE market=? AND id NOT IN (SELECT id FROM fills WHERE market=? ORDER BY id DESC LIMIT 60)").run(market, market);
 }
 
 export function upsertMarket(db: Database.Database, m: OutcomeMarketRow, slot: number) {

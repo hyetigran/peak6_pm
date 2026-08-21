@@ -172,6 +172,12 @@ export function serve(db: Database.Database, conn: Connection, port: number) {
           bid_owners: ownersFor(bidLeaves, "bid"), ask_owners: ownersFor(askLeaves, "ask"),
         });
       }
+      // market-wide recent fills (decoded from the EventHeap by the ingest loop)
+      const flMatch = url.pathname.match(/^\/fills\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
+      if (flMatch) {
+        const fills = db.prepare("SELECT ts,side,price,qty FROM fills WHERE market=? ORDER BY id DESC LIMIT 25").all(flMatch[1]);
+        return json(res, 200, { market: flMatch[1], fills });
+      }
       // resting orders on a market owned by a given OpenOrders account
       const ordMatch = url.pathname.match(/^\/orders\/([1-9A-HJ-NP-Za-km-z]{32,44})\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
       if (ordMatch) {
