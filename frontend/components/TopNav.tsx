@@ -27,7 +27,7 @@ export function TopNav() {
     <>
       <nav className="nav">
         <div className="nav-inner">
-          <Link href="/" className="brand"><span className="brand-mark" />Meridian</Link>
+          <Link href="/markets" className="brand"><span className="brand-mark" />Meridian</Link>
           <div className="nav-links">
             {LINKS.map(([href, label]) => (
               <Link key={href} href={href} className={path.startsWith(href) ? "active" : ""}>{label}</Link>
