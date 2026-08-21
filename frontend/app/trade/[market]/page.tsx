@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { PublicKey } from "@solana/web3.js";
-import { getMarket, getMarkets, getBook, marketPhase, type Market, type Book } from "@/lib/api";
+import { getMarket, getMarkets, getBook, getOrders, marketPhase, type Market, type Book, type OpenOrder } from "@/lib/api";
 import { strikeUsd, usd, countdown } from "@/lib/format";
 import { useWallet } from "@/lib/wallet";
 import { useTokenBalance } from "@/components/useBalances";
@@ -11,6 +11,7 @@ import * as mx from "@/lib/meridian";
 type Outcome = "YES" | "NO";
 type Side = "Buy" | "Sell";
 type Level = { price: number; shares: number };
+type Fill = { ts: number; side: "BUY" | "SELL"; outcome: Outcome; price: number; shares: number };
 
 // reference spot per ticker (demo data — no live feed on localnet)
 const SPOT: Record<string, number> = { AAPL: 231.08, AMZN: 241.19, GOOGL: 204.77, META: 682.40, MSFT: 512.34, NVDA: 178.62, TSLA: 349.86 };
@@ -26,6 +27,8 @@ export default function Trade() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [bookView, setBookView] = useState<Outcome>("YES");
+  const [openOrders, setOpenOrders] = useState<OpenOrder[]>([]);
+  const [fills, setFills] = useState<Fill[]>([]);
   const [, force] = useState(0);
   // order form
   const [outcome, setOutcome] = useState<Outcome>("YES");
@@ -45,6 +48,16 @@ export default function Trade() {
   }, []);
   useEffect(() => { if (m) getMarkets().then((d) => setSiblings(d.markets.filter((x) => x.ticker === m.ticker))).catch(() => {}); }, [m?.ticker]);
   useEffect(() => setBookView(outcome), [outcome]);
+  // your resting orders on this book (live from the chain)
+  useEffect(() => {
+    if (!pubkey) { setOpenOrders([]); return; }
+    const oo = mx.ooAccountPda(pubkey, 1).toBase58();
+    const load = () => getOrders(pk, oo).then((d) => setOpenOrders(d.orders)).catch(() => {});
+    load(); const t = setInterval(load, 2000); return () => clearInterval(t);
+  }, [pk, pubkey?.toBase58()]);
+  // your recent fills (taker trades), persisted per market
+  useEffect(() => { try { setFills(JSON.parse(localStorage.getItem(`mrd-fills:${pk}`) || "[]")); } catch { setFills([]); } }, [pk]);
+  const recordFill = (f: Fill) => setFills((prev) => { const next = [f, ...prev].slice(0, 15); try { localStorage.setItem(`mrd-fills:${pk}`, JSON.stringify(next)); } catch {} return next; });
 
   const yesBal = useTokenBalance(m?.yes_mint);
   const noBal = useTokenBalance(m?.no_mint);
@@ -52,10 +65,17 @@ export default function Trade() {
   const usdcAta = () => quoteMint ? mx.ataFor(quoteMint, pubkey!) : null;
   const ensure = useCallback(async (mints: PublicKey[], needOo: boolean, obMarket?: PublicKey) => {
     const ixs: any[] = [];
-    for (const mint of mints) if (!(await conn.getAccountInfo(mx.ataFor(mint, pubkey!)))) ixs.push(mx.createAtaIx(pubkey!, pubkey!, mint));
+    // always ensure the USDC (quote) ATA — every trade references it, and a
+    // missing one fails with AccountNotInitialized (0xbc4)
+    const all = quoteMint ? [quoteMint, ...mints] : mints;
+    const seen = new Set<string>();
+    for (const mint of all) {
+      const key = mint.toBase58(); if (seen.has(key)) continue; seen.add(key);
+      if (!(await conn.getAccountInfo(mx.ataFor(mint, pubkey!)))) ixs.push(mx.createAtaIx(pubkey!, pubkey!, mint));
+    }
     if (needOo && obMarket && !(await conn.getAccountInfo(mx.ooAccountPda(pubkey!, 1)))) ixs.push(...mx.createOoIxs(pubkey!, obMarket));
     return ixs;
-  }, [pubkey]);
+  }, [pubkey, quoteMint]);
 
   const guard = useCallback(async (fn: () => Promise<void>) => {
     if (!pubkey) return connect();
@@ -110,6 +130,16 @@ export default function Trade() {
           mx.redeemNoViaMarketIx(pubkey!, { market: new PublicKey(pk), yesMint: yesM, noMint: noM, collateralVault: new PublicKey(m.collateral_vault), userQuote: usdcAta()!, userNo: mx.ataFor(noM, pubkey!), obMarket, bids: new PublicKey(m.bids), asks: new PublicKey(m.asks), baseVault, quoteVault, eventHeap: new PublicKey(m.event_heap), makerOos: owners, qLots: q, priceLots: px })]);
       }
     }
+    // Record a fill only for taker (market-executed) trades — limit orders that
+    // rest show up under "Your open orders" instead.
+    const isTake = (outcome === "YES" && market) || (outcome === "NO" && side === "Sell");
+    if (isTake) {
+      const pxN = Math.max(0, Math.floor(Number(price || "0")));
+      const fp = outcome === "YES"
+        ? (side === "Buy" ? (book?.best_ask ?? pxN) : (book?.best_bid ?? pxN))
+        : (100 - (book?.best_ask ?? 100 - pxN));
+      recordFill({ ts: Date.now(), side: side.toUpperCase() as "BUY" | "SELL", outcome, price: fp, shares: Number(q) });
+    }
   });
 
   const mint = () => guard(async () => {
@@ -137,9 +167,6 @@ export default function Trade() {
     : (buying ? 100 - pxNum : noPx != null ? 100 - (book?.best_ask ?? 100 - noPx) : pxNum);
   const notional = (shareN * (unitCents || 0)) / 100;
   const winClause = outcome === "YES" ? "at or above" : "below";
-  const myOo = pubkey ? mx.ooAccountPda(pubkey, 1).toBase58() : null;
-  const myBids = myOo && book?.bid_owners?.includes(myOo);
-  const myAsks = myOo && book?.ask_owners?.includes(myOo);
 
   return (
     <div style={{ maxWidth: 1440, margin: "0 auto", padding: "22px 24px", display: "grid", gridTemplateColumns: "230px minmax(0,1fr) 336px", gap: 18, alignItems: "start" }}>
@@ -207,7 +234,7 @@ export default function Trade() {
 
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 288px", gap: 16 }}>
           <OrderBook book={book} view={bookView} setView={setBookView} />
-          <FillsPanel myBids={!!myBids} myAsks={!!myAsks} />
+          <FillsPanel fills={fills} orders={openOrders} connected={!!pubkey} />
         </div>
       </div>
 
@@ -378,23 +405,38 @@ function OrderBook({ book, view, setView }: { book: Book | null; view: "YES" | "
   );
 }
 
-function FillsPanel({ myBids, myAsks }: { myBids: boolean; myAsks: boolean }) {
-  const has = myBids || myAsks;
+function FillsPanel({ fills, orders, connected }: { fills: Fill[]; orders: OpenOrder[]; connected: boolean }) {
+  const hhmm = (ts: number) => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
   return (
     <div className="card-2" style={{ padding: 16 }}>
       <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Recent fills</div>
-      <div className="sub" style={{ fontSize: 13, lineHeight: 1.5 }}>No fills yet on this book. Executed trades will appear here.</div>
+      {fills.length ? (
+        <div style={{ display: "grid", gridTemplateColumns: "48px 1fr 46px", gap: "6px 8px", fontSize: 12.5 }} className="mono">
+          {fills.map((f, i) => (
+            <div key={i} style={{ display: "contents" }}>
+              <span style={{ color: "var(--ink-40)" }}>{hhmm(f.ts)}</span>
+              <span style={{ color: f.outcome === "YES" ? "var(--pos)" : "var(--no)" }}>{f.side} {f.outcome} {f.price}¢</span>
+              <span style={{ textAlign: "right", color: "var(--ink-70)" }}>{f.shares}</span>
+            </div>
+          ))}
+        </div>
+      ) : <div className="sub" style={{ fontSize: 13, lineHeight: 1.5 }}>No fills yet. Your executed (market) trades appear here.</div>}
       <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--line-2)" }}>
         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Your open orders</div>
-        {has ? (
-          <>
-            <div className="mono" style={{ fontSize: 13, color: "var(--ink-70)" }}>
-              {myBids && <div style={{ color: "var(--pos)" }}>resting bid(s) on this book</div>}
-              {myAsks && <div style={{ color: "var(--no)" }}>resting ask(s) on this book</div>}
-            </div>
-            <div className="sub" style={{ fontSize: 12, marginTop: 8 }}>Orders expire automatically at 4:00 PM ET (V1 has no manual cancel).</div>
-          </>
-        ) : <div className="sub" style={{ fontSize: 13 }}>No open orders.</div>}
+        {!connected ? <div className="sub" style={{ fontSize: 13 }}>Connect a wallet to see your orders.</div>
+          : orders.length ? (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 46px", gap: "5px 8px", fontSize: 13 }} className="mono">
+                {orders.map((o, i) => (
+                  <div key={i} style={{ display: "contents" }}>
+                    <span style={{ color: o.side === "bid" ? "var(--pos)" : "var(--no)" }}>{o.side === "bid" ? "Buy YES" : "Sell YES"} {o.price}¢</span>
+                    <span style={{ textAlign: "right", color: "var(--ink-70)" }}>{o.shares}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="sub" style={{ fontSize: 12, marginTop: 8 }}>Orders expire automatically at 4:00 PM ET (V1 has no manual cancel).</div>
+            </>
+          ) : <div className="sub" style={{ fontSize: 13 }}>No open orders.</div>}
       </div>
     </div>
   );

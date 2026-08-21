@@ -172,6 +172,22 @@ export function serve(db: Database.Database, conn: Connection, port: number) {
           bid_owners: ownersFor(bidLeaves, "bid"), ask_owners: ownersFor(askLeaves, "ask"),
         });
       }
+      // resting orders on a market owned by a given OpenOrders account
+      const ordMatch = url.pathname.match(/^\/orders\/([1-9A-HJ-NP-Za-km-z]{32,44})\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
+      if (ordMatch) {
+        const row = db.prepare("SELECT bids,asks,openbook_market FROM markets WHERE pubkey=?").get(ordMatch[1]) as any;
+        if (!row || !row.openbook_market || row.openbook_market === "11111111111111111111111111111111") return json(res, 200, { orders: [] });
+        const oo = ordMatch[2];
+        const [bidsInfo, asksInfo] = await conn.getMultipleAccountsInfo([new PublicKey(row.bids), new PublicKey(row.asks)]);
+        const mine = (info: any, side: "bid" | "ask") =>
+          (info ? decodeBookSide(info.data as Buffer) : []).filter((l) => l.owner === oo).map((l) => ({ side, price: l.price, shares: l.shares }));
+        const raw = [...mine(bidsInfo, "bid"), ...mine(asksInfo, "ask")];
+        // aggregate by side+price
+        const agg = new Map<string, { side: string; price: number; shares: number }>();
+        for (const o of raw) { const k = `${o.side}:${o.price}`; const e = agg.get(k); if (e) e.shares += o.shares; else agg.set(k, { ...o }); }
+        const orders = [...agg.values()].sort((a, b) => b.price - a.price);
+        return json(res, 200, { market: ordMatch[1], owner: oo, orders });
+      }
       const pMatch = url.pathname.match(/^\/portfolio\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
       if (pMatch) {
         // Position State is derived from on-chain token balances, read live.

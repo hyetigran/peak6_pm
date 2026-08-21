@@ -26,6 +26,9 @@ export interface Book {
   bid_owners: string[]; ask_owners: string[]; note?: string;
 }
 export const getBook = (pk: string) => j<Book>(`/book/${pk}`);
+export interface OpenOrder { side: "bid" | "ask"; price: number; shares: number }
+export const getOrders = (market: string, oo: string) =>
+  j<{ orders: OpenOrder[] }>(`/orders/${market}/${oo}`);
 export const faucet = (address: string) =>
   fetch(`${INDEXER}/faucet/${address}`).then((r) => r.json());
 export const getHealth = () => j<Health & { ok: boolean }>("/health");
