@@ -26,10 +26,19 @@ const TICK = Number(process.env.MM_TICK ?? "8") * 1000;
 
 const conn = new Connection(RPC, "confirmed");
 const LOT = 1_000_000n;                    // 1 share
-const LEVELS = [2, 4, 6];                   // cents around fair
-const SIZE = 25n;                            // base lots (shares) per level
-const INVENTORY = 150n;                      // pairs minted per market for ask inventory
+const BANDS = [1, 2, 3, 5, 7, 10, 14, 18];  // cents from fair — wider spacing further out
 const SPOT_BASE: Record<string, number> = { AAPL: 231, AMZN: 241, GOOGL: 204, META: 682, MSFT: 512, NVDA: 178, TSLA: 349 };
+
+// Deterministic per-market ladder of {distance-from-fair, size}. Size tapers
+// from ~heavy near the touch to lighter in the tail, with organic variation.
+function ladder(pubkey: string): { d: number; size: bigint }[] {
+  let seed = [...pubkey].reduce((a, c) => a + c.charCodeAt(0), 0);
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  return BANDS.map((d, i) => {
+    const base = 80 - i * 8;               // ~80 near mid → ~24 in the tail
+    return { d, size: BigInt(Math.max(12, Math.round(base * (0.6 + rnd() * 0.8)))) };
+  });
+}
 
 let coid = 1;
 const nextCoid = () => BigInt(coid++);
@@ -49,21 +58,21 @@ interface Mkt {
   bids: string; asks: string; event_heap: string; openbook_base_vault: string; openbook_quote_vault: string;
 }
 
-function bidIx(mm: PublicKey, oo: PublicKey, usdc: PublicKey, k: Mkt, priceCents: number): TransactionInstruction {
+function bidIx(mm: PublicKey, oo: PublicKey, usdc: PublicKey, k: Mkt, priceCents: number, size: bigint): TransactionInstruction {
   return m.placeLimitOrderIx({
     user: mm, market: new PublicKey(k.pubkey), ooAccount: oo, userTokenAccount: usdc,
     obMarket: new PublicKey(k.openbook_market), bids: new PublicKey(k.bids), asks: new PublicKey(k.asks),
     eventHeap: new PublicKey(k.event_heap), marketVault: new PublicKey(k.openbook_quote_vault),
-    args: { side: ob.Side.Bid, priceLots: BigInt(priceCents), maxBaseLots: SIZE, maxQuoteLotsIncludingFees: BigInt(priceCents) * SIZE,
+    args: { side: ob.Side.Bid, priceLots: BigInt(priceCents), maxBaseLots: size, maxQuoteLotsIncludingFees: BigInt(priceCents) * size,
       clientOrderId: nextCoid(), orderType: ob.PlaceOrderType.PostOnly, expiryTimestamp: 0n, selfTradeBehavior: ob.SelfTradeBehavior.AbortTransaction, limit: 16 },
   });
 }
-function askIx(mm: PublicKey, oo: PublicKey, yes: PublicKey, k: Mkt, priceCents: number): TransactionInstruction {
+function askIx(mm: PublicKey, oo: PublicKey, yes: PublicKey, k: Mkt, priceCents: number, size: bigint): TransactionInstruction {
   return m.placeLimitOrderIx({
     user: mm, market: new PublicKey(k.pubkey), ooAccount: oo, userTokenAccount: yes,
     obMarket: new PublicKey(k.openbook_market), bids: new PublicKey(k.bids), asks: new PublicKey(k.asks),
     eventHeap: new PublicKey(k.event_heap), marketVault: new PublicKey(k.openbook_base_vault),
-    args: { side: ob.Side.Ask, priceLots: BigInt(priceCents), maxBaseLots: SIZE, maxQuoteLotsIncludingFees: 1_000_000_000n,
+    args: { side: ob.Side.Ask, priceLots: BigInt(priceCents), maxBaseLots: size, maxQuoteLotsIncludingFees: 1_000_000_000n,
       clientOrderId: nextCoid(), orderType: ob.PlaceOrderType.PostOnly, expiryTimestamp: 0n, selfTradeBehavior: ob.SelfTradeBehavior.AbortTransaction, limit: 16 },
   });
 }
@@ -106,17 +115,26 @@ async function main() {
     const needAsks = seed || (book.asks ?? []).length === 0;
     if (!needBids && !needAsks) return 0;
 
-    // mint Yes inventory only when we're about to (re)post asks
-    if (needAsks) await send([m.mintPairIx(mm.publicKey, new PublicKey(k.pubkey), INVENTORY * LOT, {
+    const lad = ladder(k.pubkey);
+    // mint enough Yes inventory to back the full ask ladder (only when reposting asks)
+    if (needAsks) await send([m.mintPairIx(mm.publicKey, new PublicKey(k.pubkey), lad.reduce((a, l) => a + l.size, 0n) * LOT, {
       yesMint, noMint, collateralVault: new PublicKey(k.collateral_vault), userQuote: usdc, userYes: yesAta, userNo: noAta,
     })], [mm]);
 
     let posted = 0;
     if (needBids) {
-      for (const d of LEVELS) { try { await send([bidIx(mm.publicKey, oo, usdc, k, clampCents(fair - d))], [mm]); posted++; } catch (e) { if (seed) console.error(`[mm] bid ${k.ticker} ${clampCents(fair - d)}¢:`, (e as Error).message.slice(0, 180)); } }
+      const used = new Set<number>();
+      for (const { d, size } of lad) {
+        const price = clampCents(fair - d); if (used.has(price)) continue; used.add(price);
+        try { await send([bidIx(mm.publicKey, oo, usdc, k, price, size)], [mm]); posted++; } catch (e) { if (seed) console.error(`[mm] bid ${k.ticker} ${price}¢:`, (e as Error).message.slice(0, 120)); }
+      }
     }
     if (needAsks) {
-      for (const d of LEVELS) { try { await send([askIx(mm.publicKey, oo, yesAta, k, clampCents(fair + d))], [mm]); posted++; } catch (e) { if (seed) console.error(`[mm] ask ${k.ticker} ${clampCents(fair + d)}¢:`, (e as Error).message.slice(0, 180)); } }
+      const used = new Set<number>();
+      for (const { d, size } of lad) {
+        const price = clampCents(fair + d); if (used.has(price)) continue; used.add(price);
+        try { await send([askIx(mm.publicKey, oo, yesAta, k, price, size)], [mm]); posted++; } catch (e) { if (seed) console.error(`[mm] ask ${k.ticker} ${price}¢:`, (e as Error).message.slice(0, 120)); }
+      }
     }
     ordersPosted += posted;
     return posted;

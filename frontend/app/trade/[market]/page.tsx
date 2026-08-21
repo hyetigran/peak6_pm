@@ -337,8 +337,8 @@ function OrderBook({ book, view, setView }: { book: Book | null; view: "YES" | "
   // sellers/buyers of the viewed outcome, priced in the viewed outcome's cents
   const rawAsks = ((mirror ? book?.bids : book?.asks) ?? []).map((l) => ({ price: px(l.price), shares: l.shares }));
   const rawBids = ((mirror ? book?.asks : book?.bids) ?? []).map((l) => ({ price: px(l.price), shares: l.shares }));
-  const asks = rawAsks.sort((a, b) => a.price - b.price).slice(0, 6); // ascending (best/lowest first)
-  const bids = rawBids.sort((a, b) => b.price - a.price).slice(0, 6); // descending (best/highest first)
+  const asks = rawAsks.sort((a, b) => a.price - b.price).slice(0, 8); // ascending (best/lowest first)
+  const bids = rawBids.sort((a, b) => b.price - a.price).slice(0, 8); // descending (best/highest first)
   const maxSize = Math.max(1, ...asks.map((l) => l.shares), ...bids.map((l) => l.shares));
   const mark = book?.mark != null ? px(book.mark) : null;
   const spread = asks[0] && bids[0] ? asks[0].price - bids[0].price : null;
