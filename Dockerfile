@@ -23,7 +23,10 @@ RUN sed -i '/frontend/d' pnpm-workspace.yaml \
 RUN chown -R node:node /app
 USER node
 
-# No CMD — Railway sets the per-service start command:
-#   indexer: pnpm exec tsx services/indexer/src/index.ts
-#   keeper : pnpm exec tsx services/keeper/src/scheduler.ts   (pattern A)
-# (run from /app so the keeper's fixtures/ lookups resolve)
+# One image, two services: SERVICE_ENTRY (an env var set per Railway service)
+# picks which process to run. `exec` so SIGTERM reaches node (keeper graceful
+# drain). Runs from /app so the keeper's fixtures/ lookups resolve.
+#   indexer: SERVICE_ENTRY=services/indexer/src/index.ts   (default)
+#   keeper : SERVICE_ENTRY=services/keeper/src/scheduler.ts
+ENV SERVICE_ENTRY=services/indexer/src/index.ts
+CMD ["sh", "-c", "exec node_modules/.bin/tsx \"$SERVICE_ENTRY\""]

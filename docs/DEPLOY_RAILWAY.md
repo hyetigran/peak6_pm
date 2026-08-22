@@ -26,20 +26,17 @@ railway init                      # or: railway link  (existing project)
 #   - keeper    (private only)
 ```
 
-Builder, start command, healthcheck, and restart policy are set **as code** in
-two per-service config files at the repo root — you don't set them by hand.
-Point each service at its file (Settings -> **Config as code** -> "Railway
-Config File"):
+Both services build from the **same root `Dockerfile`**. One image, two
+processes: the `SERVICE_ENTRY` env var (set per service) picks which one runs —
+no per-service start command or config file to manage.
 
-| Service | Config file | (its start command, for reference) |
-|---|---|---|
-| indexer | `railway.indexer.json` | `pnpm exec tsx services/indexer/src/index.ts` |
-| keeper  | `railway.keeper.json`  | `pnpm exec tsx services/keeper/src/scheduler.ts` |
+| Service | `SERVICE_ENTRY` |
+|---|---|
+| indexer | `services/indexer/src/index.ts` (the image default) |
+| keeper  | `services/keeper/src/scheduler.ts` |
 
-Both files set `builder: DOCKERFILE` (the root `Dockerfile`) and run from `/app`
-(the image WORKDIR) so the keeper's `fixtures/` lookups resolve. The indexer
-config also adds a `/health` healthcheck. Leave each service's **Root Directory**
-at the repo root so the Docker build context is the full workspace.
+The `CMD` runs from `/app` (the image WORKDIR) so the keeper's `fixtures/`
+lookups resolve, and `exec`s node so SIGTERM reaches it (keeper graceful drain).
 
 ## 2. Volumes (restart-safe state)
 
@@ -61,12 +58,14 @@ Add a Railway **volume** to each, mounted at `/data`:
 | `MERIDIAN_PID` | `HiREMEBWNojy6KJNbMbww2YkRJEYLGMgndaKwXndK6ZD` |
 | `PORT` | `8080` (fixed, so the keeper can address it internally) |
 | `INDEXER_DB` | `/data/indexer.sqlite` |
+| `SERVICE_ENTRY` | `services/indexer/src/index.ts` (or omit — it is the image default) |
 
 **keeper** (mark `DEMO_CONFIG_JSON` and `RPC_URL` secret):
 
 | Var | Value |
 |---|---|
 | `RPC_URL` | your Helius devnet URL (secret) |
+| `SERVICE_ENTRY` | `services/keeper/src/scheduler.ts` |
 | `KEEPER_ORACLE` | `pyth` |
 | `DEMO_CONFIG_JSON` | full `.demo-config.json` contents (secret — below) |
 | `KEEPER_INDEXER` | `http://indexer.railway.internal:8080` (private DNS; use your indexer service's name) |
