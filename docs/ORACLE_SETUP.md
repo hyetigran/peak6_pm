@@ -115,9 +115,18 @@ immutable deployment is preferred; a post-registration upgrade fails closed.
 `KEEPER_ORACLE=pyth`: per settlement, Hermes pull (`encoding:"base64"`) → post
 `PriceUpdateV2` via the Pyth receiver → adapter `crank` in the same tx →
 `finalize_settlement_normal` (reads the delivery account) → `settle_market`.
-Production schedules the capture **at the close** (ADR-0031) — Pyth equity
-feeds are RTH-only and stale afterwards; `KEEPER_PYTH_MAX_AGE_SECS` is large
-only for the weekend demo.
+**Capture at the close** (#26, enforced both sides): Pyth equity feeds are
+RTH-only and stale afterwards, so the keeper (`KEEPER_PYTH_CAPTURE=at-close`,
+the default) asks Hermes for the update published **at `close_ts`** and sizes
+the adapter's `max_age_secs` to `(now − close_ts) + 300s` so that update is
+still accepted at settlement (`services/keeper/src/pyth-capture.ts`). The
+**strict** Meridian build independently reads `observed_ts` (the Pyth publish
+time) from the delivery account and rejects a reading outside
+`[close_ts − 60s, close_ts + 900s]` (`ObservedOutsideCloseWindow`), and records
+it as `official_close_observed_ts` — a cranker can no longer settle on a stale
+pre-close tick or a later print. `KEEPER_PYTH_CAPTURE=latest` +
+`KEEPER_PYTH_MAX_AGE_SECS` exist only for the weekend/localnet demo (synthetic
+`close_ts`, localnet build relaxes the window).
 
 ### 4. G11 — prove it is the Official Close  **[both; blocked on #9]**
 `make oracle-e2e-devnet` (to author): the captured-at-close Pyth value is

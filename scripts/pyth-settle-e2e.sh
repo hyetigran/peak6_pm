@@ -45,7 +45,9 @@ IDX_PID="$(cat .pyth-idx.pid)"; rm -f .pyth-idx.pid
 for i in $(seq 1 30); do curl -s localhost:8787/markets >/dev/null 2>&1 && break; sleep 1; done
 
 echo "[pyth-settle] starting keeper in KEEPER_ORACLE=pyth mode…"
-( cd services/keeper && KEEPER_ORACLE=pyth KEEPER_TICK=5 DEMO_CONFIG="$ROOT/.demo-config.json" KEEPER_STATUS="$ROOT/.keeper-status.json" KEEPER_INDEXER=http://127.0.0.1:8787 pnpm start > "$ROOT/.keeper-pyth.log" 2>&1 & echo $! > "$ROOT/.pyth-keeper.pid" )
+# KEEPER_PYTH_CAPTURE=latest: the demo close_ts is synthetic (now+20s, often a
+# weekend) so no Pyth update exists AT it; prod/devnet keeps the at-close default.
+( cd services/keeper && KEEPER_ORACLE=pyth KEEPER_PYTH_CAPTURE=latest KEEPER_TICK=5 DEMO_CONFIG="$ROOT/.demo-config.json" KEEPER_STATUS="$ROOT/.keeper-status.json" KEEPER_INDEXER=http://127.0.0.1:8787 pnpm start > "$ROOT/.keeper-pyth.log" 2>&1 & echo $! > "$ROOT/.pyth-keeper.pid" )
 KEEPER_PID="$(cat .pyth-keeper.pid)"; rm -f .pyth-keeper.pid
 
 echo "[pyth-settle] waiting for the keeper to crank Pyth + finalize + settle (timeout ${TIMEOUT}s)…"

@@ -8,8 +8,10 @@
  * DEVNET-GATED: the Pyth receiver + Wormhole live on devnet/mainnet (or a
  * cloned-local validator), so this can't run against a plain localnet — the
  * localnet demo keeps the m0-harness mock feed. Type-checked, not run-tested
- * here. Capture AT the close: Pyth equity feeds are RTH-only and go stale after
- * 16:00 ET, whereas settlement is ~close+20m.
+ * here. Capture AT the close (#26): Pyth equity feeds are RTH-only and go
+ * stale after 16:00 ET, whereas settlement is ~close+20m — so `publishTime`
+ * (the close) selects the update via Hermes' at-timestamp endpoint; omit it
+ * for "latest" (demo only). See pyth-capture.ts for the policy.
  */
 import type { VersionedTransaction, Signer } from "@solana/web3.js";
 import type { PythSolanaReceiver } from "@pythnetwork/pyth-solana-receiver";
@@ -32,6 +34,8 @@ export async function buildPythCrankTxs(opts: {
   cranker: PublicKey;
   tickerId: number;
   maxAgeSecs?: bigint;
+  /** Unix seconds: fetch the update published at this time (the close). null/undefined = latest. */
+  publishTime?: number | null;
   adapter?: PublicKey;
 }): Promise<{ tx: VersionedTransaction; signers: Signer[] }[]> {
   const feedId = hermesFeedId(opts.tickerId);
@@ -39,7 +43,9 @@ export async function buildPythCrankTxs(opts: {
 
   // base64: the receiver's addPostPriceUpdates expects base64-encoded updates
   // (Hermes v3 defaults to hex -> "Invalid accumulator message").
-  const updates = await opts.hermes.getLatestPriceUpdates([feedId], { encoding: "base64" });
+  const updates = opts.publishTime != null
+    ? await opts.hermes.getPriceUpdatesAtTimestamp(opts.publishTime, [feedId], { encoding: "base64" })
+    : await opts.hermes.getLatestPriceUpdates([feedId], { encoding: "base64" });
   const data = updates.binary.data; // base64 signed updates
 
   const builder = opts.receiver.newTransactionBuilder({ closeUpdateAccounts: true });

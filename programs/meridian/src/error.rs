@@ -54,4 +54,6 @@ pub enum MeridianError {
     Overflow,
     #[msg("settlement delivery feed is not owned by the pinned oracle program")]
     WrongDeliveryOwner,
+    #[msg("delivery observed_ts is outside the Official Close capture window")]
+    ObservedOutsideCloseWindow,
 }

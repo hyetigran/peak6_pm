@@ -131,13 +131,16 @@ async function main() {
   // finalize. `harness` (localnet) writes the mock feed; `pyth` (devnet) pulls
   // Hermes -> posts a PriceUpdateV2 -> cranks the adapter that OWNS the delivery
   // account Meridian reads. Pyth deps are dynamically imported so localnet
-  // doesn't load them. (KEEPER_PYTH_MAX_AGE_SECS is large for the weekend-stale
-  // demo; prod captures at the live close.)
+  // doesn't load them. Capture policy (#26): KEEPER_PYTH_CAPTURE=at-close
+  // (default; Hermes update AT close_ts, max_age sized to settlement time) or
+  // `latest` (demo only — KEEPER_PYTH_MAX_AGE_SECS is large for the weekend-
+  // stale demo; the strict build rejects a reading outside the close window).
   const ORACLE_MODE = process.env.KEEPER_ORACLE ?? "harness";
+  const PYTH_CAPTURE = (process.env.KEEPER_PYTH_CAPTURE ?? "at-close") as import("./pyth-capture.js").CaptureMode;
   const PYTH_MAX_AGE = BigInt(process.env.KEEPER_PYTH_MAX_AGE_SECS ?? "604800");
   // `refresh` returns the close actually delivered on-chain (what finalize will
   // read) — in pyth mode that is the real Pyth price, NOT the advisory close1e6.
-  const oracle: { refresh: (tickerId: number, close1e6: bigint, feed: PublicKey) => Promise<bigint> } =
+  const oracle: { refresh: (tickerId: number, close1e6: bigint, feed: PublicKey, closeTs: number) => Promise<bigint> } =
     await (async () => {
       if (ORACLE_MODE !== "pyth") {
         return { refresh: async (tickerId: number, close1e6: bigint, feed: PublicKey) => { await send([publishMockFeedIx(op.publicKey, feed, tickerId, close1e6)]); return close1e6; } };
@@ -145,12 +148,15 @@ async function main() {
       const { PythSolanaReceiver } = await import("@pythnetwork/pyth-solana-receiver");
       const { HermesClient } = await import("@pythnetwork/hermes-client");
       const { buildPythCrankTxs } = await import("./pyth-crank.js");
+      const { captureWindow } = await import("./pyth-capture.js");
+      captureWindow({ closeTs: 0, now: 0, mode: PYTH_CAPTURE }); // fail fast on a bad KEEPER_PYTH_CAPTURE
       const wallet: any = { publicKey: op.publicKey, payer: op, signTransaction: async (t: any) => { t.sign([op]); return t; }, signAllTransactions: async (t: any[]) => { t.forEach((x) => x.sign([op])); return t; } };
       const receiver = new PythSolanaReceiver({ connection: conn, wallet });
       const hermes = new HermesClient("https://hermes.pyth.network");
-      console.log("[keeper] oracle = pyth (Hermes pull -> post -> adapter crank)");
-      return { refresh: async (tickerId: number, _close1e6: bigint, feed: PublicKey) => {
-        const txs = await buildPythCrankTxs({ receiver, hermes, cranker: op.publicKey, tickerId, maxAgeSecs: PYTH_MAX_AGE });
+      console.log(`[keeper] oracle = pyth (Hermes pull -> post -> adapter crank; capture=${PYTH_CAPTURE})`);
+      return { refresh: async (tickerId: number, _close1e6: bigint, feed: PublicKey, closeTs: number) => {
+        const w = captureWindow({ closeTs, now: Math.floor(Date.now() / 1000), mode: PYTH_CAPTURE, latestMaxAgeSecs: PYTH_MAX_AGE });
+        const txs = await buildPythCrankTxs({ receiver, hermes, cranker: op.publicKey, tickerId, maxAgeSecs: w.maxAgeSecs, publishTime: w.publishTime });
         for (const { tx, signers } of txs) { tx.sign([op, ...signers]); await conn.confirmTransaction(await conn.sendTransaction(tx), "confirmed"); }
         const info = await conn.getAccountInfo(feed);
         if (!info) throw new Error("pyth: delivery account not written");
@@ -198,7 +204,7 @@ async function main() {
             const slot = BigInt(await conn.getSlot("confirmed"));
             // Refresh the delivery account (mock feed on localnet, real Pyth on
             // devnet), then finalize — Meridian READS the close from that feed.
-            delivered = await oracle.refresh(m.ticker_id, close1e6, feed);
+            delivered = await oracle.refresh(m.ticker_id, close1e6, feed, Number(m.close_ts));
             await send([finalizeNormalIx(op.publicKey, record, feed, close1e6, slot, BigInt(now))]);
           } else {
             delivered = recInfo.data.readBigUInt64LE(RECORD_OFFICIAL_CLOSE); // already finalized this ticker/day

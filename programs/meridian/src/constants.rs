@@ -49,6 +49,11 @@ pub const MIN_ADD_STRIKE_LEAD_SECS: i64 = 1800; // close-30m
 /// bound operator-proposed schedules while admitting every real gap.
 pub const MAX_SESSION_SECS: i64 = 432_000; // 5 days
 pub const MAX_SAMPLE_SPREAD_BPS: u16 = 0; // exact equality in V1
+// Capture-at-close window (ADR-0034, #26): the delivery's observed_ts (the
+// oracle publish time) must sit at the Official Close — the last RTH tick may
+// print seconds before the bell; a post-close print is only tolerated briefly.
+pub const OBSERVED_BEFORE_CLOSE_MAX_SECS: i64 = 60;
+pub const OBSERVED_AFTER_CLOSE_MAX_SECS: i64 = 900;
 
 // --- Zero-fee venue (ADR-0001/0007) ------------------------------------
 pub const MAKER_FEE: i64 = 0;
