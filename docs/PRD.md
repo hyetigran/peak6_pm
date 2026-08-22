@@ -917,6 +917,15 @@ indefinitely
   direct Pair Redemption remains available; unmatched positions wait
 ```
 
+These lifecycle times are driven by a **durable scheduler**, not a polling
+loop: the market-creation/`add_strike` and settlement runners are scheduled jobs
+that fire at the times above (settlement gated on the Official Close being
+published), and intraday EventHeap cranking is an **account subscription** that
+is idle in the inline-first common path (ID-007) rather than a per-second poll.
+At-least-once scheduling is safe because every action is idempotent on-chain.
+See ADR-0031 and `docs/PRODUCTION_INFRA.md`; the always-on `services/keeper` loop
+is a localnet-demo affordance only.
+
 ### Intraday `add_strike`
 
 `add_strike(ticker, strike, day)` is operator-only and allowed while:

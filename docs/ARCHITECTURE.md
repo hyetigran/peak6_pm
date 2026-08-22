@@ -314,6 +314,16 @@ Single service may host multiple workers, but responsibilities remain logically 
 - post-close cleanup;
 - alerts/health.
 
+Each worker is triggered by the substrate that matches its nature — the
+settlement and market-creation runners fire from a **durable scheduler** at the
+lifecycle times fixed in PRD §5, and the EventHeap keeper is driven by an
+**account subscription** (idle in the inline-first common path, §8.3), *not* a
+shared per-second polling loop (ADR-0031). At-least-once scheduling is safe
+because every action is idempotent on-chain. The always-on second-by-second
+loop in `services/keeper` is a localnet-demo affordance and is explicitly not the
+production shape; production topology (scheduler substrate, redundancy, secrets,
+observability) is `docs/PRODUCTION_INFRA.md`.
+
 Only `OPERATOR_KEYPAIR_PATH` is loaded by the service.
 
 ### 4.5 `services/indexer`
@@ -1040,7 +1050,7 @@ Initial operational thresholds:
 | >=50%       |     priority-fee escalation |            — |
 | >=75%       | critical alert / UI warning |            — |
 
-G6 must provision capacity for at least twice measured worst-case event throughput and may tighten these thresholds.
+G6 must provision capacity for at least twice measured worst-case event throughput and may tighten these thresholds. These are monitoring thresholds evaluated over the EventHeap **account subscription** (ADR-0031), not a busy-poll; escalation raises priority fees / alerts, and residual drain folds into the settlement preflight.
 
 ---
 
