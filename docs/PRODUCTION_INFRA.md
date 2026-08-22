@@ -19,7 +19,7 @@ intend unless changed · **[open]** needs a decision (tracked as an issue).
 
 | Service | Prod shape | Trigger | Holds a key? |
 | --- | --- | --- | --- |
-| `services/automation` (keeper) | **scheduler jobs + subscription workers** | time-scheduled + `onAccountChange` (ADR-0031) | operator hot key |
+| `services/keeper` (`scheduler.ts`; `identity-monitor.ts` as a separate keyless process) | **scheduler jobs + subscription workers** | time-scheduled + `onAccountChange` (ADR-0031) | operator hot key |
 | `services/indexer` | long-running process | continuous log/account subscription | none (read-only) |
 | `services/marketmaker` | long-running process, **24/7 while any market is open** | continuous from each market's `trade_open` to `close` (ADR-0033) | market-maker key (demo/liquidity only) |
 | `frontend` | static/SSR host | user requests | none (users sign in-wallet) |
