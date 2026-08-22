@@ -16,16 +16,23 @@ const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
 const OPENBOOK_PROGRAMDATA = new PublicKey("DktN5HJ9uHKVRZ7FXGap4PEGVnEdc2VNBCXTt1AqJQYB");
 const conn = new Connection(RPC, "confirmed");
 
-// all 7 MAG7 tickers: [id, name, priorClose$, strikes$ ($10 multiples)]
-const SET: [number, string, number, number[]][] = [
-  [1, "AAPL", 231, [220, 230, 240]],
-  [2, "AMZN", 241, [230, 240, 250]],
-  [3, "GOOGL", 204, [200, 210]],
-  [4, "META", 682, [660, 680, 700, 720]],
-  [5, "MSFT", 512, [500, 520]],
-  [6, "NVDA", 178, [170, 180]],
-  [7, "TSLA", 349, [340, 360]],
+// all 7 MAG7 tickers: [id, name, priorClose$]. Strikes are derived (below).
+const SET: [number, string, number][] = [
+  [1, "AAPL", 231],
+  [2, "AMZN", 241],
+  [3, "GOOGL", 204],
+  [4, "META", 682],
+  [5, "MSFT", 512],
+  [6, "NVDA", 178],
+  [7, "TSLA", 349],
 ];
+
+// Strike ladder: prior close +/-3/6/9%, snapped to the on-chain $10 grid and
+// deduped. validate_strike requires $10 multiples, so a 3% step under ~$333
+// (< $10) collapses adjacent bands — cheaper names end up with fewer strikes.
+const STRIKE_BANDS_PCT = [-9, -6, -3, 3, 6, 9];
+const strikesFor = (prior: number): number[] =>
+  [...new Set(STRIKE_BANDS_PCT.map((b) => Math.round((prior * (1 + b / 100)) / 10) * 10))].sort((a, b) => a - b);
 const DAY = 20260825;
 
 async function send(ixs: TransactionInstruction[], signers: Keypair[]) {
@@ -68,7 +75,7 @@ async function main() {
   const soonClose = now + BigInt(Number(process.env.DEMO_SETTLE_SECS ?? 90));
   const soonTickers = new Set(process.env.DEMO_SETTLE ? [3, 7] : []);
   const FULL: [number, string, number, number[], bigint][] =
-    SET.map(([t, n, p, s]) => [t, n, p, s, soonTickers.has(t) ? soonClose : cl]);
+    SET.map(([t, n, p]) => [t, n, p, strikesFor(p), soonTickers.has(t) ? soonClose : cl]);
 
   for (const [tid, name, prior, strikes, close] of FULL) {
     const feed = ob.mockFeedPda(tid); // the harness mock delivery feed Meridian reads at settlement
