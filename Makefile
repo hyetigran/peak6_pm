@@ -62,7 +62,7 @@ demo: build
 # Prerequisites (see .env.example): the program deployed to devnet (build-devnet
 # then `solana program deploy`), funded GOVERNANCE_KEYPAIR + OPERATOR_KEYPAIR_PATH,
 # QUOTE_MINT, OPENBOOK_EXECUTABLE_SHA256, OPENBOOK_UPGRADE_AUTHORITY, METADATA_URI,
-# and SWITCHBOARD_PROGRAM_ID + SWITCHBOARD_FEEDS (the per-ticker feeds land with #16).
+# and ORACLE_PROGRAM_ID (the deployed pyth-adapter; per-ticker feeds are its delivery PDAs).
 # The Pyth oracle adapter (synthetic demo track): a swappable transport that
 # reads a Pyth PriceUpdateV2 and writes the normalized delivery layout Meridian
 # reads. Separate program; Meridian is untouched.

@@ -6,6 +6,11 @@ Status legend: **[done]** proven on localnet · **[code]** needs code before dev
 This is the runbook from a green localnet to the M6 devnet acceptance demo. It does **not**
 authorize mainnet or real funds — devnet/test value only (ADR-0020, PRD §15).
 
+For the operator how-to (build/deploy the program, run indexer/keeper/market-maker,
+host the Next.js app on Vercel) see [`DEPLOYMENT.md`](./DEPLOYMENT.md).
+Roles, two-step rotation, upgrade-authority transfer, and key custody:
+[`GOVERNANCE.md`](./GOVERNANCE.md).
+
 ## Fixed identities (already pinned in the repo)
 
 | Thing | Value | Source |
@@ -28,10 +33,10 @@ authorize mainnet or real funds — devnet/test value only (ADR-0020, PRD §15).
 
 ## Phase 1 — Build & identity capture (must precede `initialize_config`)
 
-- [x] **[code] Strict (non-localnet) build — done (#23).** `make build-devnet` compiles meridian with `cargo build-sbf --manifest-path programs/meridian/Cargo.toml` (no `--features localnet`), so the real schedule/settlement floors and the `not(localnet)` settlement path are active. It does **not** build the m0-harness / `publish_mock_feed` (localnet-only, never deployed to devnet). The strict path compiles clean (no errors). NOTE: with `localnet` off, `finalize_settlement` no longer reads the mock feed — until the Switchboard adapter lands (#16) it settles on the instruction args, so #16 gates a real deploy.
+- [x] **[code] Strict (non-localnet) build — done (#23).** `make build-devnet` compiles meridian with `cargo build-sbf --manifest-path programs/meridian/Cargo.toml` (no `--features localnet`), so the real schedule/settlement floors and the `not(localnet)` settlement path are active. It does **not** build the m0-harness / `publish_mock_feed` (localnet-only, never deployed to devnet). The strict path compiles clean (no errors). NOTE: `finalize_settlement` now reads the Official Close from the owner-pinned delivery feed in **both** builds (#16, audit A1) — never from the caller's args. The **writer** is the Pyth adapter (`programs/pyth-adapter`, `Egc4yk…`; Hermes pull → `PriceUpdateV2` → `crank` writes the per-ticker delivery PDA) — proven through finalize+settle by `make pyth-settle-e2e` (ADR-0034). What still gates G11 is `oracle-e2e-devnet` calibrated against the Nasdaq Official Close (#9).
 - [x] **Reproducible manifest — done (#23).** `make build-devnet` emits `target/deploy/meridian-devnet.manifest` with the commit hash, executable SHA-256, and program id.
 - [ ] **[ops] Capture OpenBook identity (G1 / ADR-0030):** `OPENBOOK_PROGRAMDATA_ADDRESS`, `OPENBOOK_DEPLOYMENT_SLOT`, `OPENBOOK_EXECUTABLE_SHA256`, `OPENBOOK_UPGRADE_AUTHORITY`. These feed `initialize_config`. A mismatch later fails closed.
-- [ ] **[ops] Capture Switchboard identity:** `SWITCHBOARD_PROGRAM_ID`, `_PROGRAMDATA_ADDRESS`, `_DEPLOYMENT_SLOT`, `_EXECUTABLE_SHA256`, `_UPGRADE_AUTHORITY` (per-transport, ID-014). These feed `register_transport`.
+- [ ] **[ops] Deploy the Pyth adapter to devnet and capture its identity:** `ORACLE_PROGRAM_ID` (= adapter `Egc4yk…`), `ORACLE_PROGRAMDATA_ADDRESS`, `ORACLE_DEPLOYMENT_SLOT`, `ORACLE_EXECUTABLE_SHA256`, `ORACLE_UPGRADE_AUTHORITY` (per-transport, ID-014). These feed `register_transport` / `scripts/register-pyth-transports.ts`.
 - [ ] **[gate] G11:** freeze and sign the settlement-quality bounds (`min_samples`, `max_stale_slots`, `max_sample_spread_bps`, `max_price_band_bps`) before M1.
 
 ## Phase 2 — Deploy the program [ops]
@@ -49,8 +54,8 @@ authorize mainnet or real funds — devnet/test value only (ADR-0020, PRD §15).
 
 Localnet reads a harness **mock feed** the operator writes (`publish_mock_feed`); `finalize_settlement_normal` reads it under `#[cfg(feature="localnet")]`. Devnet needs the real thing:
 
-- [ ] **[code] Switchboard On-Demand adapter.** Two options: (a) `finalize_normal` parses Switchboard's native `PullFeed` account layout directly, or (b) a normalizer writes the same delivery layout the localnet mock uses (`official_close@8, slot@16, halt@32, samples@33`) and the program reads that. The **owner pin is already enforced** (`WrongDeliveryOwner`): the delivery account's owner must equal `record.switchboard_program_id`, so set that to the real Switchboard program id at `register_transport`.
-- [ ] **[ops]** Create/point Switchboard On-Demand feeds for each MAG7 ticker (Nasdaq Official Close, ADR-0021). Register each via `register_transport` with `oracleProgram = <Switchboard>` and the feed pubkey.
+- [x] **[code] Pyth adapter — done (#16, ADR-0034).** `programs/pyth-adapter` reads a Pyth `PriceUpdateV2` and writes the same delivery layout the localnet mock uses (`official_close@8, slot@16, halt@32, samples@33`) into a per-ticker PDA it owns. The **owner pin is enforced** (`WrongDeliveryOwner`): the delivery account's owner must equal `record.oracle_program_id`, so `register_transport` sets that to the adapter id. Keeper path `KEEPER_ORACLE=pyth` proven by `make pyth-settle-e2e`. Capture **at the close** (Pyth equity feeds are RTH-only).
+- [ ] **[ops]** Register each MAG7 ticker's transport on devnet via `scripts/register-pyth-transports.ts` (`oracleProgram = <adapter>`, feed = `deliveryPda(ticker)`; governance-signed). Note: a Pyth last trade is not the Nasdaq Official Close (ADR-0021) — G11 calibration remains (#9).
 - [ ] **[gate] `make oracle-e2e-devnet`** (to author) — proves the real Nasdaq Official Close/provider path end-to-end. Non-waiverable M0 pass path; synthetic evidence cannot satisfy it (ADR-0028).
 
 ## Phase 5 — Metadata [done→ops]
@@ -59,12 +64,12 @@ Localnet reads a harness **mock feed** the operator writes (`publish_mock_feed`)
 
 ## Phase 6 — Automation on devnet [done→ops]
 
-- [ ] Keeper (`services/keeper`) and market-maker (`services/marketmaker`) run against devnet RPC with the operator key. **Swap the keeper's mock spot for the Switchboard read** once Phase 4 lands; today it publishes to the mock feed which does not exist on devnet.
+- [ ] Keeper (`services/keeper`) and market-maker (`services/marketmaker`) run against devnet RPC with the operator key. **Run the keeper with `KEEPER_ORACLE=pyth`** on devnet (Hermes pull → post → adapter crank → finalize → settle); the default harness mode publishes to the mock feed which does not exist on devnet.
 - [ ] `make demo-devnet` (to author) — deterministic, **explicitly-synthetic** plumbing demo with a clearly labeled synthetic Settlement Record (ADR-0028). Distinct from the oracle proof above.
 
 ## Phase 7 — Identity monitoring [code]
 
-- [ ] **[code]** Tooling that independently re-checks the OpenBook (and Switchboard) executable owner / ProgramData / slot / hash / upgrade-authority and **alerts** on any drift; a changed slot or hash fails closed and reopens the architecture (ADR-0030, ARCH §G1).
+- [ ] **[code]** Tooling that independently re-checks the OpenBook (and Pyth adapter) executable owner / ProgramData / slot / hash / upgrade-authority and **alerts** on any drift; a changed slot or hash fails closed and reopens the architecture (ADR-0030, ARCH §G1).
 
 ## Phase 8 — M6: upgrade authority → Squads 2-of-3 [gate][ops]
 
@@ -114,7 +119,7 @@ Test status at last run: meridian foundation 6/6, trading 5/5, settlement 4/4, h
 ## The three real code gaps before a devnet demo
 
 1. ~~**`make build-devnet`** — strict build without the `localnet` feature (Phase 1).~~ **Done (#23).**
-2. **Switchboard On-Demand adapter** — replace the localnet mock-feed read/write with the real feed (Phase 4); the owner-pin plumbing is already in place. (#16, blocked by #9; needs #23.)
+2. **Pyth adapter on devnet** — deploy `programs/pyth-adapter`, capture its identity, register transports, run the keeper in `KEEPER_ORACLE=pyth` (code is done and proven locally — Phase 4; ops remaining). G11 calibration vs the Nasdaq Official Close stays blocked on #9.
 3. **Identity-drift monitor** — the ADR-0030 fail-closed alerting tool (Phase 7). (#25.)
 
 Everything else is ops (keys, funding, feed creation) or the M6 Squads acceptance choreography.

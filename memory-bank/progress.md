@@ -38,7 +38,7 @@ Date: 2026-08-22.
 
 ## What does not exist yet
 
-- Switchboard / Official-Close-provider transport for G11 (#16, blocked on #9). (The Pyth adapter transport exists and is proven — see below — but is demo-grade, not Official Close.)
+- G11 calibration of the Pyth transport against the Nasdaq Official Close (#16 / #9). The adapter is built and proven (see above) but a Pyth last trade is not Official Close proof.
 - `make oracle-e2e-devnet` and `docs/adr/settlement-quality-calibration.md` (G11).
 - Signed M0 go/no-go (#17).
 - G2 devnet evidence against the canonical deployment (#8).
@@ -112,7 +112,7 @@ Markets page subtitle: “Binary contracts on MAG7 daily closes.” Avoid “con
 
 - G11 still unsigned. Strict-build settle-from-args is **not** Official Close proof.
 - Provider may be unable to supply same-record Nasdaq NOCP.
-- Switchboard executable upgrade after transport registration fails closed / needs a future-day version.
+- Pyth-adapter executable upgrade after transport registration fails closed / needs a future-day version.
 - HTTP evidence for Manual Settlement Override is authority-attested, not chain-authenticated.
 
 ### Venue / keeper
@@ -154,4 +154,4 @@ Markets page subtitle: “Binary contracts on MAG7 daily closes.” Avoid “con
 
 ## Definition of done for the next slice
 
-Land #22 (ADR-0033 `validate_schedule` + tests) without breaking `make demo` / `make meridian-test`. Then the honest remaining code gaps before a labeled synthetic **devnet** demo are: deploy the strict binary (ops), #16 Switchboard adapter (blocked on #9), and #25 identity-drift monitor. G11 / #17 stay blocked on the human provider choice. Do not treat a seeded `make demo-devnet` as oracle proof.
+Land #22 (ADR-0033 `validate_schedule` + tests) without breaking `make demo` / `make meridian-test`. Then the honest remaining code gaps before a labeled synthetic **devnet** demo are: deploy the strict binary (ops), #16 Pyth adapter devnet deploy + transport registration (ops; code done, ADR-0034), and #25 identity-drift monitor. G11 / #17 stay blocked on the human provider choice. Do not treat a seeded `make demo-devnet` as oracle proof.

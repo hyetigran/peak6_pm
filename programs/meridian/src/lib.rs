@@ -169,21 +169,21 @@ pub mod meridian {
         ctx: Context<RegisterTransport>,
         version_id: u32,
         ticker_id: u8,
-        switchboard_program_id: Pubkey,
-        switchboard_programdata: Pubkey,
-        switchboard_deployment_slot: u64,
-        switchboard_executable_sha256: [u8; 32],
-        switchboard_upgrade_authority: Pubkey,
-        switchboard_feed: Pubkey,
-        switchboard_job_hash: [u8; 32],
+        oracle_program_id: Pubkey,
+        oracle_programdata: Pubkey,
+        oracle_deployment_slot: u64,
+        oracle_executable_sha256: [u8; 32],
+        oracle_upgrade_authority: Pubkey,
+        oracle_feed: Pubkey,
+        oracle_job_hash: [u8; 32],
         provider_id: u16,
         close_method_id: u16,
         activated_trading_day: u32,
     ) -> Result<()> {
         register_transport::handler(
-            ctx, version_id, ticker_id, switchboard_program_id, switchboard_programdata,
-            switchboard_deployment_slot, switchboard_executable_sha256, switchboard_upgrade_authority,
-            switchboard_feed, switchboard_job_hash, provider_id, close_method_id, activated_trading_day,
+            ctx, version_id, ticker_id, oracle_program_id, oracle_programdata,
+            oracle_deployment_slot, oracle_executable_sha256, oracle_upgrade_authority,
+            oracle_feed, oracle_job_hash, provider_id, close_method_id, activated_trading_day,
         )
     }
 }

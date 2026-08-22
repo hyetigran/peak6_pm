@@ -96,3 +96,4 @@ design_mockups/
 .build.log
 .pyth-settle-run.log
 services/indexer/.indexer-pyth.sqlite*
+.rename-*.log

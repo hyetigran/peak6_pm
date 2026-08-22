@@ -13,7 +13,7 @@ M0 is **not** closed. G1–G10 and G12 are localnet-green (`make m0`). **G11 and
 ## What is true right now (2026-08-22)
 
 - Branch: `main` → `origin/main` @ `de57f99` (Pyth chain `1198968`…`de57f99` landed; ADR-0033 #22 change landed in `c99e7a1`).
-- Uncommitted in the main checkout: doc/README/.env.example/.cursor rewrites (Switchboard-worded in places — reconcile with the Pyth track).
+- Uncommitted in the main checkout: doc/README/.env.example/.cursor rewrites (being reconciled to the Pyth track, ADR-0034).
 - `make demo` brings up validator + seed + indexer `:8787` + keeper + market-maker + frontend `:3100`.
 - `make build-devnet` exists and is closed as #23 (strict, no `localnet` feature, writes a manifest).
 - `make demo-devnet` exists as a **seed** (`DEMO_MODE=devnet` + `resolveSeedConfig`). It is not a clean-clone E2E and does not replace `make oracle-e2e-devnet`.
@@ -50,7 +50,7 @@ M0 is **not** closed. G1–G10 and G12 are localnet-green (`make m0`). **G11 and
 - Synthetic demo cannot satisfy settlement-correctness or provider-finality claims.
 - Frontend lives under `frontend/`.
 - Do not scaffold dormant fee or collateral-withdrawal switches.
-- Two oracle tracks (docs/ORACLE_SETUP.md): **Pyth adapter** = synthetic demo transport (done locally); **Switchboard + Official-Close provider** = G11 (blocked on #9). A Pyth settle is never G11.
+- One oracle transport (ADR-0034, replaced Switchboard): the **Pyth adapter** (`programs/pyth-adapter`). Done + proven locally. A Pyth settle is still not G11 — Pyth equity prices are last trades, not the Nasdaq Official Close; G11 needs calibration against it via provider #9 + `make oracle-e2e-devnet` (docs/ORACLE_SETUP.md).
 
 ## Next steps (priority)
 

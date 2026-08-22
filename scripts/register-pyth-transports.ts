@@ -2,7 +2,7 @@
  * Register the Pyth adapter as the settlement transport for every MAG7 ticker
  * (#16). For each ticker it calls register_transport with oracleProgram = the
  * adapter program and feed = the adapter's per-ticker delivery PDA — so Meridian
- * pins that delivery account (owner = adapter) as the record's switchboard_feed.
+ * pins that delivery account (owner = adapter) as the record's oracle_feed.
  * Run once, after the program + config are up. Governance-signed.
  *
  *   RPC_URL=<devnet> DEMO_CONFIG=.demo-config.json pnpm exec tsx scripts/register-pyth-transports.ts

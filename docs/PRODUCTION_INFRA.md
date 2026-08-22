@@ -1,8 +1,10 @@
 # Meridian — Production Infrastructure
 
 Deployment topology for the **off-chain** services. This is the counterpart to
-`ARCHITECTURE.md` (which is on-chain / program-focused) and `DEVNET_DEPLOY.md`
-(a step-by-step deploy checklist). On-chain safety does not depend on anything
+`ARCHITECTURE.md` (which is on-chain / program-focused), `DEVNET_DEPLOY.md`
+(a step-by-step acceptance checklist), `DEPLOYMENT.md` (how to deploy
+the program, services, and Vercel frontend), and `GOVERNANCE.md`
+(Config roles, upgrade authority, and which process may load which key). On-chain safety does not depend on anything
 here: the program fails closed, and every off-chain action is idempotent
 on-chain, so this layer is about **liveness, cost, and observability**, never
 custody. No off-chain service can move funds or write protocol state except by
@@ -33,7 +35,7 @@ event-driven cranking:
 
 - **Settlement job** — scheduler fires at `close_ts + normal_settlement_delay_secs`,
   gated on the Official Close being published; reschedules with backoff if the
-  Switchboard feed is not yet available. Drains any residual EventHeap, then
+  Pyth delivery (adapter crank) is not yet available. Drains any residual EventHeap, then
   `finalize_settlement_normal` → `settle_market` per market.
 - **Market-open / `add_strike` job** — fires at **resolution + 5m** (~close+30m),
   off the settlement job's completion, anchored on the just-published Official
@@ -66,6 +68,9 @@ balancer; the market-maker is single-writer per market by convention.
 
 ## 4. Keys and secrets  [open]
 
+Full custody policy, role matrix, and rotation is [`GOVERNANCE.md`](./GOVERNANCE.md).
+This section is only the **service** subset:
+
 - Operator hot key (keeper): today loaded from `.demo-config.json`; prod must
   load from `OPERATOR_KEYPAIR_PATH` / a secret store (KMS, sealed secret), never
   the repo. `.env.example` already declares `OPERATOR_KEYPAIR_PATH`; the keeper
@@ -79,16 +84,17 @@ balancer; the market-maker is single-writer per market by convention.
 - Structured logs + metrics (heap depth vs §8.4 SLOs, settlement latency,
   scheduler job success/lateness, operator SOL balance, RPC error rate).
 - **Alert on:** any market past `close_ts + delay` still unsettled; heap depth
-  ≥ SLO escalation bands (§8.4); OpenBook/Switchboard identity drift (ADR-0030,
+  ≥ SLO escalation bands (§8.4); OpenBook/Pyth-adapter identity drift (ADR-0030,
   DEVNET_DEPLOY Phase 7); operator balance low. Webhook receiver: issue #10.
 - Graceful shutdown (SIGTERM) so DB WAL checkpoints and in-flight txs settle —
   no service handles signals today (see audit).
 
 ## 6. RPC and network  [proposed]
 
-- Dedicated RPC provider with priority-fee support; the keeper must set
-  compute-budget + priority fees and retry with backoff (absent today — see
-  audit). Batch reads with `getMultipleAccountsInfo`.
+- Dedicated RPC provider with priority-fee support. The keeper now sets a
+  priority fee (`KEEPER_PRIORITY_FEE_MICROLAMPORTS`) and retries every send with
+  backoff (#19) — tune the fee up on a congested cluster. Still to add: an
+  explicit compute-unit *limit* and `getMultipleAccountsInfo` read batching.
 - Frozen deployment Address Lookup Table for the runbook account set (ADR-0025).
 
 ## 7. Environments
@@ -96,7 +102,7 @@ balancer; the market-maker is single-writer per market by convention.
 | | Substrate | Oracle | Keeper |
 | --- | --- | --- | --- |
 | localnet (demo) | single test-validator | harness mock feed (ADR-0028) | 1s poll loop |
-| devnet | devnet cluster | Switchboard On-Demand | scheduled jobs + subscription |
+| devnet | devnet cluster | Pyth (via `pyth-adapter`) | scheduled jobs + subscription |
 
 Devnet is the current target (DEVNET_DEPLOY.md). This doc does not assume a
 specific cloud; it names the shape, and the **[open]** items above are the

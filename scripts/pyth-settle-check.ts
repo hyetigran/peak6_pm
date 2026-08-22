@@ -47,8 +47,8 @@ async function main() {
     if (pythClose <= 0n) fail(`ticker ${tid}: delivery close is zero`);
     // Layout self-check: the record must pin exactly this delivery PDA + the adapter
     // (also validates the hand-computed offsets — a wrong offset can't match).
-    if (!recFeed.equals(delivery)) fail(`ticker ${tid}: record.switchboard_feed != delivery PDA`);
-    if (!recOracle.equals(PYTH_ADAPTER_PID)) fail(`ticker ${tid}: record.switchboard_program_id != adapter`);
+    if (!recFeed.equals(delivery)) fail(`ticker ${tid}: record.oracle_feed != delivery PDA`);
+    if (!recOracle.equals(PYTH_ADAPTER_PID)) fail(`ticker ${tid}: record.oracle_program_id != adapter`);
     if (r[REC.STATE] !== STATE_FINAL_ORACLE) fail(`ticker ${tid}: record state ${r[REC.STATE]} != FinalOracle`);
     if (recClose !== pythClose) fail(`ticker ${tid}: record close ${recClose} != Pyth delivery close ${pythClose}`);
     if (r[REC.HALT] !== d[DLV.HALT]) fail(`ticker ${tid}: record halt ${r[REC.HALT]} != delivery halt ${d[DLV.HALT]}`);

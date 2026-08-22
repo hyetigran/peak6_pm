@@ -17,7 +17,7 @@ const DEVNET_ENV: Record<string, string> = {
   OPENBOOK_EXECUTABLE_SHA256: "a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8",
   OPENBOOK_UPGRADE_AUTHORITY: "Cax5s8CjmHiCNVLLnc3D5Aht5Uv2Fk37gfsMoccddPTn",
   METADATA_URI: "https://meridian.markets/meta/{ticker}-{strike}.json",
-  SWITCHBOARD_PROGRAM_ID: "SW1TCH7qEPTdLsDHRgPuMQjbQxKdH2aBStViMFnt64f",
+  ORACLE_PROGRAM_ID: "Egc4ykuRJaDz7VfWS9EB9U2hsP2aU9repCCk8XGnk7w4", // pyth-adapter
 };
 
 test("localnet: self-made mint, zero delays, harness feed, 32-byte placeholder sha", () => {
@@ -40,13 +40,13 @@ test("devnet: resolves the real identities; delays default to the strict floors"
   assert.equal(c.quoteMint, DEVNET_ENV.QUOTE_MINT);
   assert.equal(c.normalDelaySecs, NORMAL_DELAY_FLOOR);
   assert.equal(c.overrideDelaySecs, OVERRIDE_DELAY_FLOOR);
-  assert.equal(c.oracleProgram, DEVNET_ENV.SWITCHBOARD_PROGRAM_ID);
+  assert.equal(c.oracleProgram, DEVNET_ENV.ORACLE_PROGRAM_ID);
   assert.equal(c.openbookUpgradeAuthority, DEVNET_ENV.OPENBOOK_UPGRADE_AUTHORITY);
   assert.equal(c.openbookExecutableSha256.toString("hex"), DEVNET_ENV.OPENBOOK_EXECUTABLE_SHA256);
 });
 
 test("devnet: each required identity throws when missing", () => {
-  for (const k of ["OPENBOOK_EXECUTABLE_SHA256", "OPENBOOK_UPGRADE_AUTHORITY", "METADATA_URI", "SWITCHBOARD_PROGRAM_ID"]) {
+  for (const k of ["OPENBOOK_EXECUTABLE_SHA256", "OPENBOOK_UPGRADE_AUTHORITY", "METADATA_URI", "ORACLE_PROGRAM_ID"]) {
     const env = { ...DEVNET_ENV };
     delete env[k];
     assert.throws(() => resolveSeedConfig(env), new RegExp(k), `missing ${k} should throw naming it`);

@@ -11,7 +11,7 @@ Governance / pause / override      → Solana RPC
 
 RPC → Meridian ──CPI──► OpenBook V2 v1.7
             ──CPI──► SPL Token / ATA / Metaplex
-            ──read─► owner-pinned delivery account (localnet: harness mock feed | Pyth adapter PDA; G11: Switchboard/provider, not yet wired)
+            ──read─► owner-pinned delivery account (localnet: harness mock feed | Pyth adapter delivery PDA; devnet: Pyth adapter)
             ──finalize/consume─► SettlementRecord PDA
 
 Indexer (read-only) ← accounts/logs
@@ -127,7 +127,7 @@ One SettlementRecord PDA per ticker + Trading Day (ADR-0012, 0023). First Outcom
 
 Quality predicate includes delivery freshness, exact V1 sample agreement (`max_sample_spread_bps = 0`), qualifying-trade, final/unadjusted, and prior-close sanity. Official Close is Nasdaq NOCP under the recorded Close Method (ADR-0021).
 
-The program **pins the delivery feed by owner** (`WrongDeliveryOwner`): the feed account owner must equal `record.switchboard_program_id`. The read happens in BOTH builds (A1); caller args are advisory. Transports: harness mock feed + `publish_mock_feed` (localnet default), or the **Pyth adapter** (`programs/pyth-adapter`, delivery PDA `[b"delivery", ticker]`, same byte layout) — proven end-to-end by `make pyth-settle-e2e`. Pyth is a last-trade price, so a Pyth settle is **not** G11; the Official-Close transport (#16/#9) is still unbuilt.
+The program **pins the delivery feed by owner** (`WrongDeliveryOwner`): the feed account owner must equal `record.oracle_program_id`. The read happens in BOTH builds (A1); caller args are advisory. Transports: harness mock feed + `publish_mock_feed` (localnet default), or the **Pyth adapter** (`programs/pyth-adapter`, delivery PDA `[b"delivery", ticker]`, same byte layout) — proven end-to-end by `make pyth-settle-e2e`. Pyth is the transport (ADR-0034). Pyth equity prices are last trades, not the Nasdaq Official Close, so a Pyth settle is **not** G11 until calibrated via provider #9 + `make oracle-e2e-devnet`.
 
 Timing (devnet): preflight close−5m; poll from +15m; `settle_market` no earlier than +20m (snapshotted ≥1200s); SLO +25m; override ≥1h.
 
@@ -176,7 +176,7 @@ CPI allowlist: SPL Token, ATA, Metaplex Token Metadata, pinned OpenBook. MIT IDL
 | **M0** | G1–G12 | signed go/no-go | G1–G10, G12 localnet green. G11 / #17 / #8 / human inputs open. |
 | **M1** | Config/roles/feeds, create/add-strike, collateral, mint/redeem, pause | program + strike + ADV core | **Built** in `programs/meridian` (ahead of signed go/no-go, per user direction). |
 | **M2** | OpenBook attach, wrappers, keeper, four paths | localnet green | **Built** on localnet, including Sell No. |
-| **M3** | Switchboard, calendar, settlement, override | oracle-e2e + settlement ADV | Partial: feed-read settle + owner pin + Pyth adapter (proven locally). Official-Close transport (#16/#9) and calendar/blackout not built. |
+| **M3** | Pyth transport, calendar, settlement, override | oracle-e2e + settlement ADV | Partial: feed-read settle + owner pin + Pyth adapter (proven locally). G11 calibration (#16/#9) and calendar/blackout not done. |
 | **M4** | Pages, guardrail, live prices | Playwright | Pages exist. No Playwright. Guardrail/SIP incomplete. |
 | **M5** | Indexer, WS, History Completeness, P&L | scripted P&L | Indexer REST + book/fills/health. No WS, no P&L. |
 | **M6** | Devnet E2E, synthetic demo, Squads transfer | `make demo-devnet` + upgrade-authority proof | `make build-devnet` done (#23). Seed `make demo-devnet` landed (#24, issue still open). No deploy, no oracle-e2e, no Squads transfer. |

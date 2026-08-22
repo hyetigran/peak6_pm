@@ -95,24 +95,11 @@ async function main() {
       .map(([t, n, p]) => [t, n, p, strikesFor(p), soonTickers.has(t) ? soonClose : cl]);
 
   // Transport: localnet reads the harness mock feed by default. DEMO_ORACLE=pyth
-  // pins the Pyth adapter + its per-ticker delivery PDA instead (#16; the keeper
-  // then runs KEEPER_ORACLE=pyth — see scripts/pyth-settle-e2e.sh). Devnet points
-  // the transport at the real oracle + per-ticker feed (SWITCHBOARD_FEEDS).
-  const PYTH = process.env.DEMO_ORACLE === "pyth";
-  const oracleProgram = PYTH ? PYTH_ADAPTER_PID : cfg.oracleProgram ? new PublicKey(cfg.oracleProgram) : ob.HARNESS_PID;
-  const devnetFeeds: Record<string, string> = (() => {
-    const raw = cfg.mode === "devnet" ? process.env.SWITCHBOARD_FEEDS : undefined;
-    if (!raw) return {};
-    try { return JSON.parse(raw); }
-    catch { throw new Error('SWITCHBOARD_FEEDS must be JSON: {"<tickerId>":"<feedPubkey>", ...}'); }
-  })();
-  const feedFor = (tid: number): PublicKey => {
-    if (PYTH) return deliveryPda(tid);
-    if (cfg.mode !== "devnet") return ob.mockFeedPda(tid);
-    const f = devnetFeeds[String(tid)];
-    if (!f) throw new Error(`devnet: no Switchboard feed for ticker ${tid} (set SWITCHBOARD_FEEDS; feeds land with #16)`);
-    return new PublicKey(f);
-  };
+  // (always on devnet) pins the Pyth adapter + its per-ticker delivery PDA (#16;
+  // the keeper then runs KEEPER_ORACLE=pyth — see scripts/pyth-settle-e2e.sh).
+  const PYTH = process.env.DEMO_ORACLE === "pyth" || cfg.mode === "devnet";
+  const oracleProgram = cfg.oracleProgram ? new PublicKey(cfg.oracleProgram) : PYTH ? PYTH_ADAPTER_PID : ob.HARNESS_PID;
+  const feedFor = (tid: number): PublicKey => (PYTH ? deliveryPda(tid) : ob.mockFeedPda(tid));
 
   for (const [tid, name, prior, strikes, close] of FULL) {
     const feed = feedFor(tid);

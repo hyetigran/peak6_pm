@@ -2,7 +2,7 @@
  * Meridian keeper — the automation loop the architecture assigns to the
  * operator: crank OpenBook EventHeaps and finalize+settle Outcome Markets at
  * close. On localnet the "oracle" is a mock spot feed maintained here (a small
- * random walk from a base price); on devnet this would read Switchboard. The
+ * random walk from a base price); on devnet the Pyth adapter delivers the close (KEEPER_ORACLE=pyth). The
  * record CONTRACT the program enforces is identical either way.
  *
  * Runs from the repo root (uses root node_modules) via tsx. Signs with the
@@ -43,7 +43,7 @@ const configPda = () => PublicKey.findProgramAddressSync([Buffer.from("config")]
 const settlementRecordPda = (ticker: number, day: number) =>
   PublicKey.findProgramAddressSync([Buffer.from("settlement_record"), Buffer.from([ticker]), u32(day)], MERIDIAN_PID)[0];
 
-// --- mock spot feed (localnet stand-in for Switchboard) ---
+// --- mock spot feed (localnet stand-in for the Pyth adapter) ---
 const SPOT_BASE: Record<string, number> = { AAPL: 231, AMZN: 241, GOOGL: 204, META: 682, MSFT: 512, NVDA: 178, TSLA: 349 };
 const spot: Record<string, number> = {};
 function tickSpot(sym: string): number {

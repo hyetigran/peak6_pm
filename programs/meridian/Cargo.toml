@@ -14,7 +14,7 @@ default = []
 # (ADR-0033) rather than pinning 3.5h/6.5h and drops the settlement-delay floors
 # so the demo can run in one sitting. Both builds READ the Official Close from
 # the owner-pinned delivery feed (finalize_settlement) — never from the caller;
-# only the feed's writer differs (harness mock on localnet, a Switchboard
+# only the feed's writer differs (harness mock on localnet, the Pyth adapter
 # normalizer on devnet, #16). Localnet is for tests + demo only.
 localnet = []
 cpi = ["no-entrypoint"]

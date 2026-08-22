@@ -24,7 +24,7 @@ export const PYTH_FEED_IDS: Record<number, string> = {
 const disc = (name: string): Buffer => createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
 
 /** The per-ticker delivery account the adapter owns and Meridian pins as
- *  `record.switchboard_feed` (seeds `[b"delivery", ticker_id]`). Stable across
+ *  `record.oracle_feed` (seeds `[b"delivery", ticker_id]`). Stable across
  *  trading days; overwritten each settlement. */
 export function deliveryPda(tickerId: number, adapter: PublicKey = PYTH_ADAPTER_PID): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("delivery"), Buffer.from([tickerId])], adapter)[0];

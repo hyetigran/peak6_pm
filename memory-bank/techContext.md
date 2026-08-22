@@ -8,7 +8,7 @@
 - **Pin (see `docs/adr/openbook-v2-pin.md`):**
   - release commit `796a470`
   - build SHA-256 `a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8`
-- **Settlement transport:** Switchboard On-Demand carrying one atomically bound Settlement Record per ticker and Trading Day. Delivery path, not source of truth. **Official-Close transport not built** (#16, blocked on #9). Built + proven: the **Pyth adapter** (`programs/pyth-adapter`, `@pythnetwork/pyth-solana-receiver` 0.16 + `hermes-client` 3.1, Hermes needs `encoding:"base64"`; `@solana/web3.js` pinned workspace-wide) as the synthetic-demo transport — `make pyth-settle-e2e`. Localnet default is still the m0-harness mock feed.
+- **Settlement transport:** Pyth (ADR-0034) carrying one atomically bound Settlement Record per ticker and Trading Day. Delivery path, not source of truth; Pyth equity prices are last trades, so G11 still needs calibration against the Nasdaq Official Close (#9). Built + proven: the **Pyth adapter** (`programs/pyth-adapter`, `@pythnetwork/pyth-solana-receiver` 0.16 + `hermes-client` 3.1, Hermes needs `encoding:"base64"`; `@solana/web3.js` pinned workspace-wide) as the transport — `make pyth-settle-e2e`. Localnet default is still the m0-harness mock feed.
 - **Official Close:** unadjusted Nasdaq NOCP under the listing market’s Close Method.
 - **Quote mint:** Circle six-decimal Solana Devnet USDC `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`. Local tests use self-minted six-decimal **test USD**, never labeled USDC.
 - **Tokens:** classic SPL Token, 6 decimals. `publish_metadata` Metaplex CPI is built and localnet-verified. Permanent Arweave + two-gateway verify-before-mint (ADR-0016) is not yet the creation path (placeholder URI `https://meridian.markets`).

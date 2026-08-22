@@ -6,7 +6,7 @@
 //! the override delay.
 //!
 //! LOCALNET NOTE: the delivery account is a mock feed here; on devnet it is
-//! the real Switchboard On-Demand feed. The record CONTRACT is identical.
+//! the real Pyth-adapter delivery account. The record CONTRACT is identical.
 
 use anchor_lang::prelude::*;
 use crate::constants::{CONFIG_SEED, SETTLEMENT_RECORD_SEED};
@@ -26,15 +26,15 @@ pub struct FinalizeSettlementNormal<'info> {
         bump = record.bump,
     )]
     pub record: Account<'info, SettlementRecord>,
-    /// CHECK: settlement delivery feed (mock on localnet / Switchboard on
+    /// CHECK: settlement delivery feed (harness mock on localnet / Pyth adapter on
     /// devnet). Its identity must match the record's snapshotted feed.
-    #[account(address = record.switchboard_feed @ MeridianError::SettlementHeaderMismatch)]
+    #[account(address = record.oracle_feed @ MeridianError::SettlementHeaderMismatch)]
     pub delivery: UncheckedAccount<'info>,
 }
 
 /// Offsets of the normalized delivery payload within the feed account's data
 /// (after the account's 8-byte header). The localnet mock feed and a devnet
-/// Switchboard normalizer both present this layout.
+/// Pyth adapter both present this layout.
 mod delivery {
     pub const CLOSE_1E6: usize = 8;
     pub const SLOT: usize = 16;
@@ -80,16 +80,16 @@ pub fn finalize_normal(
 ) -> Result<()> {
     // The delivery feed is pinned by address (account constraint) AND by owner:
     // it must be owned by the oracle program snapshotted in the record (the
-    // harness mock on localnet, Switchboard On-Demand on devnet). Address alone
+    // harness mock on localnet, the Pyth adapter on devnet). Address alone
     // is insufficient — the owner proves it is a genuine oracle account.
     require!(
-        ctx.accounts.delivery.owner == &ctx.accounts.record.switchboard_program_id,
+        ctx.accounts.delivery.owner == &ctx.accounts.record.oracle_program_id,
         MeridianError::WrongDeliveryOwner
     );
 
     // The Official Close is READ from the owner-pinned feed account, never
     // trusted from the caller — in BOTH builds. Only the writer differs (the
-    // harness mock on localnet, a Switchboard normalizer on devnet).
+    // harness mock on localnet, the Pyth adapter on devnet).
     let feed = {
         let d = ctx.accounts.delivery.try_borrow_data()?;
         parse_delivery(&d[..])?

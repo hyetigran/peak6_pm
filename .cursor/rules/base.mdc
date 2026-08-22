@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Meridian — project intelligence
 
-This repo is **Meridian** (`peak6_pm`): same-day MAG7 binary Outcome Markets on Solana devnet with OpenBook V2 v1.7.
+This repo is **Meridian** (`peak6_pm`): same-day MAG7 binary Outcome Markets on Solana **devnet / localnet** with OpenBook V2 v1.7.
 
 ## Memory Bank
 
@@ -14,25 +14,29 @@ After any reset, read all of `memory-bank/` before acting: `projectbrief.md`, `p
 ## Document authority
 
 1. `CONTEXT.md` owns vocabulary.
-2. `docs/adr/0001`–`0028` are accepted Rounds 1–6 decisions.
-3. `docs/PRD.md` **v0.7** owns reconciled product behavior and acceptance.
-4. `docs/ARCHITECTURE.md` **v1.1** owns component/CPI/account design.
+2. `docs/adr/0001`–`0033` are accepted decisions (Rounds 1–6 plus venue identity and 24/7 lifecycle).
+3. `docs/PRD.md` **v0.7.1** owns reconciled product behavior and acceptance.
+4. `docs/ARCHITECTURE.md` **v1.1.1** owns component/CPI/account design.
 5. `docs/REQUIREMENTS.md` is the converted source spec; the original PDF is source of truth if present.
+6. `docs/PRODUCTION_INFRA.md` owns off-chain topology. `docs/DEVNET_DEPLOY.md` is the localnet→M6 runbook. `docs/GOVERNANCE.md` owns Config roles, upgrade authority, and key custody.
 
-If output would contradict an ADR or the v0.7/v1.1 freeze, say so explicitly instead of silently overriding.
+If output would contradict an ADR or the v0.7.1/v1.1.1 freeze, say so explicitly instead of silently overriding.
 
 ## Current phase
 
-Docs-only working tree. **M0 (G1–G12) is authorized.** Do not start M1 until a signed go/no-go report. Origin `main` may still be the older v0.6 commit until the freeze is committed.
+Localnet stack is live (`make demo`). `programs/meridian` is the V1 program (id `HiREMEBW…`). M0 gates G1–G10 and G12 are proven on localnet; **G11 and the signed go/no-go (#17) are still open** (ADR-0020). Engineering proceeded past that gate on user direction (program → services → frontend, localnet first).
+
+Current target: strict `make build-devnet` path, ADR-0033 schedule bound (#22, may be in the working tree), then Pyth adapter devnet deploy/registration (#16; code done, G11 calibration blocked on provider #9) and identity-drift monitor (#25). Do not start mainnet. Do not treat `make demo-devnet` seed as Official Close proof.
 
 ## Non-negotiables
 
-- Solana **devnet** only. No mainnet, no real funds.
-- OpenBook V2 v1.7 is the venue. No fork. MIT `cpi`/`client` or MIT IDL/layouts only — never GPL program source. Require `upgrade_authority == None`.
+- Solana **devnet / localnet** only. No mainnet, no real funds.
+- OpenBook V2 v1.7 is the venue. No fork. MIT `cpi`/`client` or MIT IDL/layouts only — never GPL program source. Bind the canonical `opnb2LAf…` deployment (ADR-0030); alert and fail closed on identity drift. Do not use inert `923gY…`.
 - `create_venue_market` is the only attachable venue path. Order creation only through Meridian PDAs. Never construct supported OpenBook order-creation transactions from the app.
-- Limits are PostOnly; Market Actions are full-fill-or-revert. Fail closed rather than persist partial synthetic exposure.
+- Limits are PostOnly; Market Actions are full-fill-or-revert. Fail closed rather than persist partial synthetic exposure. Practical inline maker cap is **11**.
 - Collateral vault never pays SOL/rent/EventHeap penalties. Collateral Surplus is non-withdrawable in V1.
-- V1 is **protocol-fee-free**. No fee_admin, treasury, claim/taker switches, or collection instructions. OpenBook `collect_fee_admin` is an unsignable sentinel.
+- V1 is **protocol-fee-free**. No fee_admin, treasury, claim/taker switches, or collection instructions. OpenBook `collect_fee_admin` is an unsignable sentinel (`EhAss6gb…`).
 - One Settlement Record per ticker and Trading Day. Official Close is Nasdaq NOCP, not a daily bar. Synthetic demo cannot satisfy G11.
+- Trading opens when the market exists (`mint_open = creation`, `trade_open = creation + 30m`); `close_ts` is still the NYSE session close (ADR-0033). Next session is created at resolution + 5m (ADR-0032). Production keeper is scheduled jobs + heap subscription, not a poll (ADR-0031).
 - Issues live on GitLab; use `glab`. Canonical triage labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
-- Frontend path is `frontend/`, not `app/`.
+- Frontend path is `frontend/`, not `app/`. Package manager is **pnpm**.
