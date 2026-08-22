@@ -44,6 +44,18 @@ regular-hours only (9:30–16:00 ET) and go stale after close — so the keeper 
 **capture at the close**, not at settlement time (~close+20m). Adapter program
 id: `Egc4ykuRJaDz7VfWS9EB9U2hsP2aU9repCCk8XGnk7w4`.
 
+**Proven end-to-end locally.** `scripts/pyth-local.sh` starts a validator that
+clones the Pyth receiver + Wormhole (+ receiver config `DaWUKXC…`, guardian set
+`6GaHgiaQ…`) from devnet and loads the adapter; `services/keeper/src/pyth-e2e.ts`
+then runs the real chain (Hermes pull → post `PriceUpdateV2` → adapter `crank`)
+and writes the delivery account. Verified: a real AAPL price landed as
+`official_close_1e6=309220030` ($309.22), `halt=1`, `sample_count=255` (Full
+verification). Two fixes this surfaced: Hermes must be queried with
+`encoding:"base64"` (its v3 default hex → "Invalid accumulator message"), and the
+workspace pins `@solana/web3.js` to one version (an old transitive copy broke
+`rpc-websockets` ESM resolution). Feed staleness on weekends is handled by a
+large `maxAgeSecs` in the harness; production captures at the live close.
+
 ## The delivery contract (what the on-chain account must contain)
 
 `finalize_settlement_normal` reads a **normalized** account (little-endian,

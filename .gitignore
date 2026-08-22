@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!**/.env.example
 *.pem
 *.key
 # Solana keypairs (never commit a funded or authority key)
@@ -9,6 +10,7 @@
 !*keypair*.example.json
 id.json
 wallets/
+keys/
 .secrets/
 
 # ---- Rust / Anchor ----
@@ -85,3 +87,4 @@ design_mockups/
 .validator-demo.log
 .validator-test.log
 .book-market.txt
+.pyth-validator/

@@ -37,8 +37,10 @@ export async function buildPythCrankTxs(opts: {
   const feedId = hermesFeedId(opts.tickerId);
   const adapter = opts.adapter ?? PYTH_ADAPTER_PID;
 
-  const updates = await opts.hermes.getLatestPriceUpdates([feedId]);
-  const data = updates.binary.data; // encoded signed updates
+  // base64: the receiver's addPostPriceUpdates expects base64-encoded updates
+  // (Hermes v3 defaults to hex -> "Invalid accumulator message").
+  const updates = await opts.hermes.getLatestPriceUpdates([feedId], { encoding: "base64" });
+  const data = updates.binary.data; // base64 signed updates
 
   const builder = opts.receiver.newTransactionBuilder({ closeUpdateAccounts: true });
   await builder.addPostPriceUpdates(data);
