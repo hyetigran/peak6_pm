@@ -12,6 +12,7 @@ import fs from "node:fs";
 import * as m from "@meridian/sdk/meridian";
 import * as ob from "@meridian/sdk/openbook";
 import { resolveSeedConfig } from "./seed-config.js";
+import { deliveryPda, PYTH_ADAPTER_PID } from "../services/keeper/src/pyth-adapter.js";
 
 /** Load a keypair from a JSON secret-key file path, or null if unset. */
 const loadKeypair = (path: string | undefined): Keypair | null =>
@@ -45,7 +46,7 @@ async function send(ixs: TransactionInstruction[], signers: Keypair[]) {
 
 async function main() {
   const cfg = resolveSeedConfig(process.env);
-  console.log(`[seed] mode=${cfg.mode}`);
+  console.log(`[seed] mode=${cfg.mode} oracle=${process.env.DEMO_ORACLE ?? "harness"}`);
   // localnet generates throwaway authorities and airdrops them; devnet loads the
   // real (externally funded) governance/operator keys — devnet has no faucet for
   // 200 SOL, and these authorities must persist across runs.
@@ -87,13 +88,18 @@ async function main() {
   // Window is tunable (DEMO_SETTLE_SECS: default 90s for tests, ~300 manual).
   const soonClose = now + BigInt(Number(process.env.DEMO_SETTLE_SECS ?? 90));
   const soonTickers = new Set(process.env.DEMO_SETTLE ? [3, 7] : []);
+  // DEMO_TICKERS="3,7" restricts the seed to those ticker ids (fast e2e runs).
+  const onlyTickers = process.env.DEMO_TICKERS ? new Set(process.env.DEMO_TICKERS.split(",").map(Number)) : null;
   const FULL: [number, string, number, number[], bigint][] =
-    SET.map(([t, n, p]) => [t, n, p, strikesFor(p), soonTickers.has(t) ? soonClose : cl]);
+    SET.filter(([t]) => !onlyTickers || onlyTickers.has(t))
+      .map(([t, n, p]) => [t, n, p, strikesFor(p), soonTickers.has(t) ? soonClose : cl]);
 
-  // localnet reads the harness mock feed; devnet points the transport at the real
-  // Switchboard oracle + per-ticker feed (the feed pubkeys are provided via
-  // SWITCHBOARD_FEEDS and land with the real oracle transport, #16).
-  const oracleProgram = cfg.oracleProgram ? new PublicKey(cfg.oracleProgram) : ob.HARNESS_PID;
+  // Transport: localnet reads the harness mock feed by default. DEMO_ORACLE=pyth
+  // pins the Pyth adapter + its per-ticker delivery PDA instead (#16; the keeper
+  // then runs KEEPER_ORACLE=pyth — see scripts/pyth-settle-e2e.sh). Devnet points
+  // the transport at the real oracle + per-ticker feed (SWITCHBOARD_FEEDS).
+  const PYTH = process.env.DEMO_ORACLE === "pyth";
+  const oracleProgram = PYTH ? PYTH_ADAPTER_PID : cfg.oracleProgram ? new PublicKey(cfg.oracleProgram) : ob.HARNESS_PID;
   const devnetFeeds: Record<string, string> = (() => {
     const raw = cfg.mode === "devnet" ? process.env.SWITCHBOARD_FEEDS : undefined;
     if (!raw) return {};
@@ -101,6 +107,7 @@ async function main() {
     catch { throw new Error('SWITCHBOARD_FEEDS must be JSON: {"<tickerId>":"<feedPubkey>", ...}'); }
   })();
   const feedFor = (tid: number): PublicKey => {
+    if (PYTH) return deliveryPda(tid);
     if (cfg.mode !== "devnet") return ob.mockFeedPda(tid);
     const f = devnetFeeds[String(tid)];
     if (!f) throw new Error(`devnet: no Switchboard feed for ticker ${tid} (set SWITCHBOARD_FEEDS; feeds land with #16)`);
@@ -148,6 +155,6 @@ async function main() {
   }
   fs.writeFileSync(".demo-faucet.json", JSON.stringify({ quoteMint: quoteMint.toBase58(), authority: [...gov.secretKey] }));
   fs.writeFileSync(".demo-config.json", JSON.stringify({ quoteMint: quoteMint.toBase58(), governance: [...gov.secretKey], operator: [...operator.secretKey], day: DAY, transports }, null, 2));
-  console.log(`\ndone: ${created} Active markets across ${SET.length} tickers. quoteMint=${quoteMint.toBase58()}`);
+  console.log(`\ndone: ${created} Active markets across ${FULL.length} tickers. quoteMint=${quoteMint.toBase58()}`);
 }
 main().catch((e) => { console.error(e); process.exit(1); });

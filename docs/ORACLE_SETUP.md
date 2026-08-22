@@ -56,6 +56,21 @@ workspace pins `@solana/web3.js` to one version (an old transitive copy broke
 `rpc-websockets` ESM resolution). Feed staleness on weekends is handled by a
 large `maxAgeSecs` in the harness; production captures at the live close.
 
+**Proven through Meridian settlement (keeper in pyth mode).** `make pyth-settle-e2e`
+(`scripts/pyth-settle-e2e.sh`) runs the *whole* loop on localnet: `pyth-local.sh`
+now layers the devnet clone on top of the full `localnet.sh` program set; the
+seed runs with `DEMO_ORACLE=pyth` (transport = adapter id + per-ticker delivery
+PDA, `DEMO_TICKERS=3,7`, closing in 20s); the indexer + keeper start with
+`KEEPER_ORACLE=pyth`; then `scripts/pyth-settle-check.ts` asserts the Settlement
+Record was finalized FROM the delivery account. Result (2026-08-22): GOOGL record
+close `$344.7252` == delivery close, TSLA `$362.7951` == delivery close, both
+records pin `feed = deliveryPda(ticker)` / `oracle = Egc4yk…`, state
+`FinalOracle`, 10/10 Outcome Markets settled. The keeper's advisory `close1e6`
+arg (its mock spot, ~$204/$349) was *ignored* by finalize — the on-chain value
+is Pyth's — which is the A1 property under real data. Nonzero exit on any miss.
+What this still is NOT: G11 (ADR-0028 — Pyth's equity price is a last trade,
+not the Nasdaq Official Close; provider #9 + `oracle-e2e-devnet` remain).
+
 ## The delivery contract (what the on-chain account must contain)
 
 `finalize_settlement_normal` reads a **normalized** account (little-endian,

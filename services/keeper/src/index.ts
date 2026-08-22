@@ -23,6 +23,8 @@ const STATUS = process.env.KEEPER_STATUS ?? ".keeper-status.json";
 const TICK = Number(process.env.KEEPER_TICK ?? "5") * 1000;
 // Priority fee (microLamports/CU) prepended to every keeper tx — negligible on
 // localnet, tune up via env on a congested cluster.
+// SettlementRecord.official_close_1e6 (borsh; see state/settlement_record.rs)
+const RECORD_OFFICIAL_CLOSE = 261;
 const PRIORITY_FEE_MICROLAMPORTS = Number(process.env.KEEPER_PRIORITY_FEE_MICROLAMPORTS ?? "1000");
 
 const MERIDIAN_PID = new PublicKey("HiREMEBWNojy6KJNbMbww2YkRJEYLGMgndaKwXndK6ZD");
@@ -133,10 +135,12 @@ async function main() {
   // demo; prod captures at the live close.)
   const ORACLE_MODE = process.env.KEEPER_ORACLE ?? "harness";
   const PYTH_MAX_AGE = BigInt(process.env.KEEPER_PYTH_MAX_AGE_SECS ?? "604800");
-  const oracle: { refresh: (tickerId: number, close1e6: bigint, feed: PublicKey) => Promise<void> } =
+  // `refresh` returns the close actually delivered on-chain (what finalize will
+  // read) — in pyth mode that is the real Pyth price, NOT the advisory close1e6.
+  const oracle: { refresh: (tickerId: number, close1e6: bigint, feed: PublicKey) => Promise<bigint> } =
     await (async () => {
       if (ORACLE_MODE !== "pyth") {
-        return { refresh: async (tickerId: number, close1e6: bigint, feed: PublicKey) => { await send([publishMockFeedIx(op.publicKey, feed, tickerId, close1e6)]); } };
+        return { refresh: async (tickerId: number, close1e6: bigint, feed: PublicKey) => { await send([publishMockFeedIx(op.publicKey, feed, tickerId, close1e6)]); return close1e6; } };
       }
       const { PythSolanaReceiver } = await import("@pythnetwork/pyth-solana-receiver");
       const { HermesClient } = await import("@pythnetwork/hermes-client");
@@ -145,9 +149,12 @@ async function main() {
       const receiver = new PythSolanaReceiver({ connection: conn, wallet });
       const hermes = new HermesClient("https://hermes.pyth.network");
       console.log("[keeper] oracle = pyth (Hermes pull -> post -> adapter crank)");
-      return { refresh: async (tickerId: number) => {
+      return { refresh: async (tickerId: number, _close1e6: bigint, feed: PublicKey) => {
         const txs = await buildPythCrankTxs({ receiver, hermes, cranker: op.publicKey, tickerId, maxAgeSecs: PYTH_MAX_AGE });
         for (const { tx, signers } of txs) { tx.sign([op, ...signers]); await conn.confirmTransaction(await conn.sendTransaction(tx), "confirmed"); }
+        const info = await conn.getAccountInfo(feed);
+        if (!info) throw new Error("pyth: delivery account not written");
+        return info.data.readBigUInt64LE(8); // official_close_1e6 the adapter delivered
       } };
     })();
 
@@ -185,17 +192,20 @@ async function main() {
           const record = settlementRecordPda(m.ticker_id, m.trading_day);
           const recInfo = await conn.getAccountInfo(record);
           const close1e6 = BigInt(Math.round((spot[m.ticker] ?? SPOT_BASE[m.ticker] ?? Number(m.strike_1e6) / 1e6) * 1e6));
+          let delivered = close1e6;
           if (!recInfo || recInfo.data[8] === 0) { // Pending -> publish feed, then finalize once per ticker/day
             const feed = new PublicKey(feedB58);
             const slot = BigInt(await conn.getSlot("confirmed"));
             // Refresh the delivery account (mock feed on localnet, real Pyth on
             // devnet), then finalize — Meridian READS the close from that feed.
-            await oracle.refresh(m.ticker_id, close1e6, feed);
+            delivered = await oracle.refresh(m.ticker_id, close1e6, feed);
             await send([finalizeNormalIx(op.publicKey, record, feed, close1e6, slot, BigInt(now))]);
+          } else {
+            delivered = recInfo.data.readBigUInt64LE(RECORD_OFFICIAL_CLOSE); // already finalized this ticker/day
           }
           await send([settleMarketIx(op.publicKey, new PublicKey(m.pubkey), record)]);
           settledTotal++;
-          actions.push(`settled ${m.ticker} $${Number(m.strike_1e6) / 1e6} @ close $${(Number(close1e6) / 1e6).toFixed(2)}`);
+          actions.push(`settled ${m.ticker} $${Number(m.strike_1e6) / 1e6} @ close $${(Number(delivered) / 1e6).toFixed(2)}`);
         } catch (e) { actions.push(`settle ${m.ticker} failed: ${(e as Error).message.slice(0, 80)}`); }
       }
 

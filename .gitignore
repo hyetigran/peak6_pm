@@ -88,3 +88,11 @@ design_mockups/
 .validator-test.log
 .book-market.txt
 .pyth-validator/
+.pyth-idx.pid
+.pyth-keeper.pid
+.validator-pyth.log
+.keeper-pyth.log
+.indexer-pyth.log
+.build.log
+.pyth-settle-run.log
+services/indexer/.indexer-pyth.sqlite*

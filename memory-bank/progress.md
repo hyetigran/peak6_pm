@@ -45,6 +45,13 @@ Date: 2026-08-19 evening.
 | M5 indexer | Blocked |
 | M6 synthetic demo + Squads transfer | Blocked |
 
+## Pyth oracle adapter (#16 synthetic track) — proven 2026-08-22
+
+- `programs/pyth-adapter` (`Egc4yk…`): `crank(feed_id, max_age, ticker)` reads a Pyth `PriceUpdateV2`, writes the per-ticker delivery PDA in Meridian's delivery layout (halt=1 NormalOfficialClose, samples=255 Full).
+- Keeper `KEEPER_ORACLE=pyth`: Hermes pull → post PriceUpdateV2 → adapter crank → finalize → settle. `scripts/register-pyth-transports.ts` pins adapter + delivery PDAs (devnet, governance-signed); seed `DEMO_ORACLE=pyth` does the same on localnet.
+- `make pyth-settle-e2e` green: record close == Pyth delivery close (GOOGL $344.7252, TSLA $362.7951), 10/10 markets settled, nonzero on failure. Needs network (devnet clone + Hermes).
+- Not G11 (ADR-0028): still needs the Official-Close provider (#9) + `oracle-e2e-devnet`.
+
 ## Services + frontend + localnet demo (NEW, 2026-08-20)
 
 - **Indexer** (`services/indexer`): polls `getProgramAccounts` for OutcomeMarket accounts, byte-decodes them, upserts into SQLite, serves a JSON API (`/markets`, `/markets/:pk`, `/portfolio/:wallet` live Position State, `/health` History Completeness). Proven decoding real on-chain markets.

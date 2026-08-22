@@ -69,6 +69,14 @@ demo: build
 build-adapter:
 	cargo build-sbf --manifest-path programs/pyth-adapter/Cargo.toml
 
+# Full keeper-in-pyth-mode settlement proof on localnet (#16): Pyth-cloned
+# validator -> seed with the adapter as transport -> keeper KEEPER_ORACLE=pyth
+# (Hermes pull -> post PriceUpdateV2 -> adapter crank -> finalize -> settle) ->
+# assert the Settlement Record's Official Close IS the real Pyth price. Needs
+# network (devnet clone + Hermes). Nonzero on failure.
+pyth-settle-e2e: build build-adapter
+	./scripts/pyth-settle-e2e.sh
+
 demo-devnet: build-devnet
 	@[ "$$RPC_URL" ] || { echo "demo-devnet: set RPC_URL to a devnet endpoint (and the devnet env — see .env.example / Makefile note)"; exit 1; }
 	DEMO_MODE=devnet pnpm exec tsx scripts/seed-demo.ts
