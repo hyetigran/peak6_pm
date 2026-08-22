@@ -54,7 +54,7 @@ export default function Trade() {
     const load = () => getOrders(pk, oo).then((d) => setOpenOrders(d.orders)).catch(() => {});
     load(); const t = setInterval(load, 2000); return () => clearInterval(t);
   }, [pk, pubkey?.toBase58()]);
-  // market-wide recent fills (decoded from the EventHeap by the indexer)
+  // market-wide recent fills (indexer derives them by diffing book snapshots)
   useEffect(() => {
     const load = () => getFills(pk).then((d) => setFills(d.fills)).catch(() => {});
     load(); const t = setInterval(load, 2000); return () => clearInterval(t);
@@ -133,14 +133,6 @@ export default function Trade() {
     }
   });
 
-  const mint = () => guard(async () => {
-    const q = sz() * 1_000_000n; const pre = await ensure([yesM, noM], false);
-    await send([...pre, mx.mintPairIx(pubkey!, new PublicKey(pk), q, { yesMint: yesM, noMint: noM, collateralVault: new PublicKey(m.collateral_vault), userQuote: usdcAta()!, userYes: mx.ataFor(yesM, pubkey!), userNo: mx.ataFor(noM, pubkey!) })]);
-  });
-  const redeemPair = () => guard(async () => {
-    const q = sz() * 1_000_000n;
-    await send([mx.redeemPairDirectIx(pubkey!, new PublicKey(pk), q, { yesMint: yesM, noMint: noM, collateralVault: new PublicKey(m.collateral_vault), userQuote: usdcAta()!, userYes: mx.ataFor(yesM, pubkey!), userNo: mx.ataFor(noM, pubkey!) })]);
-  });
   const winBal = m.outcome_name === "Yes" ? yesBal : noBal;
   const redeemWin = () => guard(async () => {
     const winMint = new PublicKey(m.outcome_name === "Yes" ? m.yes_mint : m.no_mint);
@@ -300,12 +292,6 @@ export default function Trade() {
               {busy ? "…" : `${side} ${outcome} · ${shareN} share${shareN === 1 ? "" : "s"}`}
             </button>
             {!tradeable && <div className="sub" style={{ fontSize: 12 }}>Trading opens when the market is Active.</div>}
-
-            <div style={{ borderTop: "1px solid var(--line)", paddingTop: 12 }}>
-              <div className="eyebrow" style={{ marginBottom: 8 }}>Mint / redeem</div>
-              <button className="btn btn-ghost" style={full} disabled={busy} onClick={mint}>Mint {shareN} pairs · ${shareN}</button>
-              <button className="btn btn-ghost" style={{ ...full, marginBottom: 0 }} disabled={busy} onClick={redeemPair}>Redeem {shareN} pairs → ${shareN}</button>
-            </div>
           </>
         ) : (
           <button className="btn btn-yes" style={{ padding: 15, fontSize: 16 }} disabled={busy || winBal === 0n} onClick={redeemWin}>Claim {usd(winBal.toString(), 0)} winning {m.outcome_name} → USDC</button>
@@ -320,7 +306,6 @@ export default function Trade() {
 const seg = (on: boolean): React.CSSProperties => ({ flex: 1, textAlign: "center", padding: 9, borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer", border: "none", background: on ? "var(--accent)" : "transparent", color: on ? "var(--on-accent)" : "var(--ink-60)" });
 const fieldBox: React.CSSProperties = { padding: "12px 14px", borderRadius: 10, background: "var(--chip)", border: "1px solid var(--line)", display: "flex", alignItems: "center" };
 const bareInput: React.CSSProperties = { flex: 1, minWidth: 0, background: "transparent", border: "none", outline: "none", color: "var(--ink)", fontSize: 19, fontFamily: "var(--mono)", padding: 0 };
-const full: React.CSSProperties = { width: "100%", marginBottom: 8 };
 
 function PriceCard({ side, price, prob, active, onClick }: { side: "YES" | "NO"; price: number | null; prob?: number | null; active: boolean; onClick: () => void }) {
   const c = side === "YES" ? "yes" : "no";
