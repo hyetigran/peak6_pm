@@ -5,6 +5,7 @@
   "description": "Meridian demo market-maker: seeds and maintains two-sided Yes/No liquidity on every Active venue.",
   "scripts": {
     "start": "tsx src/index.ts",
+    "devnet": "tsx src/devnet.ts",
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit"
   },
