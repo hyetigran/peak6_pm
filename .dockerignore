@@ -1,0 +1,35 @@
+# never ship secrets or local state
+.env
+.env.*
+wallets/
+*.demo-config.json
+.demo-config.json
+.demo-faucet.json
+*.keypair.json
+~/meridian-keys
+.keeper*.json
+.keeper*.log
+.mm-status.json
+
+# reinstalled/rebuilt in the image
+node_modules/
+**/node_modules/
+target/
+**/*.sqlite
+**/*.sqlite-*
+
+# not needed by the backend services
+frontend/
+programs/
+fixtures/*.so
+fixtures/*_idl.json
+fixtures/squads_program_config.json
+design mockups/
+docs/
+.git/
+.claude/
+logs/
+.validator*/
+.pyth-validator/
+tests/
+*.md

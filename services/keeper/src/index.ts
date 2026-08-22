@@ -12,6 +12,7 @@ import fs from "node:fs";
 import { Connection, Keypair, PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { runUntilStopped } from "./loop.js";
 import { makeGetJson } from "./indexer.js";
+import { loadKeeperConfig } from "./config.js";
 import { buildOracleRefresh } from "./oracle.js";
 import {
   EVENT_HEAP_COUNT_OFFSET, RECORD_OFFICIAL_CLOSE, SYS, settlementRecordPda,
@@ -20,7 +21,6 @@ import {
 
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
 const INDEXER = process.env.KEEPER_INDEXER ?? "http://127.0.0.1:8787";
-const CONFIG = process.env.DEMO_CONFIG ?? ".demo-config.json";
 const STATUS = process.env.KEEPER_STATUS ?? ".keeper-status.json";
 const TICK = Number(process.env.KEEPER_TICK ?? "5") * 1000;
 const PRIORITY_FEE_MICROLAMPORTS = Number(process.env.KEEPER_PRIORITY_FEE_MICROLAMPORTS ?? "1000");
@@ -36,7 +36,7 @@ function tickSpot(sym: string): number {
 
 async function main() {
   const conn = new Connection(RPC, "confirmed");
-  const cfg = JSON.parse(fs.readFileSync(CONFIG, "utf8"));
+  const cfg = loadKeeperConfig(); // DEMO_CONFIG_JSON (cloud secret) or DEMO_CONFIG file
   const op = Keypair.fromSecretKey(Uint8Array.from(cfg.operator));
   const transports: Record<string, string> = cfg.transports ?? {};
   let ticks = 0, settledTotal = 0, eventsCranked = 0;

@@ -31,6 +31,7 @@ import {
   type SloWindow, type SloBand, type HeapAccount,
 } from "./crank.js";
 import { makeGetJson } from "./indexer.js";
+import { loadKeeperConfig } from "./config.js";
 import { buildOracleRefresh } from "./oracle.js";
 import { runScheduler, type JobHandler, type JobOutcome } from "./runner.js";
 import { loadNyseCalendar, nextNyseTradingDay } from "./calendar.js";
@@ -40,7 +41,6 @@ import { newLedger, planJobs, marketOpenJobsFromLedger, type Ledger, type Market
 
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
 const INDEXER = process.env.KEEPER_INDEXER ?? "http://127.0.0.1:8787";
-const CONFIG = process.env.DEMO_CONFIG ?? ".demo-config.json";
 const LEDGER = process.env.KEEPER_LEDGER ?? ".keeper-ledger.json";
 const LOCK = process.env.KEEPER_LOCK ?? ".keeper.lock";
 // Poll cadence between scheduler ticks. MINUTES in prod (the job fire times, not
@@ -96,7 +96,7 @@ const saveLedger = (l: Ledger) => { try { fs.writeFileSync(LEDGER, JSON.stringif
 async function main() {
   acquireLock();
   const conn = new Connection(RPC, "confirmed");
-  const cfg = JSON.parse(fs.readFileSync(CONFIG, "utf8"));
+  const cfg = loadKeeperConfig(); // DEMO_CONFIG_JSON (cloud secret) or DEMO_CONFIG file
   const op = Keypair.fromSecretKey(Uint8Array.from(cfg.operator));
   const transports: Record<string, string> = cfg.transports ?? {};
   const send = makeSend(conn, op, PRIORITY_FEE, (m) => console.warn(`[keeper] ${m}`));
