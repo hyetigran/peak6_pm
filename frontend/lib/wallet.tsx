@@ -90,7 +90,22 @@ function Bridge({ children }: { children: React.ReactNode }) {
       tx.sign(burner!, ...extras);
       raw = tx.serialize();
     }
-    const sig = await connection.sendRawTransaction(raw);
+    // "fast"/load-balanced RPC endpoints route reads and preflight to different
+    // backend nodes, so a just-issued blockhash can be momentarily unknown to
+    // the preflight node ("Blockhash not found"). The signed bytes are reusable,
+    // so resend the same tx — skipping preflight after the first clean
+    // blockhash-only failure — until the hash propagates. Any other error (e.g.
+    // insufficient funds) surfaces immediately from the first preflight.
+    let sig: string | undefined, lastErr: unknown;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try { sig = await connection.sendRawTransaction(raw, { skipPreflight: attempt > 0 }); break; }
+      catch (e: any) {
+        lastErr = e;
+        if (!/Blockhash not found/i.test(e?.message ?? "")) throw e;
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      }
+    }
+    if (!sig) throw lastErr;
     await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
     refresh();
     return sig;
