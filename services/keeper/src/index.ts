@@ -13,6 +13,7 @@ import fs from "node:fs";
 import {
   Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, sendAndConfirmTransaction,
 } from "@solana/web3.js";
+import { runUntilStopped, withRetry } from "./loop.js";
 
 const HARNESS_PID = new PublicKey("3MmdMxRUF4NWPNdwoQcLhoqfmiKReoaSQR9GwSeQEpRr");
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
@@ -108,6 +109,14 @@ async function main() {
   const recent: string[] = []; // rolling activity log across ticks
   console.log(`[keeper] operator ${op.publicKey.toBase58()} · indexer ${INDEXER} · tick ${TICK / 1000}s`);
 
+  // Every send retries transient failures with backoff; safe because the actions
+  // are idempotent on-chain (settle/finalize re-check state, consume is bounded).
+  const send = (ixs: TransactionInstruction[]) =>
+    withRetry(
+      () => sendAndConfirmTransaction(conn, new Transaction().add(...ixs), [op], { commitment: "confirmed" }),
+      { retries: 2, baseMs: 400, onRetry: (a, e) => console.warn(`[keeper] send retry ${a}: ${(e as Error).message.slice(0, 60)}`) },
+    );
+
   const loop = async () => {
     ticks++;
     const actions: string[] = [];
@@ -126,7 +135,7 @@ async function main() {
           try {
             const book = await getJson(`/book/${m.pubkey}`);
             const owners = [...new Set<string>([...(book.ask_owners ?? []), ...(book.bid_owners ?? [])])].map((o) => new PublicKey(o));
-            await sendAndConfirmTransaction(conn, new Transaction().add(consumeEventsIx(new PublicKey(m.openbook_market), new PublicKey(m.event_heap), 8n, owners)), [op], { commitment: "confirmed" });
+            await send([consumeEventsIx(new PublicKey(m.openbook_market), new PublicKey(m.event_heap), 8n, owners)]);
             eventsCranked += count;
             actions.push(`consumed ~${count} events on ${m.ticker} $${Number(m.strike_1e6) / 1e6}`);
           } catch (e) { actions.push(`consume ${m.ticker} failed: ${(e as Error).message.slice(0, 60)}`); }
@@ -145,10 +154,10 @@ async function main() {
           if (!recInfo || recInfo.data[8] === 0) { // Pending -> publish feed, then finalize once per ticker/day
             const feed = new PublicKey(feedB58);
             const slot = BigInt(await conn.getSlot("confirmed"));
-            await sendAndConfirmTransaction(conn, new Transaction().add(publishMockFeedIx(op.publicKey, feed, m.ticker_id, close1e6)), [op], { commitment: "confirmed" });
-            await sendAndConfirmTransaction(conn, new Transaction().add(finalizeNormalIx(op.publicKey, record, feed, close1e6, slot, BigInt(now))), [op], { commitment: "confirmed" });
+            await send([publishMockFeedIx(op.publicKey, feed, m.ticker_id, close1e6)]);
+            await send([finalizeNormalIx(op.publicKey, record, feed, close1e6, slot, BigInt(now))]);
           }
-          await sendAndConfirmTransaction(conn, new Transaction().add(settleMarketIx(op.publicKey, new PublicKey(m.pubkey), record)), [op], { commitment: "confirmed" });
+          await send([settleMarketIx(op.publicKey, new PublicKey(m.pubkey), record)]);
           settledTotal++;
           actions.push(`settled ${m.ticker} $${Number(m.strike_1e6) / 1e6} @ close $${(Number(close1e6) / 1e6).toFixed(2)}`);
         } catch (e) { actions.push(`settle ${m.ticker} failed: ${(e as Error).message.slice(0, 80)}`); }
@@ -168,7 +177,14 @@ async function main() {
     try { fs.writeFileSync(STATUS, JSON.stringify(status)); } catch {}
   };
 
-  await loop();
-  setInterval(loop, TICK);
+  // Self-scheduling, non-overlapping loop (never re-enter a tick that is still
+  // running) with graceful shutdown so an in-flight tick finishes before exit.
+  const ac = new AbortController();
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    process.on(sig, () => { console.log(`[keeper] ${sig} — finishing the current tick, then exiting`); ac.abort(); });
+  }
+  await runUntilStopped(loop, TICK, ac.signal);
+  try { fs.writeFileSync(STATUS, JSON.stringify({ running: false, ts: Math.floor(Date.now() / 1000), operator: op.publicKey.toBase58(), ticks, settled_total: settledTotal, events_cranked: eventsCranked })); } catch {}
+  console.log("[keeper] stopped");
 }
 main().catch((e) => { console.error("[keeper] fatal:", e); process.exit(1); });
