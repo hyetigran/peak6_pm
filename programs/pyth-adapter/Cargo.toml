@@ -1,0 +1,19 @@
+[package]
+name = "pyth-adapter"
+version = "0.1.0"
+edition = "2021"
+description = "Meridian oracle adapter: reads a Pyth price update and writes the normalized settlement-delivery layout Meridian reads. A swappable transport per ADR-0017 versioning — Meridian never changes when the oracle does."
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "pyth_adapter"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
+pyth-solana-receiver-sdk = "0.6.1"

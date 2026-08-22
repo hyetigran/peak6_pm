@@ -1,4 +1,4 @@
-.PHONY: build build-devnet fixture-verify localnet keeper marketmaker services-install g2 g3 g4 g5 g6 g7 g8 g9 g10 g12 m0 meridian-test demo demo-devnet indexer seed-config-test
+.PHONY: build build-devnet build-adapter fixture-verify localnet keeper marketmaker services-install g2 g3 g4 g5 g6 g7 g8 g9 g10 g12 m0 meridian-test demo demo-devnet indexer seed-config-test
 
 fixture-verify:
 	@echo "a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8  fixtures/openbook_v2-v1.7.so" | shasum -a 256 -c -
@@ -63,6 +63,12 @@ demo: build
 # then `solana program deploy`), funded GOVERNANCE_KEYPAIR + OPERATOR_KEYPAIR_PATH,
 # QUOTE_MINT, OPENBOOK_EXECUTABLE_SHA256, OPENBOOK_UPGRADE_AUTHORITY, METADATA_URI,
 # and SWITCHBOARD_PROGRAM_ID + SWITCHBOARD_FEEDS (the per-ticker feeds land with #16).
+# The Pyth oracle adapter (synthetic demo track): a swappable transport that
+# reads a Pyth PriceUpdateV2 and writes the normalized delivery layout Meridian
+# reads. Separate program; Meridian is untouched.
+build-adapter:
+	cargo build-sbf --manifest-path programs/pyth-adapter/Cargo.toml
+
 demo-devnet: build-devnet
 	@[ "$$RPC_URL" ] || { echo "demo-devnet: set RPC_URL to a devnet endpoint (and the devnet env — see .env.example / Makefile note)"; exit 1; }
 	DEMO_MODE=devnet pnpm exec tsx scripts/seed-demo.ts
