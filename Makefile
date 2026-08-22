@@ -91,6 +91,12 @@ indexer: services-install
 keeper: services-install
 	cd services/keeper && DEMO_CONFIG=$(CURDIR)/.demo-config.json KEEPER_STATUS=$(CURDIR)/.keeper-status.json pnpm start
 
+# Production keeper (#19, ADR-0031/0035): scheduler-driven (two jobs/day + a
+# durable run-ledger), NOT the per-second demo poll. A cron/at-least-once trigger
+# runs this; the lock file prevents overlap. See PRODUCTION_INFRA §2.
+keeper-prod: services-install
+	cd services/keeper && DEMO_CONFIG=$(CURDIR)/.demo-config.json KEEPER_LEDGER=$(CURDIR)/.keeper-ledger.json KEEPER_LOCK=$(CURDIR)/.keeper.lock pnpm prod
+
 marketmaker: services-install
 	cd services/marketmaker && DEMO_CONFIG=$(CURDIR)/.demo-config.json MM_STATUS=$(CURDIR)/.mm-status.json pnpm start
 

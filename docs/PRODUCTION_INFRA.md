@@ -50,12 +50,16 @@ event-driven cranking:
 Safe because every action is idempotent on-chain (ADR-0031), so the scheduler
 needs only at-least-once delivery and may retry freely.
 
-**Scheduling substrate — [open, see issue].** Options, smallest→most durable:
-`cron` + a locked script; a job runner with repeatable jobs (BullMQ/Redis); a
-durable workflow engine (Temporal) for retries/visibility; or cloud-native
-(EventBridge/Cloud Scheduler → worker). Two jobs/day at minute granularity make
-even cron sufficient, but a queue buys retries/backoff, dedupe, and an audit
-trail for free. Decide before devnet automation (Phase 6).
+**Scheduling substrate — [decided: ADR-0035, #19].** `cron` (or any
+at-least-once trigger) → `make keeper-prod` (`services/keeper/src/scheduler.ts`),
+with a **single-flight lock file** (no double-run) and a **durable JSON
+run-ledger** (dedupe of duplicate/retried fires + completion audit trail). Two
+idempotent jobs/day (ADR-0031/0023) need only at-least-once delivery, so this
+beats a broker/engine on operational surface; the runner is substrate-agnostic
+(injected clock/ledger/handlers), so migrating to BullMQ/Temporal later is a
+wiring change. Settlement backs off (30s→15m cap), does not spin, when the
+Official Close is not yet published; SIGTERM drains the in-flight job. The
+localnet demo keeps the per-second poll (`make keeper`).
 
 ## 3. Redundancy and idempotency  [proposed]
 

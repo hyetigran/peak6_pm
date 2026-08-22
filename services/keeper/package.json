@@ -5,6 +5,7 @@
   "description": "Meridian operator automation: mock/real settlement feed publish, EventHeap crank, and settle-at-close.",
   "scripts": {
     "start": "tsx src/index.ts",
+    "prod": "tsx src/scheduler.ts",
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit"
   },
