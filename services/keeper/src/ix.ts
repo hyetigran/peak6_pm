@@ -72,6 +72,22 @@ export function settleMarketIx(op: PublicKey, market: PublicKey, record: PublicK
   });
 }
 
+/** abandon_market: turn a Created/Active, empty, no-venue Outcome Market into an
+ *  Abandoned tombstone (pre-open re-validation, #21/ADR-0022). Operator-signed. */
+export function abandonMarketIx(op: PublicKey, market: PublicKey, yesMint: PublicKey, noMint: PublicKey): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: MERIDIAN_PID,
+    keys: [
+      { pubkey: op, isSigner: true, isWritable: true },
+      { pubkey: configPda(), isSigner: false, isWritable: false },
+      { pubkey: market, isSigner: false, isWritable: true },
+      { pubkey: yesMint, isSigner: false, isWritable: false },
+      { pubkey: noMint, isSigner: false, isWritable: false },
+    ],
+    data: disc("abandon_market"),
+  });
+}
+
 export function consumeEventsIx(market: PublicKey, heap: PublicKey, limit: bigint, owners: PublicKey[]): TransactionInstruction {
   const data = Buffer.alloc(17);
   disc("consume_events").copy(data); data.writeBigUInt64LE(limit, 8); data[16] = 0;

@@ -41,6 +41,12 @@ export interface MarketRow {
   ticker?: string;
   event_heap?: string;
   openbook_market?: string;
+  // Pre-open re-validation gate (#21) fields.
+  state_name?: string;
+  activity_started?: number | boolean;
+  mint_open_ts?: number;
+  yes_mint?: string;
+  no_mint?: string;
 }
 
 export const settlementFireAtMs = (m: MarketRow): number =>

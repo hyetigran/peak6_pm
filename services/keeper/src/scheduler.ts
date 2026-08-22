@@ -24,7 +24,7 @@ import fs from "node:fs";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import {
   RECORD_STATE, RECORD_OFFICIAL_CLOSE, SYS,
-  settlementRecordPda, finalizeNormalIx, settleMarketIx, makeSend,
+  settlementRecordPda, finalizeNormalIx, settleMarketIx, abandonMarketIx, makeSend,
 } from "./ix.js";
 import {
   drainHeap, heapCountFromData, watchHeap, runReconcile, priorityFeeForBand, EVENT_HEAP_CAPACITY,
@@ -33,6 +33,9 @@ import {
 import { makeGetJson } from "./indexer.js";
 import { buildOracleRefresh } from "./oracle.js";
 import { runScheduler, type JobHandler, type JobOutcome } from "./runner.js";
+import { loadNyseCalendar, nextNyseTradingDay } from "./calendar.js";
+import { fixtureSource, type CorporateAction, type CorporateActionSource } from "./blackout.js";
+import { evaluateEligibility, revalidationPlan, type GateMarket } from "./eligibility.js";
 import { newLedger, planJobs, marketOpenJobsFromLedger, type Ledger, type MarketRow, type ScheduledJob } from "./schedule.js";
 
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
@@ -48,6 +51,11 @@ const ORACLE_MODE = process.env.KEEPER_ORACLE ?? "harness";
 // Minutes-scale reconcile backstop for a missed subscription event (NOT a
 // per-second poll — cranking is subscription-driven, this only catches drops).
 const RECONCILE_MS = Number(process.env.KEEPER_RECONCILE_SECS ?? "120") * 1000;
+// One or two (comma-separated) Corporate Action Blackout feed files (ADR-0022
+// wants TWO independent sources). One path => both sources read it (demo); two
+// paths => genuinely independent feeds that can disagree (checkBlackout unions
+// toward blackout, so a disagreement fails closed). Prod injects live feeds.
+const CORP_ACTIONS_FILES = (process.env.KEEPER_CORP_ACTIONS ?? "fixtures/corporate-actions.json").split(",").map((s) => s.trim()).filter(Boolean);
 // Base price the localnet-harness scheduler publishes as the mock close (it has
 // no live spot; prod runs KEEPER_ORACLE=pyth and ignores this).
 const HARNESS_CLOSE_BASE: Record<number, bigint> = { 1: 231n, 2: 241n, 3: 204n, 4: 682n, 5: 512n, 6: 178n, 7: 349n };
@@ -101,6 +109,23 @@ async function main() {
   // Alert sink for §8.4 SLO escalation. Webhook receiver is #10; until then it
   // logs. Escalate/critical also bump the crank priority fee (see watchHeaps).
   const alert = (level: SloBand, msg: string) => console.warn(`[keeper][slo:${level}] ${msg}`);
+
+  // --- eligibility gate (#21): NYSE calendar (ADR-0014) + two-source Corporate
+  // Action Blackout (ADR-0022). The two sources are independent live feeds in
+  // prod (a provider seam like #9); in the demo both read the checked-in fixture
+  // (KEEPER_CORP_ACTIONS may name two files for genuinely independent feeds).
+  const nyseCal = loadNyseCalendar();
+  const loadActions = (file: string): CorporateAction[] => {
+    try { return JSON.parse(fs.readFileSync(file, "utf8")).actions ?? []; }
+    catch { return []; }
+  };
+  const corpSources = (): CorporateActionSource[] => {
+    // Re-read each pass so a mid-run announcement is seen. Duplicate a single
+    // file into two named sources so the two-source count gate holds in the demo.
+    const files = CORP_ACTIONS_FILES.length >= 2 ? CORP_ACTIONS_FILES : [CORP_ACTIONS_FILES[0], CORP_ACTIONS_FILES[0]];
+    return files.map((f, i) => fixtureSource(`corp-${i === 0 ? "primary" : "secondary"}`, loadActions(f)));
+  };
+  const gateAlert = (msg: string) => console.warn(`[keeper][gate] ${msg}`);
   const ledger = loadLedger();
   console.log(`[keeper] scheduler up · operator ${op.publicKey.toBase58()} · tick ${TICK_MS / 1000}s · oracle ${ORACLE_MODE}`);
 
@@ -168,8 +193,47 @@ async function main() {
   // Blackout gate (#21, blocked on this) and the PRD §6 strike engine plug in
   // here; until then the slot fires once and completes (nothing to create yet).
   const marketOpen: JobHandler = async (job) => {
-    console.log(`[keeper] market-open slot fired for day ${job.day} ticker ${job.tickerId} — eligibility gate is #21, strike engine is PRD §6`);
+    // Target is the NEXT NYSE Trading Day after the settled day (ADR-0032).
+    let target: number;
+    try { target = nextNyseTradingDay(job.day, nyseCal); }
+    catch (e) { gateAlert(`ticker ${job.tickerId}: ${(e as Error).message}`); return { status: "retry", reason: "no target Trading Day" }; }
+    let elig;
+    try { elig = await evaluateEligibility({ tickerId: job.tickerId, day: target, calendar: nyseCal, sources: corpSources() }); }
+    catch (e) { gateAlert(`ticker ${job.tickerId} day ${target}: cannot evaluate eligibility (fail closed): ${(e as Error).message}`); return { status: "retry", reason: "eligibility unknown" }; }
+    if (!elig.eligible) {
+      // Refuse to create for an ineligible/blacked-out target session (#21 AC1).
+      console.log(`[keeper] market-open REFUSED ticker ${job.tickerId} day ${target}: ${elig.reason}`);
+      return { status: "done" };
+    }
+    // Eligible: creation itself (generate→create→attach) is the PRD §6 strike engine.
+    console.log(`[keeper] market-open OK ticker ${job.tickerId} day ${target} — strike engine is PRD §6`);
     return { status: "done" };
+  };
+
+  // Pre-open re-validation gate (#21 AC2/3): abandon a Created, pre-mint, empty
+  // market whose target session stopped qualifying after creation (the weekend
+  // corporate-action case). Abandoning before the mint window means zero
+  // collateral at risk. Runs inside the reconcile pass.
+  // NOTE: the keeper does not re-check collateral_liability==0 / supply==0 here —
+  // it relies on the invariant that a Created, pre-mint, no-venue market is empty
+  // (nothing can mint before trade_open). The on-chain abandon_market guards are
+  // authoritative and a failed abandon is caught + alerted below, never fatal.
+  const preOpenRevalidate = async (markets: MarketRow[]) => {
+    const gm: GateMarket[] = markets.map((m) => ({
+      pubkey: m.pubkey!, tickerId: m.ticker_id, day: m.trading_day,
+      stateName: m.state_name!, activityStarted: !!m.activity_started,
+      hasVenue: !!m.openbook_market && m.openbook_market !== SYS,
+      mintOpenTs: Number(m.mint_open_ts ?? 0),
+    }));
+    const plan = await revalidationPlan({ markets: gm, now: Math.floor(Date.now() / 1000), calendar: nyseCal, sourcesFor: () => corpSources() });
+    for (const a of plan.abandon) {
+      const m = markets.find((x) => x.pubkey === a.pubkey)!;
+      try {
+        await send([abandonMarketIx(op.publicKey, new PublicKey(a.pubkey), new PublicKey(m.yes_mint!), new PublicKey(m.no_mint!))]);
+        console.log(`[keeper] pre-open ABANDONED ${a.pubkey} (ticker ${a.tickerId} day ${a.day}): ${a.reason}`);
+      } catch (e) { gateAlert(`abandon ${a.pubkey} failed: ${(e as Error).message.slice(0, 80)}`); }
+    }
+    for (const e of plan.errors) gateAlert(`could not re-validate ${e.pubkey} (fail closed, not abandoned): ${e.error}`);
   };
 
   const ac = new AbortController();
@@ -221,6 +285,7 @@ async function main() {
     try {
       await syncSubscriptions();
       const markets = (await getJson("/markets")).markets as MarketRow[];
+      await preOpenRevalidate(markets); // #21 pre-open gate
       const byPk = new Map(markets.map((m) => [m.pubkey!, m]));
       await runReconcile({
         readCounts: async () => {

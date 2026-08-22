@@ -1,0 +1,5 @@
+{
+  "_source": "Corporate Action Blackout feed (ADR-0022). Checked-in fixture backing the demo/tests. In production two INDEPENDENT live feeds replace this via the source seam (blackout.ts CorporateActionSource); the two-source cross-check is enforced by checkBlackout.",
+  "_types": "disqualifying: split, stock_dividend, spin_off, merger, rights, reorg, security_identity_change. eligible: cash_dividend.",
+  "actions": []
+}
