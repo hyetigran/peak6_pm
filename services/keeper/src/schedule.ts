@@ -35,6 +35,12 @@ export interface MarketRow {
   close_ts: number;
   normal_settlement_delay_secs: number;
   settled_ts?: number | null;
+  // Indexer fields the EventHeap crank path (#20) uses; absent on the pure
+  // scheduling path, present on the /markets projection.
+  pubkey?: string;
+  ticker?: string;
+  event_heap?: string;
+  openbook_market?: string;
 }
 
 export const settlementFireAtMs = (m: MarketRow): number =>

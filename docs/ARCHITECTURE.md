@@ -1052,6 +1052,8 @@ Initial operational thresholds:
 
 G6 must provision capacity for at least twice measured worst-case event throughput and may tighten these thresholds. These are monitoring thresholds evaluated over the EventHeap **account subscription** (ADR-0031), not a busy-poll; escalation raises priority fees / alerts, and residual drain folds into the settlement preflight.
 
+Implementation status (#20): the **heap-depth** dimension is evaluated live over the `onAccountChange` subscription — `>=50%` escalates the crank priority fee, `>=75%` raises a critical alert (webhook receiver is #10); a minutes-scale reconcile poll backstops a dropped subscription event. The **oldest-event age** target (`<5s`/`<2s`) is not yet evaluated: a count-only account read cannot see per-event timestamps, and decoding them needs the pinned OpenBook EventHeap node layout — tracked under #20. Depth is the dimension with a defined escalation action, so it drives the live SLO response today.
+
 ---
 
 ## 9. User Transaction Flows
