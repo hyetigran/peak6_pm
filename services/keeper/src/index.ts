@@ -21,7 +21,7 @@ const CONFIG = process.env.DEMO_CONFIG ?? ".demo-config.json";
 const STATUS = process.env.KEEPER_STATUS ?? ".keeper-status.json";
 const TICK = Number(process.env.KEEPER_TICK ?? "5") * 1000;
 
-const MERIDIAN_PID = new PublicKey("FF6mu5FFb1q1Qz88x1HnhkePdF8Q1dXWnTfUUSkzUT3t");
+const MERIDIAN_PID = new PublicKey("HiREMEBWNojy6KJNbMbww2YkRJEYLGMgndaKwXndK6ZD");
 const OPENBOOK_PID = new PublicKey("opnb2LAfJYbRMAHHvqjCwQxanZn7ReEHp1k81EohpZb");
 const SYS = "11111111111111111111111111111111";
 const EVENT_HEAP_COUNT_OFFSET = 12; // EventHeap header: count u16 @12

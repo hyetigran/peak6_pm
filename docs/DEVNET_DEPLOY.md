@@ -10,7 +10,7 @@ authorize mainnet or real funds — devnet/test value only (ADR-0020, PRD §15).
 
 | Thing | Value | Source |
 |---|---|---|
-| Meridian program id | `FF6mu5FFb1q1Qz88x1HnhkePdF8Q1dXWnTfUUSkzUT3t` | `declare_id!` |
+| Meridian program id | `HiREMEBWNojy6KJNbMbww2YkRJEYLGMgndaKwXndK6ZD` | `declare_id!` |
 | Deployer / cold upgrade key | `4XT7HdQg59fmvvymZzUa9kWTHxyehCrLQEJHxrsjQfCq` | `~/.config/solana/id.json` (funded 12 SOL) |
 | Quote mint (Circle devnet USDC) | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` | ADR-0015 |
 | OpenBook V2 (canonical) | `opnb2LAfJYbRMAHHvqjCwQxanZn7ReEHp1k81EohpZb` | ADR-0030 |

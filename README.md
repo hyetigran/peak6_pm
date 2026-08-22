@@ -16,7 +16,7 @@ This submission targets **Solana devnet / localnet only**. Do not use mainnet or
 | --- | --- |
 | Domain freeze | PRD v0.7.1 + Architecture v1.1.1 + [ADRs 0001–0030](docs/adr/) |
 | M0 gates | G1–G10 and G12 proven on localnet (`make m0`). **G11 blocked** on Official-Close provider selection |
-| Production program | `programs/meridian` (Anchor 0.31.1), program id `FF6mu5FFb1q1Qz88x1HnhkePdF8Q1dXWnTfUUSkzUT3t` |
+| Production program | `programs/meridian` (Anchor 0.31.1), program id `HiREMEBWNojy6KJNbMbww2YkRJEYLGMgndaKwXndK6ZD` |
 | M0 harness | `programs/m0-harness` — validation scaffolding, **not** the product program |
 | Indexer | `services/indexer` on `:8787` |
 | Frontend | Next.js 14 under `frontend/` on `:3100` |
@@ -87,7 +87,7 @@ cp .env.example .env
 
 `.env`, `wallets/`, and `keys/` are gitignored. Never commit a funded or authority keypair.
 
-`make build` copies `wallets/meridian-program.json` → `target/deploy/meridian-keypair.json` so the local validator loads program id `FF6mu5FF…`. That file is gitignored; generate a keypair whose pubkey matches `declare_id!` in `programs/meridian/src/lib.rs` before a clean-clone build, or adjust the copy step after generating one.
+`make build` copies `wallets/meridian-program.json` → `target/deploy/meridian-keypair.json` so the local validator loads program id `HiREMEBW…`. That file is gitignored; generate a keypair whose pubkey matches `declare_id!` in `programs/meridian/src/lib.rs` before a clean-clone build, or adjust the copy step after generating one.
 
 ---
 
@@ -200,7 +200,7 @@ Document authority, in order: `CONTEXT.md` → `docs/adr/` → `docs/PRD.md` →
 | OpenBook program | `opnb2LAfJYbRMAHHvqjCwQxanZn7ReEHp1k81EohpZb` |
 | OpenBook tag / commit | v1.7 / `796a470` |
 | OpenBook artifact SHA-256 | `a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8` |
-| Meridian (localnet) | `FF6mu5FFb1q1Qz88x1HnhkePdF8Q1dXWnTfUUSkzUT3t` |
+| Meridian (localnet) | `HiREMEBWNojy6KJNbMbww2YkRJEYLGMgndaKwXndK6ZD` |
 | M0 harness | `3MmdMxRUF4NWPNdwoQcLhoqfmiKReoaSQR9GwSeQEpRr` |
 | Fee-admin sentinel (G9) | `EhAss6gbDU57Cmwwyeq3RwHBVRvBK4CkzLS8yvddFZ1E` |
 | Squads V4 | `SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf` (audited commit `64af7330…`, `@sqds/multisig@2.1.4`) |

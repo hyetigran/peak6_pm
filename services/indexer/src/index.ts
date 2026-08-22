@@ -4,7 +4,7 @@ import { ingestOnce } from "./ingest.js";
 import { serve } from "./api.js";
 
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
-const PROGRAM = new PublicKey(process.env.MERIDIAN_PID ?? "FF6mu5FFb1q1Qz88x1HnhkePdF8Q1dXWnTfUUSkzUT3t");
+const PROGRAM = new PublicKey(process.env.MERIDIAN_PID ?? "HiREMEBWNojy6KJNbMbww2YkRJEYLGMgndaKwXndK6ZD");
 const PORT = Number(process.env.PORT ?? 8787);
 const DB = process.env.INDEXER_DB ?? ".indexer.sqlite";
 

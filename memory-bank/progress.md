@@ -61,7 +61,7 @@ Per the user's direction (build the program → services → frontend, localnet 
 - **Trading** (4/4): create_venue_market (OpenBook venue, OutcomeMarket PDA as sole authority), mint_pair, place_limit_order (PostOnly, fail-closed), place_take_order (full-fill-or-revert), redeem_pair_direct. Vault>=liability invariant on-chain.
 - **Settlement** (3/3): finalize_settlement_normal/manual (record Pending→Final, quality bounds, override), settle_market (derive winner, at-or-above→Yes), redeem_winning (Outcome Redemption, $1 complement).
 
-Program id `FF6mu5FF…`. Authority model: the OutcomeMarket PDA is mint authority + vault owner + OpenBook admin (one PDA per market). `localnet` build feature relaxes only timing floors for tests/demo; devnet build is strict. Settlement delivery is mocked on localnet, real Switchboard on devnet (ADR-0028).
+Program id `HiREMEBW…`. Authority model: the OutcomeMarket PDA is mint authority + vault owner + OpenBook admin (one PDA per market). `localnet` build feature relaxes only timing floors for tests/demo; devnet build is strict. Settlement delivery is mocked on localnet, real Switchboard on devnet (ADR-0028).
 
 **Still TODO for the full stack:** market-assisted Sell-No (redeem_no_via_market) port; real Switchboard oracle read; Metaplex metadata CPI; services (automation/indexer/demo-source); frontend (5 pages); localnet demo wiring. M0 gates #8/#9/#15/#16/#17 remain (human inputs / go-no-go).
 

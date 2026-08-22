@@ -4,7 +4,7 @@
 resolver = true
 
 [programs.localnet]
-meridian = "FF6mu5FFb1q1Qz88x1HnhkePdF8Q1dXWnTfUUSkzUT3t"
+meridian = "HiREMEBWNojy6KJNbMbww2YkRJEYLGMgndaKwXndK6ZD"
 
 [registry]
 url = "https://api.apr.dev"

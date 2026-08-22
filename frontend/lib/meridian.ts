@@ -2,7 +2,7 @@ import {
   AccountMeta, Connection, Keypair, PublicKey, SystemProgram, TransactionInstruction,
 } from "@solana/web3.js";
 
-export const MERIDIAN = new PublicKey(process.env.NEXT_PUBLIC_MERIDIAN ?? "FF6mu5FFb1q1Qz88x1HnhkePdF8Q1dXWnTfUUSkzUT3t");
+export const MERIDIAN = new PublicKey(process.env.NEXT_PUBLIC_MERIDIAN ?? "HiREMEBWNojy6KJNbMbww2YkRJEYLGMgndaKwXndK6ZD");
 export const OPENBOOK = new PublicKey("opnb2LAfJYbRMAHHvqjCwQxanZn7ReEHp1k81EohpZb");
 export const TOKEN = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 export const ATA = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");

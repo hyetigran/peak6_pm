@@ -18,7 +18,7 @@ use instructions::*;
 use instructions::rotate_role::Role;
 use openbook::{PlaceOrderArgs, PlaceTakeOrderArgs};
 
-declare_id!("FF6mu5FFb1q1Qz88x1HnhkePdF8Q1dXWnTfUUSkzUT3t");
+declare_id!("HiREMEBWNojy6KJNbMbww2YkRJEYLGMgndaKwXndK6ZD");
 
 #[program]
 pub mod meridian {
