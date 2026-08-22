@@ -60,11 +60,18 @@ interface Mkt {
   bids: string; asks: string; event_heap: string; openbook_base_vault: string; openbook_quote_vault: string;
 }
 interface State { nextOoIndex: number; markets: Record<string, { ooIndex: number; seeded: boolean; recycled: boolean }>; }
-const loadState = (): State => { try { return JSON.parse(fs.readFileSync(STATE, "utf8")); } catch { return { nextOoIndex: 1, markets: {} }; } };
+const loadState = (): State => {
+  try { return JSON.parse(fs.readFileSync(STATE, "utf8")); } catch { /* no persisted state yet */ }
+  if (process.env.MM_STATE_JSON) { try { return JSON.parse(process.env.MM_STATE_JSON); } catch { /* fall through */ } }
+  return { nextOoIndex: 1, markets: {} };
+};
 const saveState = (s: State) => { try { fs.writeFileSync(STATE, JSON.stringify(s, null, 2)); } catch {} };
 
 async function main() {
-  const mm = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(KEYPAIR, "utf8"))));
+  // Keypair from MM_KEYPAIR_JSON (a cloud secret) in preference to the file, so
+  // no key ships in the image.
+  const mmSecret = process.env.MM_KEYPAIR_JSON ? JSON.parse(process.env.MM_KEYPAIR_JSON) : JSON.parse(fs.readFileSync(KEYPAIR, "utf8"));
+  const mm = Keypair.fromSecretKey(Uint8Array.from(mmSecret));
   const usdc = getAssociatedTokenAddressSync(QUOTE_MINT, mm.publicKey);
   const state = loadState();
   const send = (ixs: TransactionInstruction[]) =>
