@@ -26,14 +26,20 @@ railway init                      # or: railway link  (existing project)
 #   - keeper    (private only)
 ```
 
-Both: **Builder = Dockerfile**, path `Dockerfile` (root). Set each service's
-**Custom Start Command** (Settings -> Deploy). Run from the repo root (`/app`,
-the image WORKDIR) so the keeper's `fixtures/` lookups resolve:
+Builder, start command, healthcheck, and restart policy are set **as code** in
+two per-service config files at the repo root — you don't set them by hand.
+Point each service at its file (Settings -> **Config as code** -> "Railway
+Config File"):
 
-| Service | Start command |
-|---|---|
-| indexer | `pnpm exec tsx services/indexer/src/index.ts` |
-| keeper  | `pnpm exec tsx services/keeper/src/scheduler.ts` |
+| Service | Config file | (its start command, for reference) |
+|---|---|---|
+| indexer | `railway.indexer.json` | `pnpm exec tsx services/indexer/src/index.ts` |
+| keeper  | `railway.keeper.json`  | `pnpm exec tsx services/keeper/src/scheduler.ts` |
+
+Both files set `builder: DOCKERFILE` (the root `Dockerfile`) and run from `/app`
+(the image WORKDIR) so the keeper's `fixtures/` lookups resolve. The indexer
+config also adds a `/health` healthcheck. Leave each service's **Root Directory**
+at the repo root so the Docker build context is the full workspace.
 
 ## 2. Volumes (restart-safe state)
 
