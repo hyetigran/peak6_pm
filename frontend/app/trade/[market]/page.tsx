@@ -242,13 +242,12 @@ export default function Trade() {
                 );
               })}
             </div>
-            {outcome === "YES" && (
-              <div style={{ display: "flex", gap: 16, fontSize: 14 }}>
-                {[["Market", market], ["Limit", !market]].map(([label, on]) => (
-                  <div key={label as string} onClick={() => setMarketOrder(label === "Market")} style={{ cursor: "pointer", paddingBottom: 5, color: on ? "var(--ink)" : "var(--ink-60)", borderBottom: `2px solid ${on ? "var(--accent)" : "transparent"}` }}>{label as string}</div>
-                ))}
-              </div>
-            )}
+            {/* Market/Limit row is kept in the layout (hidden, not removed) for NO so the slip never shifts */}
+            <div style={{ display: "flex", gap: 16, fontSize: 14, visibility: outcome === "YES" ? "visible" : "hidden" }} aria-hidden={outcome !== "YES"}>
+              {[["Market", market], ["Limit", !market]].map(([label, on]) => (
+                <div key={label as string} onClick={() => setMarketOrder(label === "Market")} style={{ cursor: "pointer", paddingBottom: 5, color: on ? "var(--ink)" : "var(--ink-60)", borderBottom: `2px solid ${on ? "var(--accent)" : "transparent"}` }}>{label as string}</div>
+              ))}
+            </div>
             {/* price / mode slot — same height in every mode so the CTA never jumps */}
             {noSellLimit ? (
               <div>
