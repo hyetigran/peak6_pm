@@ -6,7 +6,7 @@ import { useWallet } from "@/lib/wallet";
 import { getHealth, getAdminState, faucet, type Health } from "@/lib/api";
 import { short } from "@/lib/format";
 
-const LINKS = [["/markets", "Markets"], ["/trade", "Trade"], ["/portfolio", "Portfolio"], ["/history", "History"], ["/admin", "Admin"]];
+const LINKS = [["/markets", "Markets"], ["/portfolio", "Portfolio"], ["/history", "History"], ["/admin", "Admin"]];
 
 export function TopNav() {
   const path = usePathname();
