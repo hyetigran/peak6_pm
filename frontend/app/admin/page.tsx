@@ -32,7 +32,7 @@ export default function Admin() {
   const run = async (label: string, fn: () => Promise<any>) => {
     setBusy(true); setMsg(null);
     try { const r = await fn(); setMsg(r?.msg ?? `${label} ✓${r?.sig ? " · " + String(r.sig).slice(0, 8) : ""}`); }
-    catch (e: any) { setMsg(`${label} failed: ${(e.message ?? "error").slice(0, 160)}`); }
+    catch (e: any) { console.error(e); setMsg(`${label}: Something went wrong`); }
     finally { setBusy(false); }
   };
   const togglePause = () => run(paused ? "Resume" : "Pause minting", async () => {

@@ -42,7 +42,7 @@ export default function Markets() {
   const [err, setErr] = useState<string | null>(null);
   const [, tick] = useState(0);
   useEffect(() => {
-    const load = () => getMarkets().then((d) => { setMarkets(d.markets); setErr(null); }).catch((e) => setErr(e.message));
+    const load = () => getMarkets().then((d) => { setMarkets(d.markets); setErr(null); }).catch((e) => { console.error(e); setErr("Something went wrong"); });
     load(); const t = setInterval(load, 3000); const c = setInterval(() => tick((x) => x + 1), 1000);
     return () => { clearInterval(t); clearInterval(c); };
   }, []);

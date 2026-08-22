@@ -63,7 +63,10 @@ export default function Trade() {
   const yesBal = useTokenBalance(m?.yes_mint);
   const noBal = useTokenBalance(m?.no_mint);
 
-  const usdcAta = () => quoteMint ? mx.ataFor(quoteMint, pubkey!) : null;
+  const usdcAta = () => {
+    if (!quoteMint) throw new Error("quote mint not loaded — is NEXT_PUBLIC_RPC pointed at the right cluster and the market Config initialized?");
+    return mx.ataFor(quoteMint, pubkey!);
+  };
   const ensure = useCallback(async (mints: PublicKey[], needOo: boolean, obMarket?: PublicKey) => {
     const ixs: any[] = [];
     // always ensure the USDC (quote) ATA — every trade references it, and a
@@ -82,7 +85,7 @@ export default function Trade() {
     if (!pubkey) return connect();
     setBusy(true); setMsg(null);
     try { await fn(); setMsg("Confirmed ✓"); }
-    catch (e: any) { setMsg((e.message ?? "failed").slice(0, 200)); }
+    catch (e: any) { console.error(e); setMsg("Something went wrong"); }
     finally { setBusy(false); }
   }, [pubkey, connect]);
 
