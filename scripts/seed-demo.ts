@@ -11,9 +11,13 @@ import { createMint, createAssociatedTokenAccount, mintTo } from "@solana/spl-to
 import fs from "node:fs";
 import * as m from "@meridian/sdk/meridian";
 import * as ob from "@meridian/sdk/openbook";
+import { resolveSeedConfig } from "./seed-config.js";
+
+/** Load a keypair from a JSON secret-key file path, or null if unset. */
+const loadKeypair = (path: string | undefined): Keypair | null =>
+  path ? Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(path, "utf8")))) : null;
 
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
-const OPENBOOK_PROGRAMDATA = new PublicKey("DktN5HJ9uHKVRZ7FXGap4PEGVnEdc2VNBCXTt1AqJQYB");
 const conn = new Connection(RPC, "confirmed");
 
 // all 7 MAG7 tickers: [id, name, priorClose$]. Strikes are derived (below).
@@ -40,9 +44,18 @@ async function send(ixs: TransactionInstruction[], signers: Keypair[]) {
 }
 
 async function main() {
-  const gov = Keypair.generate(), operator = Keypair.generate();
-  for (const kp of [gov, operator]) await conn.confirmTransaction(await conn.requestAirdrop(kp.publicKey, 200e9), "confirmed");
-  const quoteMint = await createMint(conn, gov, gov.publicKey, null, 6);
+  const cfg = resolveSeedConfig(process.env);
+  console.log(`[seed] mode=${cfg.mode}`);
+  // localnet generates throwaway authorities and airdrops them; devnet loads the
+  // real (externally funded) governance/operator keys — devnet has no faucet for
+  // 200 SOL, and these authorities must persist across runs.
+  const gov = loadKeypair(process.env.GOVERNANCE_KEYPAIR) ?? Keypair.generate();
+  const operator = loadKeypair(process.env.OPERATOR_KEYPAIR_PATH) ?? Keypair.generate();
+  if (cfg.mode === "localnet") {
+    for (const kp of [gov, operator]) await conn.confirmTransaction(await conn.requestAirdrop(kp.publicKey, 200e9), "confirmed");
+  }
+  // localnet mints its own test quote token; devnet uses the pinned Circle USDC.
+  const quoteMint = cfg.quoteMint ? new PublicKey(cfg.quoteMint) : await createMint(conn, gov, gov.publicKey, null, 6);
 
   // Fund a real wallet with test USD + SOL so it can trade in the browser
   // (defaults to the provided address; override with DEMO_WALLET).
@@ -56,10 +69,10 @@ async function main() {
   } catch (e) { console.error("could not fund DEMO_WALLET:", (e as Error).message); }
 
   await send([m.initializeConfigIx({
-    governance: gov.publicKey, quoteMint, openbookProgramData: OPENBOOK_PROGRAMDATA,
+    governance: gov.publicKey, quoteMint, openbookProgramData: new PublicKey(cfg.openbookProgramData),
     operator: operator.publicKey, pauseAuthority: gov.publicKey, overrideAuthority: gov.publicKey,
-    supportedTickerMask: 0xfe, openbookDeploymentSlot: 282042596n,
-    openbookExecutableSha256: Buffer.alloc(32, 0xaa), openbookUpgradeAuthority: PublicKey.default,
+    supportedTickerMask: 0xfe, openbookDeploymentSlot: cfg.openbookDeploymentSlot,
+    openbookExecutableSha256: cfg.openbookExecutableSha256, openbookUpgradeAuthority: new PublicKey(cfg.openbookUpgradeAuthority),
     minSamples: 3, maxStaleSlots: 1_000_000n, maxPriceBandBps: 50,
   })], [gov]);
 
@@ -77,16 +90,28 @@ async function main() {
   const FULL: [number, string, number, number[], bigint][] =
     SET.map(([t, n, p]) => [t, n, p, strikesFor(p), soonTickers.has(t) ? soonClose : cl]);
 
+  // localnet reads the harness mock feed; devnet points the transport at the real
+  // Switchboard oracle + per-ticker feed (the feed pubkeys are provided via
+  // SWITCHBOARD_FEEDS and land with the real oracle transport, #16).
+  const oracleProgram = cfg.oracleProgram ? new PublicKey(cfg.oracleProgram) : ob.HARNESS_PID;
+  const devnetFeeds: Record<string, string> = cfg.mode === "devnet" && process.env.SWITCHBOARD_FEEDS ? JSON.parse(process.env.SWITCHBOARD_FEEDS) : {};
+  const feedFor = (tid: number): PublicKey => {
+    if (cfg.mode !== "devnet") return ob.mockFeedPda(tid);
+    const f = devnetFeeds[String(tid)];
+    if (!f) throw new Error(`devnet: no Switchboard feed for ticker ${tid} (set SWITCHBOARD_FEEDS; feeds land with #16)`);
+    return new PublicKey(f);
+  };
+
   for (const [tid, name, prior, strikes, close] of FULL) {
-    const feed = ob.mockFeedPda(tid); // the harness mock delivery feed Meridian reads at settlement
+    const feed = feedFor(tid);
     transports[tid] = feed.toBase58();
-    await send([m.registerTransportIx({ governance: gov.publicKey, versionId: 1, tickerId: tid, feed, oracleProgram: ob.HARNESS_PID })], [gov]);
+    await send([m.registerTransportIx({ governance: gov.publicKey, versionId: 1, tickerId: tid, feed, oracleProgram })], [gov]);
     for (const s of strikes) {
       const strike = BigInt(s) * 1_000_000n;
       await send([m.createOutcomeMarketIx({
         operator: operator.publicKey, quoteMint, tickerId: tid, tradingDay: DAY, strike,
         versionId: 1, priorClose: BigInt(prior) * 1_000_000n, mintOpenTs: mo, tradeOpenTs: to, closeTs: close,
-        metadataManifest: Buffer.alloc(32, 7), normalDelaySecs: 0, overrideDelaySecs: 0,
+        metadataManifest: Buffer.alloc(32, 7), normalDelaySecs: cfg.normalDelaySecs, overrideDelaySecs: cfg.overrideDelaySecs,
       })], [operator]);
       // attach a venue so the market is Active
       const market = m.outcomeMarketPda(tid, DAY, strike);
@@ -109,7 +134,7 @@ async function main() {
         await send([m.publishMetadataIx({
           operator: operator.publicKey, market, yesMint, noMint: m.noMintPda(market),
           yesName: `${name} $${s} YES`, yesSymbol: "mYES", noName: `${name} $${s} NO`, noSymbol: "mNO",
-          uri: "https://meridian.markets",
+          uri: cfg.metadataUri.replace("{ticker}", name).replace("{strike}", String(s)),
         })], [operator]);
       } catch (e) { console.error(`\n[meta] ${name}-${s}:`, (e as Error).message.slice(0, 120)); }
       created++;
