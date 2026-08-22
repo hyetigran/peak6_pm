@@ -32,12 +32,9 @@ pub struct FinalizeSettlementNormal<'info> {
     pub delivery: UncheckedAccount<'info>,
 }
 
-/// A minimal delivery payload the mock feed and the (future) Switchboard
-/// adapter both produce: official close + observation slot + status.
 /// Offsets of the normalized delivery payload within the feed account's data
 /// (after the account's 8-byte header). The localnet mock feed and a devnet
-/// Switchboard adapter both present this layout.
-#[cfg(feature = "localnet")]
+/// Switchboard normalizer both present this layout.
 mod delivery {
     pub const CLOSE_1E6: usize = 8;
     pub const SLOT: usize = 16;
@@ -46,9 +43,19 @@ mod delivery {
     pub const MIN_LEN: usize = 66;
 }
 
-// On localnet the close/slot/halt/samples args are ignored in favour of the
-// feed account, so they read as unused there.
-#[cfg_attr(feature = "localnet", allow(unused_variables))]
+/// Read (official_close_1e6, halt_status, delivery_slot, sample_count) from the
+/// owner-pinned feed account's data. BOTH builds read the feed — the caller's
+/// args of the same name are advisory and always overridden here, so a cranker
+/// can never supply its own Official Close (fail-closed, ADR-0023).
+fn parse_delivery(data: &[u8]) -> Result<(u64, u8, u64, u8)> {
+    require!(data.len() >= delivery::MIN_LEN, MeridianError::SettlementHeaderMismatch);
+    let read_u64 = |o: usize| u64::from_le_bytes(data[o..o + 8].try_into().unwrap());
+    Ok((read_u64(delivery::CLOSE_1E6), data[delivery::HALT], read_u64(delivery::SLOT), data[delivery::SAMPLES]))
+}
+
+// The close/slot/halt/samples args are advisory — always overridden by the
+// feed read below — so they are unused in both builds.
+#[allow(unused_variables)]
 pub fn finalize_normal(
     ctx: Context<FinalizeSettlementNormal>,
     official_close_1e6: u64,
@@ -67,15 +74,12 @@ pub fn finalize_normal(
         MeridianError::WrongDeliveryOwner
     );
 
-    // On localnet the Official Close is READ from that feed account, never
-    // trusted from the caller. The account-read path is identical to
-    // production; only the writer differs.
-    #[cfg(feature = "localnet")]
+    // The Official Close is READ from the owner-pinned feed account, never
+    // trusted from the caller — in BOTH builds. Only the writer differs (the
+    // harness mock on localnet, a Switchboard normalizer on devnet).
     let (official_close_1e6, halt_status, delivery_slot, sample_count) = {
         let d = ctx.accounts.delivery.try_borrow_data()?;
-        require!(d.len() >= delivery::MIN_LEN, MeridianError::SettlementHeaderMismatch);
-        let read_u64 = |o: usize| u64::from_le_bytes(d[o..o + 8].try_into().unwrap());
-        (read_u64(delivery::CLOSE_1E6), d[delivery::HALT], read_u64(delivery::SLOT), d[delivery::SAMPLES])
+        parse_delivery(&d[..])?
     };
 
     let now = Clock::get()?.unix_timestamp;
@@ -147,4 +151,38 @@ pub fn finalize_manual(
     r.override_reason_code = reason_code;
     r.manual_evidence_manifest_sha256 = manifest_sha256;
     Ok(())
+}
+
+#[cfg(test)]
+mod delivery_tests {
+    use super::{delivery, parse_delivery};
+
+    // Build a minimal normalized delivery payload at the pinned offsets.
+    fn payload(close: u64, slot: u64, halt: u8, samples: u8) -> Vec<u8> {
+        let mut d = vec![0u8; delivery::MIN_LEN];
+        d[delivery::CLOSE_1E6..delivery::CLOSE_1E6 + 8].copy_from_slice(&close.to_le_bytes());
+        d[delivery::SLOT..delivery::SLOT + 8].copy_from_slice(&slot.to_le_bytes());
+        d[delivery::HALT] = halt;
+        d[delivery::SAMPLES] = samples;
+        d
+    }
+
+    #[test]
+    fn reads_the_normalized_layout() {
+        let (close, halt, slot, samples) = parse_delivery(&payload(204_590_000, 12_345, 1, 7)).unwrap();
+        assert_eq!(close, 204_590_000);
+        assert_eq!(halt, 1);
+        assert_eq!(slot, 12_345);
+        assert_eq!(samples, 7);
+    }
+
+    #[test]
+    fn rejects_an_undersized_account() {
+        assert!(parse_delivery(&vec![0u8; delivery::MIN_LEN - 1]).is_err());
+    }
+
+    #[test]
+    fn accepts_exactly_min_len() {
+        assert!(parse_delivery(&payload(1, 0, 0, 0)).is_ok());
+    }
 }

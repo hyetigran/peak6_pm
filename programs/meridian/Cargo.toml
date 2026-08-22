@@ -10,12 +10,12 @@ name = "meridian"
 
 [features]
 default = []
-# `localnet` relaxes the schedule/settlement timing floors AND supplies the
-# mock feed read in finalize_settlement. The strict/default (devnet) build
-# compiles that read out, so until the Switchboard adapter lands (#16) it uses
-# the instruction args; it also enforces the real settlement-delay floors and
-# bounds the trading session (ADR-0033) rather than pinning 3.5h/6.5h.
-# Localnet is for tests + demo only.
+# `localnet` relaxes ONLY the timing floors: it bounds the trading session
+# (ADR-0033) rather than pinning 3.5h/6.5h and drops the settlement-delay floors
+# so the demo can run in one sitting. Both builds READ the Official Close from
+# the owner-pinned delivery feed (finalize_settlement) — never from the caller;
+# only the feed's writer differs (harness mock on localnet, a Switchboard
+# normalizer on devnet, #16). Localnet is for tests + demo only.
 localnet = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
