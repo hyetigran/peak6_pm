@@ -42,8 +42,21 @@ const strikesFor = (prior: number): number[] =>
   [...new Set(STRIKE_BANDS_PCT.map((b) => Math.round((prior * (1 + b / 100)) / 10) * 10))].sort((a, b) => a - b);
 const DAY = 20260825;
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function send(ixs: TransactionInstruction[], signers: Keypair[]) {
-  return sendAndConfirmTransaction(conn, new Transaction().add(...ixs), signers, { commitment: "confirmed" });
+  // Retry transient RPC errors on a large devnet seed — a stale/forked blockhash
+  // or a 429 under load. sendAndConfirmTransaction fetches a fresh blockhash each
+  // call, so a retry usually clears it.
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try { return await sendAndConfirmTransaction(conn, new Transaction().add(...ixs), signers, { commitment: "confirmed" }); }
+    catch (e) {
+      lastErr = e; const msg = (e as Error).message ?? "";
+      if (!/Blockhash not found|429|Too Many Requests|node is behind|block height exceeded/i.test(msg)) throw e;
+      await sleep(500 * (attempt + 1));
+    }
+  }
+  throw lastErr;
 }
 
 async function main() {
