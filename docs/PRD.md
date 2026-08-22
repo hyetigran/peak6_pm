@@ -926,6 +926,19 @@ At-least-once scheduling is safe because every action is idempotent on-chain.
 See ADR-0031 and `docs/PRODUCTION_INFRA.md`; the always-on `services/keeper` loop
 is a localnet-demo affordance only.
 
+**Rolling creation (ADR-0032).** The 08:00/08:30 morning block above is a
+timing convenience, not a dependency: the strike ladder anchors on the prior
+Official Close, which is only known at settlement (~close+20m). So the next
+session's markets are created at **resolution + 5 minutes** (~close+30m), off
+the settlement job's completion, as a continuous roll rather than a next-morning
+batch — the chain is 24/7 and this is the earliest the anchor exists. Creation
+and trading stay decoupled (mint 09:00 / trade 09:30 are unchanged). The morning
+job's safety gates move with it: NYSE trading-day eligibility (ADR-0014) and the
+two-source Corporate Action Blackout (ADR-0022) are evaluated at creation for the
+target session, and a **pre-open re-validation gate** `abandon_market`s any
+market that stops qualifying before its mint window opens (critical across
+weekend/holiday gaps). The resolution window (close+15/20/25m) is unchanged.
+
 ### Intraday `add_strike`
 
 `add_strike(ticker, strike, day)` is operator-only and allowed while:

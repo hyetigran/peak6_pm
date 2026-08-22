@@ -35,8 +35,11 @@ event-driven cranking:
   gated on the Official Close being published; reschedules with backoff if the
   Switchboard feed is not yet available. Drains any residual EventHeap, then
   `finalize_settlement_normal` → `settle_market` per market.
-- **Market-open / `add_strike` job** — scheduler fires in the morning
-  generate→create→attach window (PRD §5, §6).
+- **Market-open / `add_strike` job** — fires at **resolution + 5m** (~close+30m),
+  off the settlement job's completion, anchored on the just-published Official
+  Close (ADR-0032). Runs generate→create→attach (PRD §5, §6) plus an
+  eligibility/Corporate-Action-Blackout re-validation gate that `abandon_market`s
+  a market that stops qualifying before its mint window (ADR-0014/0022).
 - **EventHeap cranking** — `onAccountChange` subscription per active heap; cranks
   only on growth. Inline-first settlement (ID-007) keeps heaps near-empty, so
   this is idle in the common path. A minutes-scale reconcile poll backstops a
