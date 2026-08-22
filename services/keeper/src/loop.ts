@@ -18,13 +18,17 @@ export function runUntilStopped(body: () => Promise<void>, delayMs: number, sign
   return new Promise<void>((resolve) => {
     if (signal.aborted) return resolve();
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const stop = () => { if (timer) clearTimeout(timer); resolve(); };
-    signal.addEventListener("abort", stop, { once: true });
+    // Abort BETWEEN ticks (timer pending) -> stop immediately. Abort DURING a
+    // body -> timer is null, so this no-ops and the post-body check below stops
+    // us AFTER the in-flight tick finishes (graceful drain). resolve() is safe
+    // to call more than once.
+    const onAbort = () => { if (timer !== null) { clearTimeout(timer); timer = null; resolve(); } };
+    signal.addEventListener("abort", onAbort, { once: true });
 
     const tick = async () => {
-      if (signal.aborted) return;
+      if (signal.aborted) return resolve(); // stop before starting a new body
       try { await body(); } catch { /* body logs its own errors */ }
-      if (signal.aborted) return; // don't schedule past an abort that landed mid-body
+      if (signal.aborted) return resolve(); // aborted mid-body -> finish this tick, then stop
       timer = setTimeout(tick, delayMs); // next tick only after this one completes -> no overlap
     };
     void tick();

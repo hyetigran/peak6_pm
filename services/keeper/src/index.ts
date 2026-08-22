@@ -11,7 +11,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import {
-  Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, sendAndConfirmTransaction,
+  Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, sendAndConfirmTransaction, ComputeBudgetProgram,
 } from "@solana/web3.js";
 import { runUntilStopped, withRetry } from "./loop.js";
 
@@ -21,6 +21,9 @@ const INDEXER = process.env.KEEPER_INDEXER ?? "http://127.0.0.1:8787";
 const CONFIG = process.env.DEMO_CONFIG ?? ".demo-config.json";
 const STATUS = process.env.KEEPER_STATUS ?? ".keeper-status.json";
 const TICK = Number(process.env.KEEPER_TICK ?? "5") * 1000;
+// Priority fee (microLamports/CU) prepended to every keeper tx — negligible on
+// localnet, tune up via env on a congested cluster.
+const PRIORITY_FEE_MICROLAMPORTS = Number(process.env.KEEPER_PRIORITY_FEE_MICROLAMPORTS ?? "1000");
 
 const MERIDIAN_PID = new PublicKey("HiREMEBWNojy6KJNbMbww2YkRJEYLGMgndaKwXndK6ZD");
 const OPENBOOK_PID = new PublicKey("opnb2LAfJYbRMAHHvqjCwQxanZn7ReEHp1k81EohpZb");
@@ -109,11 +112,16 @@ async function main() {
   const recent: string[] = []; // rolling activity log across ticks
   console.log(`[keeper] operator ${op.publicKey.toBase58()} · indexer ${INDEXER} · tick ${TICK / 1000}s`);
 
-  // Every send retries transient failures with backoff; safe because the actions
-  // are idempotent on-chain (settle/finalize re-check state, consume is bounded).
+  // Every send sets a priority fee and retries transient failures with backoff;
+  // retrying is safe because the actions are idempotent on-chain (settle/finalize
+  // re-check state, consume is bounded).
   const send = (ixs: TransactionInstruction[]) =>
     withRetry(
-      () => sendAndConfirmTransaction(conn, new Transaction().add(...ixs), [op], { commitment: "confirmed" }),
+      () => sendAndConfirmTransaction(
+        conn,
+        new Transaction().add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_FEE_MICROLAMPORTS }), ...ixs),
+        [op], { commitment: "confirmed" },
+      ),
       { retries: 2, baseMs: 400, onRetry: (a, e) => console.warn(`[keeper] send retry ${a}: ${(e as Error).message.slice(0, 60)}`) },
     );
 

@@ -62,3 +62,15 @@ test("runUntilStopped: resolves promptly on abort", async () => {
   await done; // resolves rather than hanging
   assert.ok(true);
 });
+
+test("runUntilStopped: aborting mid-body drains the in-flight tick before resolving", async () => {
+  const ac = new AbortController();
+  let bodyDone = false, resolvedEarly = false;
+  const body = async () => { await sleep(30); bodyDone = true; };
+  const done = runUntilStopped(body, 5, ac.signal).then(() => { if (!bodyDone) resolvedEarly = true; });
+  await sleep(10); // body is mid-flight
+  ac.abort();      // abort DURING the body
+  await done;
+  assert.equal(bodyDone, true, "the in-flight body must have completed");
+  assert.equal(resolvedEarly, false, "must not resolve before the in-flight tick finished");
+});
