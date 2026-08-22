@@ -37,7 +37,7 @@ const TICK = Number(process.env.MM_TICK ?? "30") * 1000;
 
 // Sizing — deliberately small ("a few dollars"). Levels per side at fair ± step.
 const SHARES = BigInt(process.env.MM_SHARES ?? "1");   // shares per price level
-const LEVELS = Number(process.env.MM_LEVELS ?? "2");    // price points per side
+const LEVELS = Number(process.env.MM_LEVELS ?? "1");    // price points per side (1 = minimal; 1 share is the venue floor)
 const STEP = Number(process.env.MM_STEP ?? "6");        // cents between levels
 const LOT = 1_000_000n;                                 // 1 share = 1e6 atoms
 const SPOT_BASE: Record<string, number> = { AAPL: 231, AMZN: 241, GOOGL: 204, META: 682, MSFT: 512, NVDA: 178, TSLA: 349 };
@@ -91,12 +91,20 @@ async function main() {
   }
 
   const seed = async (k: Mkt) => {
-    const st = state.markets[k.pubkey] ?? { ooIndex: state.nextOoIndex++, seeded: false, recycled: false };
+    const st = state.markets[k.pubkey] ?? { ooIndex: 0, seeded: false, recycled: false };
     state.markets[k.pubkey] = st;
     const yesMint = new PublicKey(k.yes_mint), noMint = new PublicKey(k.no_mint);
     const yesAta = getAssociatedTokenAddressSync(yesMint, mm.publicKey), noAta = getAssociatedTokenAddressSync(noMint, mm.publicKey);
+    // OpenOrders indices are sequential chain-wide (created_counter). Derive the
+    // next index from the LIVE counter when this market's OO account doesn't
+    // exist yet, so a state/chain drift can't push it past counter+1 (0x7d6).
+    const have = st.ooIndex ? await conn.getAccountInfo(ob.ooAccountPda(mm.publicKey, st.ooIndex)) : null;
+    if (!have) {
+      const ixAcct = await conn.getAccountInfo(ob.ooIndexerPda(mm.publicKey));
+      st.ooIndex = (ixAcct ? ixAcct.data.readUInt32LE(9) : 0) + 1; // created_counter @9 -> next index
+      await send([ob.createOoAccountIx(mm.publicKey, mm.publicKey, st.ooIndex, new PublicKey(k.openbook_market))]);
+    }
     const oo = ob.ooAccountPda(mm.publicKey, st.ooIndex);
-    if (!(await conn.getAccountInfo(oo))) await send([ob.createOoAccountIx(mm.publicKey, mm.publicKey, st.ooIndex, new PublicKey(k.openbook_market))]);
     saveState(state);
 
     // Mint the ask-backing Yes inventory (LEVELS*SHARES pairs) + ensure ATAs.
