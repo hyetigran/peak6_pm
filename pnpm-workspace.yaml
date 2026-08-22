@@ -11,3 +11,4 @@ allowBuilds:
   bigint-buffer: true
   bufferutil: true
   utf-8-validate: true
+  protobufjs: false

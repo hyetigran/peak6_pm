@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@solana/web3.js": "^1.95.8"
+    "@solana/web3.js": "^1.95.8",
+    "@pythnetwork/pyth-solana-receiver": "^0.16.0",
+    "@pythnetwork/hermes-client": "^3.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
