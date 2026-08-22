@@ -1,4 +1,5 @@
 import Link from "next/link";
+import ContourField from "../components/ContourField";
 
 // Landing page, ported from design_mockups "Meridian Landing.dc.html".
 // Loom IDs come from env so the placeholders in the mockup never ship.
@@ -32,6 +33,7 @@ export default function Home() {
       </header>
 
       <section className="landing-hero">
+        <ContourField className="landing-contours" />
         <div className="landing-eyebrow mono">MERIDIAN · TAKE-HOME SUBMISSION</div>
         <h1 className="landing-headline">Thank you for the opportunity to interview for the AI Engineer role at Peak6.</h1>
         <p className="landing-subhead">
