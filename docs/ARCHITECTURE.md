@@ -1,7 +1,7 @@
 # Meridian — Architecture
 
-**Version:** 1.2 (ADR-0034: Pyth replaces Switchboard as the settlement transport; field names `switchboard_*` → `oracle_*`, layout unchanged)
-**Date:** 2026-08-20  
+**Version:** 1.3 (component/deployment/repo sections reconciled with the shipped services: `services/keeper` entrypoints, `services/marketmaker`, `programs/pyth-adapter`, `packages/sdk`, Docker/Railway/Vercel topology). 1.2: ADR-0034, Pyth replaces Switchboard as the settlement transport; field names `switchboard_*` → `oracle_*`, layout unchanged
+**Date:** 2026-08-22  
 **Status:** M0 validation candidate; full build pending non-waiverable gates
 **Product plan:** `docs/PRD.md` / Meridian Implementation Plan v0.8
 **PRD SHA-256:** `1621c24df9a37e4b9fd6399f7c4ba8e419165ea636ea9326d113be40fbd3f089`
@@ -99,7 +99,9 @@ The architecture separates:
 
 - **write path:** wallet/automation -> Meridian/OpenBook/Pyth adapter on Solana;
 - **read path:** Solana/OpenBook/Pyth-adapter delivery accounts -> indexer -> REST/WS -> frontend;
-- **automation path:** operator jobs + EventHeap keeper + settlement orchestration;
+- **automation path:** operator jobs + EventHeap keeper + settlement orchestration (`services/keeper`);
+- **liquidity path (demo only):** `services/marketmaker` rests two-sided Yes quotes through the Meridian gateway with its own key; it is not part of the protocol and holds no Config role;
+- **assurance path:** the identity monitor re-derives the pinned OpenBook and oracle-adapter executable identities out-of-band and alerts on drift (ADR-0030);
 - **governance path:** cold/separate authorities, not service hot keys.
 
 ---
@@ -109,9 +111,11 @@ The architecture separates:
 ```mermaid
 flowchart LR
     U[User Wallet]
-    FE[Next.js / Umi Frontend]
+    FE[Next.js Frontend<br/>wallet-adapter + @meridian/sdk]
     IDX[Indexer<br/>SQLite + REST/WS]
-    AUTO[Automation / Keeper<br/>operator key only]
+    AUTO[Keeper<br/>scheduler + EventHeap crank<br/>operator key only]
+    IDM[Identity monitor<br/>no key]
+    MM[Demo market-maker<br/>own liquidity key]
     GOV[Governance / Privileged Roles]
     RPC[Solana RPC / WS]
 
@@ -129,6 +133,10 @@ flowchart LR
     FE <-->|book, history, P&L, prices| IDX
 
     AUTO -->|creation, keeper, public feed update, settle| RPC
+    MM -->|mint pairs, PostOnly Yes quotes via Meridian gateway| RPC
+    IDM -->|read-only: re-derive OpenBook + adapter identity| RPC
+    AUTO <-->|status files / markets| IDX
+    MM <-->|markets, book| IDX
     GOV -->|governance / pause / override txs| RPC
 
     RPC --> M
@@ -237,6 +245,7 @@ External publication source for the Official Close. Selection is a go/no-go cali
 | `pause_authority`         | separate               | global/per-market pause, one-way bounded-reason permanent pause, conditional Emergency Expiry after M0 | settle or mutate terms                                |
 | `override_authority`      | isolated cold key on demo devnet; mandatory multisig for non-demo | after the immutable delay, attest two normalized equal manual values and their evidence manifest | bypass delay/equality/digest checks, choose an outcome bit directly, create, or trade |
 | `governance`              | cold/separate          | two-step Config-role rotation, future settlement params, Settlement Transport Version registration/activation | rewrite Outcome Market or Settlement Record snapshots  |
+| market-maker key (demo)   | hot, outside Config    | mint Yes/No pairs for inventory and rest/cancel PostOnly quotes through the Meridian order gateway, exactly like any user wallet | hold any Config role; it has no protocol privilege and its absence only removes demo liquidity |
 | program upgrade authority | dedicated cold deployer | program upgrades during the proof-of-concept milestones; publish program-data/hash/slot proof | load into services; non-demo use without multisig       |
 
 Governance proposes replacements for every Config role—governance, operator, Pause Authority, and Override Authority—and the incoming key must accept. Operational roles cannot rotate themselves. Program upgrade authority transfers through the Solana loader rather than Config governance. Transfer of program upgrade authority to the published 2-of-3 multisig is a mandatory final-demo acceptance gate; every non-demo deployment requires multisignature control for both program upgrades and Manual Settlement Override. Live instruction coverage, labeled-demo key collapse, and custody rules are in [`docs/GOVERNANCE.md`](./GOVERNANCE.md).
@@ -271,38 +280,67 @@ Must not contain:
 - arbitrary external CPI addresses;
 - frontend-derived authority assumptions.
 
-### 4.2 `packages/common`
+### 4.2 `packages/sdk` (`@meridian/sdk`)
 
-Pure/shared TypeScript domain logic:
+One workspace package with two entrypoints, shared by the keeper, the
+market-maker, the indexer, the scripts, and the frontend. It replaces the
+`packages/common` + `packages/openbook-adapter` split from earlier revisions.
 
-- ticker enum;
-- strike engine;
-- NYSE calendar;
-- fixed-point helpers;
-- address derivation;
-- transaction composition helpers;
+`@meridian/sdk/meridian` — Meridian-side domain logic and builders:
+
+- ticker enum and wire discriminants (§6);
+- PDA derivation for every canonical seed (§5.1);
+- instruction builders for the Meridian program (create/attach/place/take/redeem/settle/…);
+- fixed-point and lot/price helpers;
 - shared error/result types.
 
-No secrets.
+`@meridian/sdk/openbook` — the boundary around the pinned OpenBook V2 v1.7 client:
 
-### 4.3 `packages/openbook-adapter`
-
-Boundary around OpenBook client/types.
-
-Responsibilities:
-
-- decode pinned OpenBook accounts;
+- decode pinned OpenBook accounts (market, book sides, EventHeap, OpenOrders);
 - derive OpenOrdersIndexer/OpenOrders addresses using official client rules;
-- build recovery instructions such as cancel and consumed-event helpers;
+- build recovery instructions such as cancel and consume-events helpers;
 - build account lists for Meridian wrappers;
-- expose normalized market/book/OpenOrders types;
-- golden-test against pinned v1.7 client.
+- expose normalized market/book/OpenOrders types.
 
-Application code outside this package does not import raw OpenBook/web3.js/Anchor venue types.
+Application code outside `@meridian/sdk/openbook` does not import raw OpenBook
+venue types. The package holds no secrets and no network code beyond what the
+builders need to read accounts.
 
-### 4.4 `services/automation`
+### 4.3 `programs/pyth-adapter` and `programs/m0-harness`
 
-Single service may host multiple workers, but responsibilities remain logically separated:
+`programs/pyth-adapter` is the current Settlement Transport (ADR-0017 versioned
+transports, ADR-0034). It reads a verified Pyth `PriceUpdateV2` and writes the
+frozen normalized delivery layout Meridian's `finalize_settlement` reads
+(`official_close_1e6@8, delivery_slot@16, observed_ts@24, halt_status@32,
+sample_count@33`) into the per-ticker delivery PDA it owns. Swapping oracles is a
+new adapter plus a new transport version; `programs/meridian` never changes.
+Pyth carries no Official-Close or halt semantics, so the adapter feeds the
+labeled synthetic devnet demo (ADR-0028), not the ADR-0021 Official-Close proof.
+
+`programs/m0-harness` is **not** a production program. It exists only to prove
+the M0 hard gates (§23) against the pinned OpenBook build; it owns the
+`venue_authority` of its test Venue Markets and may never grow fee or
+collateral-withdrawal plumbing.
+
+### 4.4 `services/keeper`
+
+One package, three entrypoints (all in `services/keeper/src`), selected by the
+`package.json` script / `SERVICE_ENTRY` (§20):
+
+| Entrypoint | Script | Shape | Key |
+| --- | --- | --- | --- |
+| `index.ts` | `pnpm start` (`make keeper`) | always-on per-second poll loop; **localnet demo affordance only** | operator |
+| `scheduler.ts` | `pnpm prod` (`make keeper-prod`) | production shape: two scheduled jobs/day + subscription-driven EventHeap crank, lock file + durable run-ledger (ADR-0031/0035) | operator |
+| `identity-monitor.ts` | `pnpm monitor` (`make identity-monitor`) | independent re-derivation of the pinned OpenBook + oracle-adapter executable identity; alerts on drift via `ALERT_WEBHOOK_URL` (ADR-0030) | none |
+
+Supporting modules: `calendar.ts` (NYSE calendar), `eligibility.ts` +
+`blackout.ts` (pre-open eligibility and Corporate Action Blackout gate),
+`crank.ts` + `loop.ts` (EventHeap consume/reconcile), `oracle.ts`,
+`pyth-capture.ts`, `pyth-crank.ts`, `pyth-adapter.ts` (Hermes pull → post →
+adapter crank → finalize), `identity.ts`, `alerter.ts`, `runner.ts`,
+`schedule.ts`, `indexer.ts` (reads the indexer's read model; never writes it).
+
+The workers stay logically separated:
 
 - strike creation scheduler;
 - intraday `add_strike` runner;
@@ -320,11 +358,13 @@ lifecycle times fixed in PRD §5, and the EventHeap keeper is driven by an
 **account subscription** (idle in the inline-first common path, §8.3), *not* a
 shared per-second polling loop (ADR-0031). At-least-once scheduling is safe
 because every action is idempotent on-chain. The always-on second-by-second
-loop in `services/keeper` is a localnet-demo affordance and is explicitly not the
+loop in `index.ts` is a localnet-demo affordance and is explicitly not the
 production shape; production topology (scheduler substrate, redundancy, secrets,
 observability) is `docs/PRODUCTION_INFRA.md`.
 
-Only `OPERATOR_KEYPAIR_PATH` is loaded by the service.
+Only `OPERATOR_KEYPAIR_PATH` is loaded by the keeper entrypoints; the identity
+monitor loads no key at all. Health is published as a JSON status file
+(`KEEPER_STATUS`) the indexer serves to the ops console.
 
 ### 4.5 `services/indexer`
 
@@ -342,11 +382,36 @@ Responsibilities:
 - expose REST/WS;
 - expose EventHeap health.
 
-It owns no protocol key and cannot write protocol state.
+It owns no protocol key and cannot write protocol state. Besides chain data it
+serves the keeper's and market-maker's status files (`KEEPER_STATUS`,
+`MM_STATUS`) and the demo faucet/config so the ops console has one read
+surface.
 
-### 4.6 `frontend`
+### 4.6 `services/marketmaker`
 
-Next.js + Umi.
+Demo liquidity, not a strategy and not part of the protocol. It exists so the
+order books, marks, and implied probabilities are live and so the keeper's
+`consume_events` path has real fills to drain.
+
+- funds its own wallet (localnet: fresh each `--reset`; devnet: keypair from env);
+- mints Yes/No pairs for inventory through Meridian;
+- rests PostOnly Yes bids/asks around a fair value derived from the same mock
+  spot map the keeper uses, re-quoting every `MM_TICK` seconds;
+- on devnet (`src/devnet.ts`) runs a settle-recycle loop: after settlement it
+  redeems winners and re-funds the next day's inventory (ADR-0033);
+- reads markets/book from the indexer; writes only user-level transactions
+  through the Meridian order gateway (§7.5), exactly like a wallet.
+
+It holds no Config role. Its key is a hot, demo-only key; compromising it loses
+the demo liquidity and nothing else.
+
+### 4.7 `frontend`
+
+Next.js 14 (App Router) + wallet-adapter, building transactions with
+`@meridian/sdk`. Routes: `/` landing, `/markets`, `/trade/[market]`,
+`/portfolio`, `/history`, `/admin` (ops console). Hosted on Vercel; it holds
+no key and talks only to a public RPC and the indexer (`NEXT_PUBLIC_*`, inlined
+at build time).
 
 Responsibilities:
 
@@ -1638,14 +1703,14 @@ UI components
   ↓
 domain actions
   ↓
-Meridian transaction builders
+Meridian transaction builders (`@meridian/sdk`)
   ↓
-Umi transaction builder / wallet-adapter
+web3.js Transaction + wallet-adapter signing
   ↓
 Solana RPC
 ```
 
-OpenBook raw types live only in `packages/openbook-adapter`.
+OpenBook raw types live only in `@meridian/sdk/openbook`.
 
 ### 15.2 Directional Guardrail
 
@@ -2009,7 +2074,9 @@ OpenBook remains source of truth for venue fill/order events; Meridian trading e
 - provider latency/error rate;
 - public feed/final-record status;
 - Live Underlying Price age/delay state;
-- operator SOL balance.
+- operator SOL balance;
+- identity monitor: last check time, drift verdict per dimension (program id, ProgramData, slot, authority, executable hash);
+- market-maker: last quote time, resting size per venue, inventory, wallet balances (`MM_STATUS`).
 
 ### 19.4 Alerts
 
@@ -2059,17 +2126,20 @@ The secret comes only from `ALERT_WEBHOOK_HMAC_SECRET_PATH`; it is read from its
 ### 20.1 Local development
 
 ```text
-local validator
-  + Meridian program
-  + cloned/pinned OpenBook v1.7
-  + test quote mint
-  + synthetic Settlement Record fixture
-  + automation
-  + indexer
-  + Next.js
+solana-test-validator --reset            (scripts/localnet.sh)
+  + Meridian program (localnet feature)
+  + pinned OpenBook v1.7 artifact at the devnet id
+  + Pyth receiver + pyth-adapter (cloned / local)
+  + test quote mint, demo faucet
+  + seeded markets                       (scripts/seed-demo.ts)
+  + indexer            :8787
+  + keeper             index.ts poll loop
+  + market-maker       (optional, make marketmaker)
+  + Next.js            :3100
 ```
 
-Used by `make dev` and deterministic local tests.
+Used by `make demo` (`scripts/demo.sh` — one command, Ctrl-C tears everything
+down) and by the gate/test targets (`make g2` … `make meridian-test`).
 
 ### 20.2 Devnet pass topology
 
@@ -2081,12 +2151,15 @@ Solana devnet
   pinned Circle Solana Devnet USDC
 
 off-chain
-  public Official-Close provider
-  labeled public-HTTPS synthetic demo source
-  automation service
-  indexer + SQLite
-  Next.js frontend
+  public Official-Close provider (Pyth via Hermes)
+  Railway  — one Docker image, SERVICE_ENTRY selects the process:
+             indexer   SERVICE_ENTRY=services/indexer/src/index.ts   (+ /data volume for SQLite)
+             keeper    SERVICE_ENTRY=services/keeper/src/scheduler.ts
+             (identity-monitor and marketmaker devnet.ts run the same way when enabled)
+  Vercel   — frontend, Root Directory `frontend`, NEXT_PUBLIC_RPC / NEXT_PUBLIC_INDEXER / NEXT_PUBLIC_MERIDIAN
 ```
+
+Details: `docs/DEPLOYMENT.md`, `docs/DEPLOY_RAILWAY.md`, `docs/DEVNET_DEPLOY.md`.
 
 `make demo-devnet` deterministically demonstrates plumbing with a clearly labeled synthetic Settlement Record. `make oracle-e2e-devnet` separately proves the real Nasdaq Official Close/provider path and is a non-waiverable M0 pass path. Synthetic evidence cannot satisfy provider-finality or production-readiness claims.
 
@@ -2096,7 +2169,7 @@ A localhost/RFC1918 Hermes or RPC endpoint is invalid for remote Pyth operation.
 
 ### 20.3 Secrets
 
-Only service processes that need a role load that key.
+Only service processes that need a role load that key: the keeper entrypoints load `OPERATOR_KEYPAIR_PATH`; the market-maker loads its own liquidity key; the indexer, identity monitor, and frontend load none. `docs/GOVERNANCE.md` covers the cold keys.
 
 Automation:
 
@@ -2145,85 +2218,41 @@ Only `OPERATOR_KEYPAIR_PATH` above is a protocol role; the remaining entries are
 ## 21. Repository Architecture
 
 ```text
-meridian/
+peak6_pm/
 ├─ programs/
-│  └─ meridian/
-│     ├─ src/
-│     │  ├─ lib.rs
-│     │  ├─ constants.rs
-│     │  ├─ error.rs
-│     │  ├─ events.rs
-│     │  ├─ state/
-│     │  │  ├─ config.rs
-│     │  │  ├─ feed_version.rs
-│     │  │  ├─ settlement_record.rs
-│     │  │  └─ market.rs
-│     │  ├─ instructions/
-│     │  │  ├─ admin/
-│     │  │  ├─ market/
-│     │  │  ├─ trading/
-│     │  │  └─ settlement/
-│     │  ├─ openbook/
-│     │  │  ├─ cpi.rs
-│     │  │  ├─ validation.rs
-│     │  │  └─ math.rs
-│     │  └─ settlement/
-│     │     ├─ verifier.rs
-│     │     └─ quality.rs
-│     └─ Cargo.toml
+│  ├─ meridian/                 # the protocol program (Anchor); `localnet` feature relaxes schedule floors
+│  ├─ pyth-adapter/             # Settlement Transport: Pyth PriceUpdateV2 -> normalized delivery PDA
+│  └─ m0-harness/               # M0 gate harness against pinned OpenBook; never production
 │
 ├─ packages/
-│  ├─ common/
-│  ├─ meridian-client/          # generated/Codama Umi client
-│  └─ openbook-adapter/
+│  └─ sdk/                      # @meridian/sdk — ./meridian (PDAs, builders) and ./openbook (pinned client boundary)
 │
 ├─ services/
-│  ├─ automation/
-│  │  ├─ src/jobs/
-│  │  ├─ src/keeper/
-│  │  ├─ src/calendar/
-│  │  ├─ src/settlement/correction-monitor/
-│  │  └─ src/alerts/
-│  ├─ indexer/
-│  │  ├─ src/ingest/
-│  │  ├─ src/projections/
-│  │  ├─ src/api/
-│  │  └─ migrations/
-│  └─ demo-source/              # labeled public-HTTPS synthetic record source
+│  ├─ indexer/                  # src/{index,ingest,layout,db,api,admin}.ts — SQLite + REST
+│  ├─ keeper/                   # src/index.ts (demo loop), src/scheduler.ts (prod), src/identity-monitor.ts
+│  │                            #   + calendar, eligibility, blackout, crank, loop, oracle, pyth-* modules
+│  └─ marketmaker/              # src/index.ts (localnet), src/devnet.ts (settle-recycle)
 │
-├─ frontend/
-│  ├─ app/
-│  ├─ components/
-│  ├─ domain/
-│  ├─ data/
-│  └─ transactions/
+├─ frontend/                    # Next.js 14 app router: app/{markets,trade/[market],portfolio,history,admin}, components/, lib/
 │
-├─ scripts/
-│  ├─ deploy/
-│  ├─ openbook/
-│  ├─ feeds/
-│  ├─ multisig/
-│  └─ demo/
+├─ scripts/                     # localnet.sh, demo.sh, seed-config.ts, seed-demo.ts, register-pyth-transports.ts,
+│                               #   pyth-local.sh, pyth-settle-e2e.sh, book-demo.ts, run-suite.sh, *-smoke.sh
 │
-├─ tests/
-│  ├─ strike-engine/
-│  ├─ program/
-│  ├─ openbook-integration/
-│  ├─ adversarial/
-│  ├─ oracle/
-│  ├─ devnet/
-│  └─ playwright/
+├─ tests/                       # flat node:test suites: g2..g12 gates, meridian-*.test.ts, keeper-*.test.ts,
+│  └─ lib/                      #   pyth-*.test.ts, seed-config.test.ts; shared helpers in lib/
 │
 ├─ docs/
-│  ├─ adr/
-│  ├─ runbooks/
-│  ├─ PRD.md
-│  ├─ ARCHITECTURE.md
-│  └─ REQUIREMENTS.md
+│  ├─ adr/                      # ADR-0001 … ADR-0037 + gate measurement JSON
+│  ├─ agents/
+│  ├─ PRD.md · REQUIREMENTS.md · ARCHITECTURE.md · GOVERNANCE.md
+│  ├─ PRODUCTION_INFRA.md · DEPLOYMENT.md · DEPLOY_RAILWAY.md · DEVNET_DEPLOY.md · ORACLE_SETUP.md
+│  └─ UI_WALKTHROUGH.md · DEMO_VIDEOS.md · screenshots/
 │
+├─ Dockerfile                   # one image for indexer/keeper; SERVICE_ENTRY picks the process
+├─ Anchor.toml · Cargo.toml · pnpm-workspace.yaml · package.json
+├─ Makefile                     # build, localnet, demo, keeper, keeper-prod, identity-monitor, marketmaker, g*/meridian-test
 ├─ README.md
-├─ Makefile
-└─ .env.example
+└─ .env.example                 # frontend/.env.example holds the NEXT_PUBLIC_* set
 ```
 
 ---
@@ -2501,7 +2530,7 @@ The architecture is ready for build handoff when:
 - the signed alert receiver integration test passes before unattended operation;
 - the final-demo acceptance script verifies actual Meridian ProgramData authority is the published Squads V4 vault PDA after the two-approval, hash-verified loader flow;
 - M0 has a signed go/no-go report and no non-waived safety failure.
-- the root README passes M6 clean-clone review and documents prerequisites, `.env.example`, `make dev`, `make demo-devnet`, `make oracle-e2e-devnet`, synthetic-versus-real evidence labels, devnet-only scope, and risk limits.
+- the root README passes M6 clean-clone review and documents prerequisites, `.env.example`, `make demo`, `make demo-devnet`, `make oracle-e2e-devnet`, synthetic-versus-real evidence labels, devnet-only scope, and risk limits.
 
 Once those conditions hold, Codex/Claude/Cursor implementation agents should build from:
 
