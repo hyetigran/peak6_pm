@@ -10,8 +10,11 @@ name = "meridian"
 
 [features]
 default = []
-# Relaxes ONLY schedule/settlement timing floors for localnet tests + demo.
-# The default (devnet) build enforces the real 3.5h/6.5h sessions and delays.
+# `localnet` relaxes the schedule/settlement timing floors AND supplies the
+# mock feed read in finalize_settlement. The strict/default (devnet) build
+# compiles that read out, so until the Switchboard adapter lands (#16) it uses
+# the instruction args; it also enforces the real 3.5h/6.5h sessions and delays.
+# Localnet is for tests + demo only.
 localnet = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []

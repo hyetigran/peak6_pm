@@ -126,6 +126,7 @@ DEMO_WALLET=<your-localnet-pubkey> make demo
 ```bash
 make fixture-verify   # SHA-256 the pinned .so files
 make build            # SBF: m0-harness + meridian (localnet feature)
+make build-devnet     # SBF: meridian only, STRICT (no localnet feature) + manifest
 make localnet         # validator with OpenBook v1.7 + both programs + Squads V4
 make meridian-test    # foundation + trading + settlement suites
 make m0               # G2–G10 and G12 harness suites (G11 is not in this target)

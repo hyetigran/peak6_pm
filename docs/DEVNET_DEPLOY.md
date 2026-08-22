@@ -28,8 +28,8 @@ authorize mainnet or real funds — devnet/test value only (ADR-0020, PRD §15).
 
 ## Phase 1 — Build & identity capture (must precede `initialize_config`)
 
-- [ ] **[code] Strict (non-localnet) build.** The current `make build` compiles meridian with `--features localnet`, which relaxes the schedule/settlement timing floors (`market/mod.rs::validate_schedule`, `finalize_settlement.rs`). **Devnet must build WITHOUT that feature.** Add a `make build-devnet` target: `cargo build-sbf --manifest-path programs/meridian/Cargo.toml` (no `--features localnet`). The m0-harness and its `publish_mock_feed` mock feed are **localnet-only** and must not be deployed to devnet.
-- [ ] Record the reproducible meridian executable SHA-256 and commit hash (deployment manifest).
+- [x] **[code] Strict (non-localnet) build — done (#23).** `make build-devnet` compiles meridian with `cargo build-sbf --manifest-path programs/meridian/Cargo.toml` (no `--features localnet`), so the real schedule/settlement floors and the `not(localnet)` settlement path are active. It does **not** build the m0-harness / `publish_mock_feed` (localnet-only, never deployed to devnet). The strict path compiles clean (no errors). NOTE: with `localnet` off, `finalize_settlement` no longer reads the mock feed — until the Switchboard adapter lands (#16) it settles on the instruction args, so #16 gates a real deploy.
+- [x] **Reproducible manifest — done (#23).** `make build-devnet` emits `target/deploy/meridian-devnet.manifest` with the commit hash, executable SHA-256, and program id.
 - [ ] **[ops] Capture OpenBook identity (G1 / ADR-0030):** `OPENBOOK_PROGRAMDATA_ADDRESS`, `OPENBOOK_DEPLOYMENT_SLOT`, `OPENBOOK_EXECUTABLE_SHA256`, `OPENBOOK_UPGRADE_AUTHORITY`. These feed `initialize_config`. A mismatch later fails closed.
 - [ ] **[ops] Capture Switchboard identity:** `SWITCHBOARD_PROGRAM_ID`, `_PROGRAMDATA_ADDRESS`, `_DEPLOYMENT_SLOT`, `_EXECUTABLE_SHA256`, `_UPGRADE_AUTHORITY` (per-transport, ID-014). These feed `register_transport`.
 - [ ] **[gate] G11:** freeze and sign the settlement-quality bounds (`min_samples`, `max_stale_slots`, `max_sample_spread_bps`, `max_price_band_bps`) before M1.
@@ -113,8 +113,8 @@ Test status at last run: meridian foundation 6/6, trading 5/5, settlement 4/4, h
 
 ## The three real code gaps before a devnet demo
 
-1. **`make build-devnet`** — strict build without the `localnet` feature (Phase 1).
-2. **Switchboard On-Demand adapter** — replace the localnet mock-feed read/write with the real feed (Phase 4); the owner-pin plumbing is already in place.
-3. **Identity-drift monitor** — the ADR-0030 fail-closed alerting tool (Phase 7).
+1. ~~**`make build-devnet`** — strict build without the `localnet` feature (Phase 1).~~ **Done (#23).**
+2. **Switchboard On-Demand adapter** — replace the localnet mock-feed read/write with the real feed (Phase 4); the owner-pin plumbing is already in place. (#16, blocked by #9; needs #23.)
+3. **Identity-drift monitor** — the ADR-0030 fail-closed alerting tool (Phase 7). (#25.)
 
 Everything else is ops (keys, funding, feed creation) or the M6 Squads acceptance choreography.

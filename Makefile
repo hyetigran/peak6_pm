@@ -1,4 +1,4 @@
-.PHONY: build fixture-verify localnet keeper marketmaker services-install g2 g3 g4 g5 g6 g7 g8 g9 g10 g12 m0 meridian-test demo indexer
+.PHONY: build build-devnet fixture-verify localnet keeper marketmaker services-install g2 g3 g4 g5 g6 g7 g8 g9 g10 g12 m0 meridian-test demo indexer
 
 fixture-verify:
 	@echo "a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8  fixtures/openbook_v2-v1.7.so" | shasum -a 256 -c -
@@ -9,6 +9,19 @@ build: fixture-verify
 	cargo build-sbf --manifest-path programs/m0-harness/Cargo.toml
 	cargo build-sbf --manifest-path programs/meridian/Cargo.toml --features localnet
 	cp wallets/meridian-program.json target/deploy/meridian-keypair.json
+
+# Strict, devnet-bound build: NO `localnet` feature (enforces the real
+# schedule/settlement floors and the not(localnet) settlement-read path), and
+# the m0-harness (mock feed) is intentionally NOT built or deployed to devnet.
+# Emits a reproducible manifest: commit + executable SHA-256 + program id.
+build-devnet: fixture-verify
+	cargo build-sbf --manifest-path programs/meridian/Cargo.toml
+	cp wallets/meridian-program.json target/deploy/meridian-keypair.json
+	@printf 'commit  %s\nsha256  %s\nprogram %s\n' \
+	  "$$(git rev-parse HEAD)" \
+	  "$$(shasum -a 256 target/deploy/meridian.so | awk '{print $$1}')" \
+	  "$$(solana-keygen pubkey wallets/meridian-program.json)" \
+	  | tee target/deploy/meridian-devnet.manifest
 
 localnet: build
 	./scripts/localnet.sh
