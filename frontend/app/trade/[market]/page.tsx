@@ -40,11 +40,18 @@ export default function Trade() {
     const load = () => { getMarket(pk).then(setM).catch(() => {}); getBook(pk).then(setBook).catch(() => {}); };
     load(); const t = setInterval(() => { load(); force((x) => x + 1); }, 1500); return () => clearInterval(t);
   }, [pk]);
+  // Quote (USDC) mint from the on-chain Config. Every trade references it, so a
+  // one-shot fetch that swallows a transient RPC failure would leave the page
+  // permanently unable to buy — poll until it lands, then stop.
   useEffect(() => {
-    conn.getAccountInfo(mx.configPda()).then((info) => {
+    if (quoteMint) return;
+    let stop = false;
+    const load = () => conn.getAccountInfo(mx.configPda()).then((info) => {
+      if (stop) return;
       if (info) setQuoteMint(new PublicKey(info.data.subarray(8 + 2 + 32 * 8, 8 + 2 + 32 * 8 + 32)));
     }).catch(() => {});
-  }, []);
+    load(); const t = setInterval(load, 3000); return () => { stop = true; clearInterval(t); };
+  }, [quoteMint]);
   useEffect(() => { if (m) getMarkets().then((d) => setSiblings(d.markets.filter((x) => x.ticker === m.ticker))).catch(() => {}); }, [m?.ticker]);
   useEffect(() => setBookView(outcome), [outcome]);
   // your resting orders on this book (live from the chain)
