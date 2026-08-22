@@ -77,7 +77,7 @@ export function resolveSeedConfig(env: Env): SeedConfig {
 
   return {
     mode: "devnet",
-    quoteMint: env.QUOTE_MINT ?? CIRCLE_DEVNET_USDC, // Circle devnet USDC by default (ADR-0015)
+    quoteMint: env.QUOTE_MINT || CIRCLE_DEVNET_USDC, // Circle devnet USDC by default (ADR-0015); empty falls back too
     openbookProgramData,
     openbookDeploymentSlot,
     openbookExecutableSha256: sha,

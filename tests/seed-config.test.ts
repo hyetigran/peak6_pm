@@ -10,9 +10,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { resolveSeedConfig, NORMAL_DELAY_FLOOR, OVERRIDE_DELAY_FLOOR } from "../scripts/seed-config.js";
 
+const CIRCLE_DEVNET_USDC = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 const DEVNET_ENV: Record<string, string> = {
   DEMO_MODE: "devnet",
-  QUOTE_MINT: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+  QUOTE_MINT: CIRCLE_DEVNET_USDC,
   OPENBOOK_EXECUTABLE_SHA256: "a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8",
   OPENBOOK_UPGRADE_AUTHORITY: "Cax5s8CjmHiCNVLLnc3D5Aht5Uv2Fk37gfsMoccddPTn",
   METADATA_URI: "https://meridian.markets/meta/{ticker}-{strike}.json",
@@ -52,10 +53,11 @@ test("devnet: each required identity throws when missing", () => {
   }
 });
 
-test("devnet: QUOTE_MINT defaults to Circle devnet USDC, override respected", () => {
+test("devnet: QUOTE_MINT defaults to Circle devnet USDC (unset or empty), override respected", () => {
   const noMint = { ...DEVNET_ENV };
   delete noMint.QUOTE_MINT;
-  assert.equal(resolveSeedConfig(noMint).quoteMint, "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+  assert.equal(resolveSeedConfig(noMint).quoteMint, CIRCLE_DEVNET_USDC);
+  assert.equal(resolveSeedConfig({ ...DEVNET_ENV, QUOTE_MINT: "" }).quoteMint, CIRCLE_DEVNET_USDC);
   assert.equal(resolveSeedConfig({ ...DEVNET_ENV, QUOTE_MINT: "9nZ2u5FakeMintForTest1111111111111111111111" }).quoteMint, "9nZ2u5FakeMintForTest1111111111111111111111");
 });
 
