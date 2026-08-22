@@ -14,6 +14,7 @@
 //! (ADR-0028), not the ADR-0021 NOCP proof (that's the Switchboard track).
 
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::hash::hashv;
 use pyth_solana_receiver_sdk::price_update::{get_feed_id_from_hex, PriceUpdateV2};
 
 declare_id!("Egc4ykuRJaDz7VfWS9EB9U2hsP2aU9repCCk8XGnk7w4");
@@ -33,16 +34,17 @@ pub enum PythAdapterError {
 pub mod pyth_adapter {
     use super::*;
 
-    /// Read the pinned Pyth feed and write the normalized delivery account for
-    /// `(ticker_id, trading_day)`. `feed_id_hex` is the Pyth feed id (e.g. AAPL);
-    /// `max_age_secs` bounds staleness at read time (Meridian re-checks freshness
-    /// by slot). The price is READ from the Pyth account, never a caller arg.
+    /// Read the pinned Pyth feed and write the per-ticker delivery account.
+    /// `feed_id_hex` is the Pyth feed id (e.g. AAPL); `max_age_secs` bounds
+    /// staleness at read time (Meridian re-checks freshness by slot). The price
+    /// is READ from the Pyth account, never a caller arg. The delivery account is
+    /// per-ticker (stable address, overwritten each settlement) to match the
+    /// harness mock feed and the single feed a Meridian `FeedVersion` pins.
     pub fn crank(
         ctx: Context<Crank>,
         feed_id_hex: String,
         max_age_secs: u64,
         _ticker_id: u8,
-        _trading_day: u32,
     ) -> Result<()> {
         let update = &ctx.accounts.price_update;
         let feed_id = get_feed_id_from_hex(&feed_id_hex)?;
@@ -54,7 +56,16 @@ pub mod pyth_adapter {
         d.observed_ts = price.publish_time;
         d.halt_status = NORMAL_OFFICIAL_CLOSE;
         d.sample_count = verification_samples(update);
-        d.raw_response_sha256 = feed_id; // the 32-byte Pyth feed id as the provenance tag
+        // A genuine sha256 digest of the raw reading (feed + price + slot + time)
+        // — off-chain provenance/audit; Meridian reads this field from the caller
+        // arg, not the delivery account, so it is inert on-chain.
+        d.raw_response_sha256 = hashv(&[
+            &feed_id,
+            &price.price.to_le_bytes(),
+            &update.posted_slot.to_le_bytes(),
+            &price.publish_time.to_le_bytes(),
+        ])
+        .to_bytes();
         Ok(())
     }
 }
@@ -88,18 +99,19 @@ fn verification_samples(update: &PriceUpdateV2) -> u8 {
 }
 
 #[derive(Accounts)]
-#[instruction(feed_id_hex: String, max_age_secs: u64, ticker_id: u8, trading_day: u32)]
+#[instruction(feed_id_hex: String, max_age_secs: u64, ticker_id: u8)]
 pub struct Crank<'info> {
     #[account(mut)]
     pub cranker: Signer<'info>,
     /// Verified Pyth price update (owned by the Pyth receiver program).
     pub price_update: Account<'info, PriceUpdateV2>,
-    /// The delivery account this adapter owns and Meridian reads. One per
-    /// (ticker, day); the deterministic address is what `register_transport`
-    /// pins as the record's `switchboard_feed`.
+    /// The per-ticker delivery account this adapter owns and Meridian reads. Its
+    /// stable, deterministic address is what `register_transport` pins once as
+    /// the record's `switchboard_feed`; each settlement overwrites it in place
+    /// (same model as the harness mock feed).
     #[account(
         init_if_needed, payer = cranker, space = 8 + DeliveryFeed::INIT_SPACE,
-        seeds = [DELIVERY_SEED, &[ticker_id], &trading_day.to_le_bytes()], bump,
+        seeds = [DELIVERY_SEED, &[ticker_id]], bump,
     )]
     pub delivery: Account<'info, DeliveryFeed>,
     pub system_program: Program<'info, System>,
