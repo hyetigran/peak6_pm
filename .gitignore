@@ -84,3 +84,5 @@ logs/
 .pyth-idx.pid
 .pyth-keeper.pid
 services/indexer/.indexer-pyth.sqlite*
+.keeper-devnet-status.json
+services/indexer/.indexer-devnet.sqlite*
