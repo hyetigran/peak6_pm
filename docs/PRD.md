@@ -1,6 +1,6 @@
 # Meridian — Product Requirements and M0 Validation Plan
 
-**Version:** 0.7.1 (ADR-0030 G1 revision: canonical OpenBook deployment with monitored fail-closed identity; stakeholder-approved 2026-08-20)
+**Version:** 0.8 (ADR-0034: Pyth replaces Switchboard On-Demand as the settlement transport; on-chain fields `switchboard_*` renamed `oracle_*` with the layout unchanged; G11 still requires calibration of the captured-at-close Pyth value against the Nasdaq Official Close)
 **Date:** 2026-08-20  
 **Source requirements:** [`docs/REQUIREMENTS.md`](./REQUIREMENTS.md), converted from the source PDF; the PDF remains the upstream source of truth.
 **Decision record:** [`CONTEXT.md`](../CONTEXT.md) and [`docs/adr/`](./adr/) contain the accepted Rounds 1–6 vocabulary and decisions.
@@ -56,7 +56,7 @@ Meridian is a self-directed Solana dApp for same-day binary Outcome Markets on M
 - **Venue creation authority:** per-Outcome-Market `venue_market_authority` PDA is the sole authority signer for the Meridian `create_venue_market` CPI wrapper.
 - **Trading authority:** per-market Meridian PDA installed as OpenBook `open_orders_admin`.
 - **Hard close:** Meridian `now < close_ts` order gate plus OpenBook `time_expiry = close_ts - 1`.
-- **Settlement transport:** Switchboard On-Demand carrying one atomically bound, versioned Settlement Record per ticker and Trading Day.
+- **Settlement transport:** Pyth (pull oracle: Hermes → `PriceUpdateV2` via the Pyth receiver) read by the Meridian Pyth adapter, which writes one owner-pinned delivery account per ticker backing one atomically bound, versioned Settlement Record per ticker and Trading Day.
 - **Official Close:** unadjusted Nasdaq Official Closing Price (NOCP) under the primary listing market's declared Close Method.
 - **Tokens:** classic SPL Token, 6 decimals; canonicalized metadata/image published and verified on permanent storage before immutable Metaplex metadata is created.
 - **Quote asset:** pinned Circle six-decimal Solana Devnet USDC.
@@ -600,7 +600,7 @@ No mint before 09:00, after close, on `Created`, `Settled`, `Abandoned`, or paus
 
 ### ID-014 — Immutable Settlement Transport Versions — ACCEPTED
 
-Governance registers immutable transport/provider versions per ticker. A version identifies the Switchboard feed/job that attests the complete Settlement Record; it never splits price and observation time across independently mutable feeds.
+Governance registers immutable transport/provider versions per ticker. A version identifies the Pyth adapter, its per-ticker delivery account, and the Pyth feed id (`oracle_job_hash`) that attest the complete Settlement Record; it never splits price and observation time across independently mutable feeds.
 
 ```text
 SettlementTransportVersion {
@@ -608,13 +608,13 @@ SettlementTransportVersion {
   reserved_padding: [u8; 64],
   version_id: u32,
   ticker_id: u8,
-  switchboard_program_id: Pubkey,
-  switchboard_programdata: Pubkey,
-  switchboard_deployment_slot: u64,
-  switchboard_executable_sha256: [u8; 32],
-  switchboard_upgrade_authority: Pubkey, # all-zero means None
-  switchboard_feed: Pubkey,
-  switchboard_job_hash: [u8; 32],
+  oracle_program_id: Pubkey,
+  oracle_programdata: Pubkey,
+  oracle_deployment_slot: u64,
+  oracle_executable_sha256: [u8; 32],
+  oracle_upgrade_authority: Pubkey, # all-zero means None
+  oracle_feed: Pubkey,
+  oracle_job_hash: [u8; 32],
   provider_id: u16,
   close_method_id: u16,
   activated_trading_day: u32
@@ -623,7 +623,7 @@ SettlementTransportVersion {
 
 Changing provider, Close Method, or job definition creates a new version. Existing versions referenced by an Outcome Market or unsettled Trading Day are never mutated.
 
-The Switchboard executable identity is part of the version rather than a mutable global assumption. Registration verifies the executable owner, the Upgradeable Loader-derived ProgramData address, deployment slot, upgrade-authority field, and an off-chain independently reproduced executable hash. Normal finalization receives that ProgramData account read-only and checks its exact stored address, owner, slot, and authority while the transaction holds the account read lock. An immutable deployment is preferred. If an externally retained authority upgrades or rotates the snapshotted deployment, normal finalization fails closed; governance may register the new identity only for future Trading Days, while an already-Pending record remains bound to its old version and may reach only the documented delayed Manual path. The program never claims to compute the executable SHA-256 on-chain; G11/deployment tooling verifies and publishes that hash.
+The Pyth adapter executable identity is part of the version rather than a mutable global assumption. Registration verifies the executable owner, the Upgradeable Loader-derived ProgramData address, deployment slot, upgrade-authority field, and an off-chain independently reproduced executable hash. Normal finalization receives that ProgramData account read-only and checks its exact stored address, owner, slot, and authority while the transaction holds the account read lock. An immutable deployment is preferred. If an externally retained authority upgrades or rotates the snapshotted deployment, normal finalization fails closed; governance may register the new identity only for future Trading Days, while an already-Pending record remains bound to its old version and may reach only the documented delayed Manual path. The program never claims to compute the executable SHA-256 on-chain; G11/deployment tooling verifies and publishes that hash.
 
 Config holds current, pending, pending-activation-day, and monotonic latest-created-Trading-Day slots per ticker. On-chain scheduling requires the new activation day to be later than that ticker's latest created day; automation additionally verifies it is a future NYSE Trading Day. For a target Trading Day, resolution returns pending when the target is on/after its activation day, otherwise current. Scheduling another version first promotes an already-effective pending version to current; if an existing pending version is not yet effective, replacement rejects. The new future entry can never change resolution for an earlier Trading Day. Every creation path and the ticker/day Pending Settlement Record header use this resolver.
 
@@ -646,13 +646,13 @@ SettlementRecord {
     close_ts: i64
     prior_official_close_1e6: u64
     settlement_transport_version_id: u32
-    switchboard_program_id: Pubkey
-    switchboard_programdata: Pubkey
-    switchboard_deployment_slot: u64
-    switchboard_executable_sha256: [u8; 32]
-    switchboard_upgrade_authority: Pubkey
-    switchboard_feed: Pubkey
-    switchboard_job_hash: [u8; 32]
+    oracle_program_id: Pubkey
+    oracle_programdata: Pubkey
+    oracle_deployment_slot: u64
+    oracle_executable_sha256: [u8; 32]
+    oracle_upgrade_authority: Pubkey
+    oracle_feed: Pubkey
+    oracle_job_hash: [u8; 32]
     provider_id: u16
     close_method_id: u16
     normal_settlement_delay_secs: u32
@@ -723,7 +723,7 @@ The header is initialized only from validated Config/schedule values, not caller
 7. qualifying-trade, exact sample agreement (`max_sample_spread_bps=0`), delivery freshness, and prior Official Close sanity checks in the Settlement Quality Predicate;
 8. stale/latest-value substitution resistance.
 
-`max_stale_slots` applies only to the Switchboard delivery account at submission: require `submission_slot >= delivery_update_slot`, then checked-subtract and require `submission_slot - delivery_update_slot <= max_stale_slots`. It does not measure how recently the underlying market closed. Anyone may refresh or redeliver the same immutable source-record identity, provider revision hash, normalized fields, and raw-response digest, then retry permissionless finalization; changing any of those bound values is a different candidate and cannot launder a stale record as fresh.
+`max_stale_slots` applies only to the Pyth-adapter delivery account at submission: require `submission_slot >= delivery_update_slot`, then checked-subtract and require `submission_slot - delivery_update_slot <= max_stale_slots`. It does not measure how recently the underlying market closed. Anyone may refresh or redeliver the same immutable source-record identity, provider revision hash, normalized fields, and raw-response digest, then retry permissionless finalization; changing any of those bound values is a different candidate and cannot launder a stale record as fresh.
 
 The prior-close sanity band is inclusive and division-free. With positive `prior_official_close_1e6`, checked `u128` arithmetic must satisfy:
 
@@ -1126,13 +1126,13 @@ venue:
 
 settlement transport snapshot:
   settlement_transport_version_id
-  switchboard_program_id
-  switchboard_programdata
-  switchboard_deployment_slot
-  switchboard_executable_sha256
-  switchboard_upgrade_authority
-  switchboard_feed
-  switchboard_job_hash
+  oracle_program_id
+  oracle_programdata
+  oracle_deployment_slot
+  oracle_executable_sha256
+  oracle_upgrade_authority
+  oracle_feed
+  oracle_job_hash
   provider_id
   close_method_id
 
@@ -1214,7 +1214,7 @@ No Treasury account or surplus ledger exists in V1. `vault_balance_atoms - colla
 | `settle_openbook_funds` | OO owner/delegate | recovery path; wallet pays operating costs |
 | `prune_expired_venue` | anyone, **only if M0 proves pinned support** | post-close; exact stored accounts; CPI with venue-close PDA; no client destination |
 | `close_venue` | anyone, **only if M0 proves pinned support** | post-close and fully empty; exact stored accounts; recoverable operator-funded rent only to snapshotted Venue Rent Refund Address |
-| `finalize_settlement_record` | anyone | validate the read-locked Switchboard ProgramData identity plus atomic candidate against the Pending canonical header and Settlement Quality Predicate; write only the FinalOracle result once; may occur before the Settlement delay |
+| `finalize_settlement_record` | anyone | validate the read-locked Pyth adapter ProgramData identity plus atomic candidate against the Pending canonical header and Settlement Quality Predicate; write only the FinalOracle result once; may occur before the Settlement delay |
 | `finalize_manual_settlement_record` | Override Authority | after the Pending header's snapshotted delay; equal positive source A/B normalized values + reason/ordered-manifest digest; canonical FinalManual field population; write once |
 | `settle_market` | anyone | require a final canonical record and `Clock.now >= close_ts + normal_settlement_delay_secs`; match the Market snapshots to the header; derive immutable at-or-above outcome, then reconcile liability to winning supply without transferring surplus |
 | `redeem_outcome` | holder | Settled; winning atoms pay matching USDC atoms; losing atoms burn for zero |
@@ -1877,7 +1877,7 @@ Finalized execution and recovery log from deployment genesis with Outcome Market
 - donated Collateral Surplus cannot DoS and cannot be withdrawn;
 - per-market snapshots vs config changes;
 - canonical Settlement Record identity/shared consumption/first-valid-write;
-- fixed-width account/golden digest vectors, including `[u8;64]` padding exclusion, domain separation, all enum/width/order boundaries (including `HaltOrContingencyStatus`), and `switchboard_job_hash` naming;
+- fixed-width account/golden digest vectors, including `[u8;64]` padding exclusion, domain separation, all enum/width/order boundaries (including `HaltOrContingencyStatus`), and `oracle_job_hash` naming;
 - atomic record stale delivery/wrong transport/wrong job hash/wrong ticker-day/wrong opaque revision hash/wrong Close Method/band/exact-sample/qualifying-trade cases, including anyone refreshing the same immutable identity/revision;
 - Manual Settlement Override before/after delay, frozen source classes, two-source exact agreement, disagreement failure, ordered manifest/reason/evidence digest, authority-trust disclosure, FinalManual zero/common-field population, and derived at-or-above outcome;
 - immutable late-correction incident behavior and indefinite Settlement Disputed path;
@@ -2225,8 +2225,8 @@ Run `make oracle-e2e-devnet` and prove:
 - provider calibration captures the Massive SIP unadjusted candidate record first and a paid Alpaca SIP raw-response cross-check at close+5m, +10m, +15m, and the next Trading Day, retaining every raw-response digest and observed revision;
 - Nasdaq NOCP under the recorded Close Method, not a provider daily bar;
 - one atomically bound immutable record contains ticker, Trading Day, Official Close, observation/publication times, provider revision, Close Method/status, record identity, and raw-response digest;
-- each Settlement Transport Version publishes the Switchboard executable owner, program ID, derived ProgramData, deployment slot, executable SHA-256, and upgrade authority; normal finalization read-locks and validates the exact ProgramData/slot/authority, and wrong owner/address/slot/authority vectors reject;
-- a post-registration Switchboard upgrade makes the old Pending version fail closed and use the delayed Manual path; only a newly registered version may select the new executable identity for a future Trading Day;
+- each Settlement Transport Version publishes the Pyth adapter executable owner, program ID, derived ProgramData, deployment slot, executable SHA-256, and upgrade authority; normal finalization read-locks and validates the exact ProgramData/slot/authority, and wrong owner/address/slot/authority vectors reject;
+- a post-registration Pyth adapter upgrade makes the old Pending version fail closed and use the delayed Manual path; only a newly registered version may select the new executable identity for a future Trading Day;
 - fixed-width Header/Result Borsh commitments match golden vectors, exclude the 64 padding bytes, and enforce zero in every state-inapplicable result field;
 - first Outcome Market creation initializes the canonical Pending header, later Strikes with any header mismatch reject, and a permissionless caller cannot substitute another registered transport version;
 - one canonical PDA is shared by all Outcome Markets for the tuple and the first valid permissionless submission wins;
@@ -2273,7 +2273,7 @@ Prove:
 
 - deployed Meridian devnet;
 - deployed OpenBook v1.7;
-- real Switchboard On-Demand transport accounts carrying a clearly labeled synthetic Settlement Record;
+- real Pyth-adapter delivery accounts (fed from Hermes through the Pyth receiver) carrying a clearly labeled synthetic Settlement Record;
 - pinned Circle Devnet USDC;
 - two funded action wallets plus separately funded maker wallets;
 - `DEMO_SOURCE_URL` must be public HTTPS and return the committed synthetic fixture bytes/digest.
@@ -2313,7 +2313,7 @@ Execute with an explicit completed eligible Trading Day:
 make oracle-e2e-devnet TICKER=META TRADING_DAY=YYYY-MM-DD
 ```
 
-The command uses the real provider + Switchboard path and must prove Nasdaq NOCP, Close Method, atomic record binding, finality/revision, shared permissionless finalization, stale-value resistance, and correction/dispute behavior. It rejects synthetic data and exits nonzero on any G11 failure.
+The command uses the real Pyth path captured at the close, calibrated against the Official-Close provider (#9), and must prove Nasdaq NOCP, Close Method, atomic record binding, finality/revision, shared permissionless finalization, stale-value resistance, and correction/dispute behavior. It rejects synthetic data and exits nonzero on any G11 failure.
 
 From a clean clone, `.env.example` is copied/configured once; each command above is otherwise non-interactive and exits nonzero on unmet acceptance criteria. The root `README.md` is an M6 artifact and must state prerequisites, `.env.example` setup, `make dev`, `make demo-devnet`, `make oracle-e2e-devnet`, the synthetic-versus-real evidence distinction, devnet-only scope, and risk/limitation boundaries. A clean-clone reviewer follows only that README and all three commands must pass. Solana execution and collateral remain devnet/test-value only. Production Arweave uploads and paid market-data access are accepted ancillary integration costs, budgeted separately from protocol funds; they do not authorize mainnet deployment or real trading funds.
 
@@ -2555,11 +2555,11 @@ OPENBOOK_DEPLOYMENT_SLOT=
 OPENBOOK_UPGRADE_AUTHORITY=none
 
 # Published by G11 and frozen into each Settlement Transport Version.
-SWITCHBOARD_PROGRAM_ID=
-SWITCHBOARD_PROGRAMDATA_ADDRESS=
-SWITCHBOARD_DEPLOYMENT_SLOT=
-SWITCHBOARD_EXECUTABLE_SHA256=
-SWITCHBOARD_UPGRADE_AUTHORITY=
+ORACLE_PROGRAM_ID=            # the Meridian Pyth adapter
+ORACLE_PROGRAMDATA_ADDRESS=
+ORACLE_DEPLOYMENT_SLOT=
+ORACLE_EXECUTABLE_SHA256=
+ORACLE_UPGRADE_AUTHORITY=
 
 # Secret-mounted paths outside the repository.
 OPERATOR_KEYPAIR_PATH=/run/secrets/meridian/operator.json

@@ -1,29 +1,25 @@
-# Meridian — Oracle Setup (Switchboard On-Demand)
+# Meridian — Oracle Setup (Pyth)
 
 Runbook to stand up the real settlement oracle on devnet and close **#16** /
 DEVNET_DEPLOY **Phase 4**. The program side (audit **A1**) is already done: in
 both builds `finalize_settlement` READS the Official Close from an owner-pinned
-delivery account and never trusts the cranker's args (`20f1545`). What remains
-is the **writer** — the thing that gets a real Nasdaq NOCP on-chain in the exact
-layout the program reads.
+delivery account and never trusts the cranker's args (`20f1545`). The **writer** is
+the Meridian Pyth adapter (`programs/pyth-adapter`, ADR-0034): it reads a Pyth
+`PriceUpdateV2` and writes the per-ticker delivery account in the exact layout
+the program reads.
 
 ---
 
-## Two tracks (decided)
+## The transport (decided — ADR-0034)
 
-A generic oracle gives a *live* price; only a data provider gives the Nasdaq
-**NOCP** (closing-auction print, ADR-0021). So the work splits:
-
-- **Synthetic demo track — Pyth adapter (started).** Pyth publishes **free MAG7
-  equity feeds** on Solana devnet (verified below). It's a *live* price, not the
-  NOCP, so it can't satisfy G11 — but it settles the whole path end-to-end for
-  $0 with no provider, which is exactly `demo-devnet` (explicitly synthetic,
-  ADR-0028). Built as `programs/pyth-adapter` (option 2 — a swappable adapter;
-  Meridian never changes).
-- **Real-NOCP track — Switchboard (below).** The custom-job → paid provider
-  (#9) path that carries the actual Official Close for `oracle-e2e-devnet` (G11).
-  The Switchboard adapter is a second adapter registered as another transport
-  version; Meridian is untouched between the two.
+Pyth publishes **free MAG7 equity feeds** (verified below) via its pull model;
+the adapter is the only oracle program Meridian pins. The honest limit: a Pyth
+equity price is a *last trade*, not the Nasdaq **NOCP** (closing-auction print,
+ADR-0021). So the adapter settles the whole path end-to-end for $0 with no
+provider (`make pyth-settle-e2e`, `demo-devnet` — explicitly synthetic,
+ADR-0028), while **G11** still requires calibrating the value captured *at the
+close* against the Nasdaq Official Close from the provider in **#9**
+(`make oracle-e2e-devnet`). Never claim G11 from a Pyth settle alone.
 
 ### Verified Pyth devnet equity feed ids (Hermes, Aug 2026)
 
@@ -56,6 +52,21 @@ workspace pins `@solana/web3.js` to one version (an old transitive copy broke
 `rpc-websockets` ESM resolution). Feed staleness on weekends is handled by a
 large `maxAgeSecs` in the harness; production captures at the live close.
 
+**Proven through Meridian settlement (keeper in pyth mode).** `make pyth-settle-e2e`
+(`scripts/pyth-settle-e2e.sh`) runs the *whole* loop on localnet: `pyth-local.sh`
+now layers the devnet clone on top of the full `localnet.sh` program set; the
+seed runs with `DEMO_ORACLE=pyth` (transport = adapter id + per-ticker delivery
+PDA, `DEMO_TICKERS=3,7`, closing in 20s); the indexer + keeper start with
+`KEEPER_ORACLE=pyth`; then `scripts/pyth-settle-check.ts` asserts the Settlement
+Record was finalized FROM the delivery account. Result (2026-08-22): GOOGL record
+close `$344.7252` == delivery close, TSLA `$362.7951` == delivery close, both
+records pin `feed = deliveryPda(ticker)` / `oracle = Egc4yk…`, state
+`FinalOracle`, 10/10 Outcome Markets settled. The keeper's advisory `close1e6`
+arg (its mock spot, ~$204/$349) was *ignored* by finalize — the on-chain value
+is Pyth's — which is the A1 property under real data. Nonzero exit on any miss.
+What this still is NOT: G11 (ADR-0028 — Pyth's equity price is a last trade,
+not the Nasdaq Official Close; provider #9 + `oracle-e2e-devnet` remain).
+
 ## The delivery contract (what the on-chain account must contain)
 
 `finalize_settlement_normal` reads a **normalized** account (little-endian,
@@ -70,126 +81,69 @@ after the 8-byte account header):
 | ≥ 66 total | | |
 
 Two pins are enforced at settlement: the **address pin** (`delivery ==
-record.switchboard_feed`) and the **owner pin** (`delivery.owner ==
-record.switchboard_program_id`, `WrongDeliveryOwner`). Plus the frozen quality
+record.oracle_feed`) and the **owner pin** (`delivery.owner ==
+record.oracle_program_id`, `WrongDeliveryOwner`). Plus the frozen quality
 bounds: `official_close > 0`, `halt_status` ∈ the whitelist, `sample_count ≥
 min_samples`, and `cur_slot − delivery_slot ≤ max_stale_slots`.
 
-This is **not** Switchboard's native `PullFeed` layout — which drives the
-architecture choice below.
-
----
-
-## Decision 1 — architecture: normalizer (recommended) vs native parse
-
-- **(b) Normalizer program [recommended].** A small devnet program reads the
-  Switchboard `PullFeed`, attaches the ADR-0021 semantics Switchboard doesn't
-  carry (Nasdaq **close method** / **halt status**), and writes the normalized
-  layout above into an account it owns. `register_transport`'s
-  `switchboard_program_id` = the **normalizer's** id (so the owner pin points at
-  it). This is the devnet twin of the localnet `m0-harness` mock feed — both
-  present the same layout, so localnet and devnet stay symmetric, and Meridian
-  stays decoupled from Switchboard's account format. It matches the program as
-  built (it already reads the normalized layout).
-- **(a) Native parse.** Change `finalize_settlement` to parse Switchboard's
-  `PullFeed` account directly; `switchboard_program_id` = Switchboard's real id.
-  No extra program, but Meridian couples to Switchboard's layout **and** you
-  must source `halt_status`/close-method elsewhere (a generic price feed has no
-  "official close" concept). Undoes part of the A1 change.
-
-**This runbook assumes (b).** Halt/close-method have no home under (a), and (b)
-keeps the exact contract already shipped and tested.
-
-## Decision 2 — the Official-Close data source (**#9**, ops)
-
-Switchboard On-Demand runs an **OracleJob** (an `httpTask` → `jsonParseTask`
-pipeline) against a **data provider's HTTPS API**. You must choose that provider
-and its endpoint — the unadjusted Nasdaq **NOCP** per MAG7 ticker, ideally with
-the close method / halt status (ADR-0021). The PRD names Massive SIP + Alpaca
-SIP cross-check as the calibration method. **Nothing below can be simulated or
-deployed until #9 names the provider and access is provisioned.** Public HTTPS
-only — localhost / RFC1918 / `.local` are rejected.
+This is the layout the adapter writes (`halt_status = NormalOfficialClose`,
+`sample_count` = the update's verification level: 255 for Full).
 
 ---
 
 ## Steps
 
-### 1. Pick the provider + endpoints  **[ops — #9]**
-Name the provider; get the per-ticker HTTPS endpoint and the JSON path to the
-NOCP (and close-method/halt fields, if available). Record the decision (ADR or
-note) before G11.
+### 1. Deploy the adapter to devnet + capture its identity  **[ops]**
+`make build-adapter`, deploy `target/deploy/pyth_adapter.so` (id
+`Egc4ykuRJaDz7VfWS9EB9U2hsP2aU9repCCk8XGnk7w4`), and record the ADR-0030
+snapshot that `register_transport` pins: program id, Upgradeable-Loader
+ProgramData address, deployment slot, executable sha256, upgrade authority
+(`ORACLE_PROGRAM_ID`, `ORACLE_PROGRAMDATA_ADDRESS`, `ORACLE_DEPLOYMENT_SLOT`,
+`ORACLE_EXECUTABLE_SHA256`, `ORACLE_UPGRADE_AUTHORITY` in `.env`). An
+immutable deployment is preferred; a post-registration upgrade fails closed.
 
-### 2. Design + simulate the OracleJob  **[both]**
-One `OracleJob` per ticker: `httpTask { url }` → `jsonParseTask { path }` →
-(scale to 1e6). I can write the TS. Simulate every job against
-`https://crossbar.switchboard.xyz/api/simulate` and confirm it returns the
-expected NOCP before spending any SOL. Store the job on Crossbar (IPFS) and
-record each **job hash** — `register_transport` pins it (`switchboard_job_hash`).
+### 2. Register the transports  **[both]**
+`RPC_URL=<devnet> DEMO_CONFIG=.demo-config.json pnpm exec tsx scripts/register-pyth-transports.ts`
+— one governance-signed `register_transport` per MAG7 ticker with
+`oracle_program_id` = the adapter, `oracle_feed` = `deliveryPda(ticker)`
+(`[b"delivery", ticker_id]`, stable per ticker, overwritten each settlement),
+`oracle_job_hash` = the Pyth feed id from the table above, plus `provider_id` /
+`close_method_id` (ADR-0021). The seed does the same on localnet with
+`DEMO_ORACLE=pyth`; on devnet the feeds are derived, so no feed list is needed.
 
-### 3. Create the On-Demand pull feeds on devnet  **[both]**
-Using `@switchboard-xyz/on-demand` + `@switchboard-xyz/common`:
-`getDefaultDevnetQueue(rpc)` (public devnet queue
-`uPeRMdfPmrPqgRWSrjAnAkH78RqAhe5kXoW6vBYRqFX`) → `PullFeed.initTx(...)` with the
-job → send with `asV0Tx` (priority fees). One feed per MAG7 ticker. Capture each
-**feed pubkey**. I can script this; you run it with a funded devnet key.
+### 3. Run the keeper in Pyth mode  **[code — done]**
+`KEEPER_ORACLE=pyth`: per settlement, Hermes pull (`encoding:"base64"`) → post
+`PriceUpdateV2` via the Pyth receiver → adapter `crank` in the same tx →
+`finalize_settlement_normal` (reads the delivery account) → `settle_market`.
+**Capture at the close** (#26, enforced both sides): Pyth equity feeds are
+RTH-only and stale afterwards, so the keeper (`KEEPER_PYTH_CAPTURE=at-close`,
+the default) selects the update published **at `close_ts`** — Hermes' at-timestamp
+endpoint returns the first update at-or-*after* a time, so the keeper probes a
+descending ladder (`close, −1s, −5s, −15s, −60s`) and keeps the first in-window
+result, failing closed if none — and sizes the adapter's `max_age_secs` to
+`(now − close_ts) + 300s` so that update is still accepted at settlement
+(`services/keeper/src/pyth-capture.ts`). This is a back-dated query at
+settlement time; the scheduled close-time capture step is ADR-0031 / #19. The
+**strict** Meridian build independently reads `observed_ts` (the Pyth publish
+time) from the delivery account and rejects a reading outside
+`[close_ts − 60s, close_ts + 900s]` (`ObservedOutsideCloseWindow`), and records
+it as `official_close_observed_ts` — a cranker can no longer settle on a stale
+pre-close tick or a later print. `KEEPER_PYTH_CAPTURE=latest` +
+`KEEPER_PYTH_MAX_AGE_SECS` exist only for the weekend/localnet demo (synthetic
+`close_ts`, localnet build relaxes the window).
 
-### 4. Build + deploy the normalizer program  **[code — me]**
-A minimal Anchor program (the devnet analog of `m0-harness`):
-`crank(pull_feed, delivery)` — reads the Switchboard `PullFeed` update
-(CPI/account read), applies the quality gate, and writes
-`official_close_1e6 / delivery_slot / halt_status / sample_count` into a
-per-ticker `delivery` account it **owns**. I write + unit-test it; you deploy it
-to devnet and record its **program id + ProgramData + slot + sha256 + upgrade
-authority** (ADR-0030 identity capture).
-
-### 5. Capture identities  **[ops]**
-For `register_transport` you need: the **normalizer** identity (id/programdata/
-slot/sha/authority — the owner-pin + ADR-0030 snapshot), each **delivery account
-pubkey**, each **job hash** (step 2), and `provider_id` / `close_method_id`
-(ADR-0021). Also capture Switchboard's own On-Demand program identity for the
-normalizer to pin internally.
-
-### 6. Register the transports  **[both]**
-One `register_transport` per ticker (governance-signed): `switchboard_program_id`
-= the normalizer id, `switchboard_feed` = the delivery account, plus the pinned
-identity fields, `switchboard_job_hash`, `provider_id`, `close_method_id`,
-`activated_trading_day`. I script it; you sign with governance. This snapshot is
-what settlement fails-closed against.
-
-### 7. Wire the keeper crank  **[code — me]**
-Replace the localnet mock-feed publish with the devnet flow, per settlement
-tick: **(a)** pull a fresh Switchboard update (`fetchUpdateIx`), **(b)** call the
-normalizer `crank` to write the delivery account, **(c)** `finalize_normal` +
-`settle_market` (unchanged — it just reads the account). Also feed the delivery
-pubkeys to the seed as `SWITCHBOARD_FEEDS` so `make demo-devnet` (#24) can
-register + create markets.
-
-### 8. Prove it  **[both]**
-`make oracle-e2e-devnet` (to author) — the non-waiverable G11: a real Nasdaq
-NOCP flows provider → Switchboard → normalizer → `finalize` → `settle`, with
+### 4. G11 — prove it is the Official Close  **[both; blocked on #9]**
+`make oracle-e2e-devnet` (to author): the captured-at-close Pyth value is
+compared against the Nasdaq NOCP from the Official-Close provider (#9; the PRD
+names Massive SIP + Alpaca SIP cross-check as the calibration method), with
 freshness/quality-bound rejection vectors and the dispute/correction path
-(ADR-0028; synthetic evidence cannot satisfy it). Blocked on #9 + a live run.
+(ADR-0028; synthetic evidence cannot satisfy it). Publishes
+`docs/adr/settlement-quality-calibration.md` (`min_samples`, `max_stale_slots`,
+`max_price_band_bps`) before M1.
 
 ---
 
-## What I can build now (no #9 needed) vs what's blocked
-
-**Startable now [code]:** the **normalizer program** (step 4) + its unit tests
-against the fixed delivery layout; the **register_transport** script (step 6);
-the **keeper crank** restructure (step 7) behind the existing devnet flag. These
-don't need the provider — only the feed *values* do.
-
-**Blocked on #9 / a funded devnet [ops]:** the OracleJob endpoints (step 2), the
-live feeds (step 3), deployment + identity capture (steps 4–5), and the e2e
-proof (step 8).
-
-So the critical path is still **#9 first**. Once the provider is named I can also
-write the OracleJob + feed-creation scripts (steps 2–3).
-
----
-
-Sources (verify against current Switchboard docs — the SDK evolves):
-[On-Demand deploy guide](https://docs.switchboard.xyz/product-documentation/data-feeds/solana-svm/part-2-deploying-your-feed-on-chain) ·
-[Designing a feed (TS)](https://docs.switchboard.xyz/product-documentation/data-feeds/solana-svm/part-1-designing-and-simulating-your-feed/option-2-designing-a-feed-in-typescript) ·
-[on-demand SDK](https://github.com/switchboard-xyz/on-demand) ·
-[On-Demand app (devnet)](https://ondemand.switchboard.xyz/solana/devnet)
+Sources (verify against current Pyth docs — the SDK evolves):
+[Hermes](https://hermes.pyth.network) ·
+[pyth-solana-receiver](https://github.com/pyth-network/pyth-crosschain/tree/main/target_chains/solana) ·
+[Pyth price feed ids](https://www.pyth.network/developers/price-feed-ids)

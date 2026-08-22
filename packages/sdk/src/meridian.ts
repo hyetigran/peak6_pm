@@ -63,7 +63,7 @@ export function initializeConfigIx(opts: {
 
 export function registerTransportIx(opts: {
   governance: PublicKey; versionId: number; tickerId: number; feed: PublicKey;
-  oracleProgram?: PublicKey; // owner Meridian pins the feed to (harness on localnet, Switchboard on devnet)
+  oracleProgram?: PublicKey; // owner Meridian pins the feed to (harness mock on localnet, the Pyth adapter on devnet)
 }): TransactionInstruction {
   const z = Buffer.alloc(32);
   const oracle = (opts.oracleProgram ?? PublicKey.default).toBuffer();

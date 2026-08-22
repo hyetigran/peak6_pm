@@ -2,80 +2,73 @@
 
 ## Current focus
 
-The working freeze is PRD **v0.7.1** + ARCHITECTURE **v1.1.1** + ADRs **0001–0030**. **M0 is deep in progress: an executable validation harness (`programs/m0-harness`, anchor 0.31, MIT-IDL hand-rolled OpenBook CPI + a faithful pair-collateral model) proves gates G1, G2, G3, G4, G5, G6, G7, G9, G10, G12 — 57 tests green on localnet against the pinned OpenBook v1.7 bytes (`make m0`).** Every gate was two-axis code-reviewed and hardened. Remaining M0: **G11** (blocked on the Official-Close provider, #9) and the **G8 evidence already done**. What's left is human-owned: provider (#9), alert webhook (#10), Squads members (#11), Emergency Expiry disposition (#15), the G2 devnet evidence run (#8, needs devnet funding), and the signed go/no-go (#17). Still no production program — the harness is validation scaffolding, explicitly not M1.
+**Localnet is a working product demo. The engineering target is a strict-build devnet path plus the 24/7 lifecycle ADRs.**
 
-## Gate results worth carrying (all in `docs/adr/openbook-v2-pin.md` §5–16)
+Freeze: PRD **v0.7.1** + ARCHITECTURE **v1.1.1** + ADRs **0001–0033**. `main` is at `2d74f47` and tracks `origin/main` — the freeze **is** on origin (the old “docs-only working tree” fact is dead).
 
-- G1 canonical `opnb2LAf…` binding (ADR-0030 monitored identity); harness at `3MmdMxRU…`.
-- G2 PDA order gate; G3 time/pause/expiry (program-clock-exact) + one-way fuse; G4 full-fill-or-revert.
-- G5 Sell-No/`redeem_no_via_market` exact vault==liability==−q invariant; token program pinned.
-- **G6: practical inline-fill capacity is 11, not 15** (SBF heap OOM); heap filled to 600 empirically, 601st panics; consume 8/ix owner-required; drain ~3 txs.
-- **G7: first-use Buy-No-limit fits ONE approval (936B) — the named waiver is NOT needed.** Redeem inline cap 10 distinct makers. ALT frozen + immutable proven.
-- G8 rent budget ≈567.8 SOL/5-day; G9 zero-fee + unsignable sentinel `EhAss6gb…` + create-CPI wire golden + IDL enumeration.
-- G10 lot/price/order semantics; **PostOnly-cross & past-expiry are venue silent no-ops** — order paths require the returned id.
-- G12 quote-mint pin, metadata-ORDERING gate, recovery in each state, **Squads V4 2-of-3 loader drill on the immutable mainnet fixture** (1 fails / 2 execute a real SetAuthority).
+Working-tree (uncommitted, 2026-08-22): ADR-0033 program change in `programs/meridian` — `MAX_SESSION_SECS = 432_000`, `validate_schedule` bounds the session instead of pinning 3.5h/6.5h, plus `not(localnet)` unit tests. This is issue **#22**. Docs (PRD §5, ARCH §4.4, PRODUCTION_INFRA, UI_WALKTHROUGH) already describe the 24/7 roll.
 
-## What is true right now (2026-08-19 evening)
+M0 is **not** closed. G1–G10 and G12 are localnet-green (`make m0`). **G11 and the signed go/no-go (#17) are still open.** The user directed building the V1 program → services → frontend on localnet anyway. Do not pretend ADR-0020 is satisfied.
 
-- Branch: `main`, tracking `origin/main`.
-- Still one commit: `e1ef575 init docs`.
-- Unstaged: `docs/PRD.md` (v0.6 → v0.7, large reconciliation) and `docs/ARCHITECTURE.md` (v1.0 → v1.1).
-- Untracked and **not on origin**: `CONTEXT.md`, `docs/adr/` (0001–0028), `docs/agents/`, `AGENTS.md`, `memory-bank/`, `.cursor/rules/`, `design mockups/`.
-- Empty `frontend/` placeholder. `.gitignore` still empty.
-- Source spec also lives at `design mockups/uploads/meridian-spec.md`. HTML wireframes exist under `design mockups/`.
-- Squads V4 research is written: `docs/agents/squads-v4-multisig-research.md`.
+## What is true right now (2026-08-22)
 
-A clone of `main` alone still shows only the original v0.6 docs. Treat the working tree as the real freeze until this is committed.
+- Branch: `main` → `origin/main` @ `de57f99` (Pyth chain `1198968`…`de57f99` landed; ADR-0033 #22 change landed in `c99e7a1`).
+- Uncommitted in the main checkout: doc/README/.env.example/.cursor rewrites (being reconciled to the Pyth track, ADR-0034).
+- `make demo` brings up validator + seed + indexer `:8787` + keeper + market-maker + frontend `:3100`.
+- `make build-devnet` exists and is closed as #23 (strict, no `localnet` feature, writes a manifest).
+- `make demo-devnet` exists as a **seed** (`DEMO_MODE=devnet` + `resolveSeedConfig`). It is not a clean-clone E2E and does not replace `make oracle-e2e-devnet`.
+- Meridian tests last recorded: foundation 6/6, trading 5/5 (includes Sell No), settlement 4/4 (includes feed owner-pin).
+- Frontend: dark theme; `/` → `/markets`; Trade is the 3-column mockup; Mint/Redeem-pair buttons removed from the slip; Admin is a localnet console.
+- Keeper is still a 5s poll that writes the harness mock feed. Production shape is ADR-0031 (issues #19–#21).
+- **Pyth adapter (#16, synthetic-demo track) is proven through Meridian settlement on localnet** (2026-08-22, `de57f99`): `make pyth-settle-e2e` — Pyth-cloned validator → seed `DEMO_ORACLE=pyth` → keeper `KEEPER_ORACLE=pyth` (Hermes pull → post PriceUpdateV2 → adapter crank → finalize → settle); record close == real Pyth close (GOOGL $344.73, TSLA $362.80), 10/10 settled, keeper's advisory arg ignored (A1 holds under real data). Adapter `Egc4yk…`; devnet wiring = deploy adapter + `scripts/register-pyth-transports.ts`. **Not G11**: Pyth equity is a last trade, not the Nasdaq Official Close — the Official-Close provider (#9) + `oracle-e2e-devnet` remain.
+- Identity-drift monitor is #25 (new).
+- `.gitignore` and `.env.example` exist. `wallets/` is gitignored.
 
 ## Working document stack
 
-1. **`CONTEXT.md`** — glossary (expanded: Market Phase, Executable Depth, Worst Execution Price, Recovery-only Mode, Live Underlying Price, Direct Holder Burn, Close Method, Settlement Quality Predicate, Settlement Disputed, Emergency Expiry, Corporate Action Blackout, History Completeness, Platform-execution P&L, Internal Unwind, Rent Refund Address).
-2. **`docs/adr/0001`–`0028`** — accepted Rounds 1–6 decisions.
-3. **`docs/ARCHITECTURE.md` v1.1** — implementation architecture; M0 validation candidate.
-4. **`docs/PRD.md` v0.7** — reconciled product behavior and acceptance.
-5. **`docs/REQUIREMENTS.md`** — converted source spec; PDF remains upstream source of truth.
+1. **`CONTEXT.md`** — glossary.
+2. **`docs/adr/0001`–`0033`** — accepted decisions. 0031 keeper triggers; 0032 rolling creation; 0033 open-when-exists.
+3. **`docs/ARCHITECTURE.md` v1.1.1** — accounts / CPI / services.
+4. **`docs/PRD.md` v0.7.1** — product behavior. Header still says “full build pending gates”; engineering has moved past that sentence.
+5. **`docs/PRODUCTION_INFRA.md`** — off-chain topology (scheduler, redundancy, secrets, observability). Several items still **[open]**.
+6. **`docs/DEVNET_DEPLOY.md`** — localnet → M6 checklist.
+7. **`docs/GOVERNANCE.md`** — Config roles, two-step rotation, upgrade authority, key custody.
+8. **`docs/REQUIREMENTS.md`** — converted source spec; PDF remains upstream source of truth.
 
-**Conflict rule:** implement to the v0.7/v1.1 freeze + ADRs. The earlier “ADR vs freeze” drift is closed. New contradictions still get called out explicitly.
-
-## What changed since Memory Bank init
-
-- Fees, surplus withdrawal, treasury, and `fee_admin` removed from architecture, not just from ADRs.
-- Collateral liability is `collateral_liability_atoms`, supply-derived, with permissionless reconcile and locked surplus.
-- One SettlementRecord PDA per ticker/day; permissionless first-valid finalization; Nasdaq NOCP; Settlement Disputed if no Official Close.
-- Settlement clock moved: earliest automated Settlement **close+20m** (devnet), SLO **+25m**, preflight **close−5m**, poll from **+15m**.
-- Manual override requires **two agreeing evidenced sources** and a bound manifest digest.
-- `create_venue_market` with dedicated venue-market-authority PDA; unsignable fee-admin sentinel.
-- Sell No must not knowingly self-cross; Internal Unwind is the adversarial leftover.
-- M0 expanded to **G1–G12**; safety gates non-waiverable; only Buy-No one-approval has a named product waiver.
-- Two demo paths: synthetic `make demo-devnet` vs real `make oracle-e2e-devnet`.
-- Circle Devnet USDC pin, Arweave metadata-before-mint, frozen ALT, snapshotted rent refunds, NYSE calendar authority, corporate-action blackout, two-step role rotation, Squads V4 M6 upgrade gate.
-- ATM Strike default is **on**.
+**Conflict rule:** implement to the v0.7.1/v1.1.1 freeze + ADRs. New contradictions still get called out explicitly. ADR-0033’s `validate_schedule` change is a documented redeploy; land it with `make build-devnet`, not the localnet feature.
 
 ## Active decisions to carry forward
 
-- OpenBook V2 v1.7, no fork, MIT CPI/client only, `upgrade_authority == None`.
+- OpenBook V2 v1.7, no fork, MIT CPI/client only. Canonical `opnb2LAf…` with ADR-0030 monitored identity (not `upgrade_authority == None` on public clusters).
 - One Yes/USDC Venue Market per Outcome Market. Sell No limit is not V1.
 - Limits PostOnly; Market Actions full-fill-or-revert; fail closed.
-- Directional Guardrail is UI from fresh Position State, not an on-chain token lock.
+- OutcomeMarket PDA is mint authority + vault owner + OpenBook admin (both `open_orders_admin` and `close_market_admin`).
+- Trading opens at creation (`mint_open = creation`, `trade_open = creation + 30m`); close is still the NYSE Official Close (ADR-0033).
+- Next session is created at resolution + 5m (ADR-0032). After `activity_started`, gap risk uses Emergency Expiry recovery, not `abandon_market`.
+- Production keeper is scheduled jobs + heap subscription (ADR-0031). Do not promote the localnet poll.
+- Directional Guardrail is UI from fresh Position State, not an on-chain token lock — **still to build**.
 - Synthetic demo cannot satisfy settlement-correctness or provider-finality claims.
 - Frontend lives under `frontend/`.
 - Do not scaffold dormant fee or collateral-withdrawal switches.
+- One oracle transport (ADR-0034, replaced Switchboard): the **Pyth adapter** (`programs/pyth-adapter`). Done + proven locally. A Pyth settle is still not G11 — Pyth equity prices are last trades, not the Nasdaq Official Close; G11 needs calibration against it via provider #9 + `make oracle-e2e-devnet` (docs/ORACLE_SETUP.md).
 
 ## Next steps (priority)
 
-1. **Commit the freeze** (PRD v0.7, ARCHITECTURE v1.1, CONTEXT, ADRs 0001–0028, agent docs, Memory Bank) so origin matches the working tree. User has not asked yet.
-2. **Start M0**, not M1: pin OpenBook (`docs/adr/openbook-v2-pin.md`), prove G1–G12, write `docs/adr/settlement-quality-calibration.md` as part of G11, produce a signed go/no-go report.
-3. Fill `.gitignore` before any keys or `.env` appear.
-4. Choose Official-Close provider against the frozen Settlement Record contract; do not weaken checks to fit a vendor.
-5. Supply M6 Squads member pubkeys when that gate is in scope. Adopt or omit Emergency Expiry only after G3.
+1. **#22 landed** (`c99e7a1`); nothing left but the devnet redeploy via `make build-devnet`.
+2. **Close or explicitly leave #24 open** — seed path is on `main`; remaining work is ops (keys, funding, deploy) not more seed code.
+3. **#16** — Pyth adapter loop is code-complete + proven locally (`make pyth-settle-e2e`). Remaining: devnet deploy + ADR-0030 identity capture of the adapter (ops), then the G11 half (Official-Close provider #9, `oracle-e2e-devnet`, calibration ADR).
+4. **#25 identity-drift monitor** — ADR-0030 fail-closed alerting (DEVNET_DEPLOY Phase 7).
+5. **#19 / #20 / #21** — replace the keeper poll with scheduled settlement + market-open jobs, subscription crank, and pre-open re-validation. Scheduling substrate is still **[open]** in PRODUCTION_INFRA.
+6. Human-owned: #9 provider, #10 webhook, #11 Squads members, #15 Emergency Expiry disposition, #8 G2-devnet, #17 signed go/no-go.
+7. Do not start a mainnet conversation. Do not invent Official Close from last trade.
 
 ## Open questions still owned by humans
 
-- Official-Close provider (G11 go/no-go; Massive SIP + Alpaca SIP cross-check specified as calibration method).
-- Alert webhook receiver before unattended operation.
-- Three M6 Squads members / create-key / published vault addresses.
-- Emergency Expiry in or out after G3.
-- Whether first-use Buy-No-limit fits one approval (G7); two-approval needs the named stakeholder waiver.
+- Official-Close provider (G11 go/no-go; Massive SIP + Alpaca SIP cross-check specified as calibration method) — #9.
+- Alert webhook receiver before unattended operation — #10.
+- Three M6 Squads members / create-key / published vault addresses — #11.
+- Emergency Expiry in or out after G3 — #15 (ADR-0033 already depends on the recovery path for live-gap risk).
+- Scheduling substrate for the production keeper (cron vs queue vs Temporal vs cloud scheduler) — PRODUCTION_INFRA §2.
 
 ## Considerations while building
 
@@ -84,5 +77,6 @@ A clone of `main` alone still shows only the original v0.6 docs. Treat the worki
 - Never trust client-supplied OpenBook/market/vault/admin accounts.
 - Operator hot key cannot pause issued markets, override, or touch collateral.
 - HTTP settlement evidence is not on-chain-authenticated; Override Authority is a delayed price trust root.
-- Use glossary terms in issues, tests, and UI copy.
+- Use glossary terms in issues, tests, and UI copy. Markets page subtitle currently says “Binary contracts” — that is glossary drift.
 - GitLab issues via `glab`; do not treat MRs as triage.
+- `frontend/lib/meridian.ts` vs `@meridian/sdk` is a known post-v1 reconcile (#18); do not casually fork a third builder.

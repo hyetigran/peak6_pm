@@ -1,5 +1,5 @@
 //! Governance registers an immutable Settlement Transport Version (PRD ID-014)
-//! for a ticker. Snapshots the Switchboard executable identity; never mutated
+//! for a ticker. Snapshots the oracle (Pyth adapter) executable identity; never mutated
 //! once referenced by a market or unsettled day.
 
 use anchor_lang::prelude::*;
@@ -27,13 +27,13 @@ pub fn handler(
     ctx: Context<RegisterTransport>,
     version_id: u32,
     ticker_id: u8,
-    switchboard_program_id: Pubkey,
-    switchboard_programdata: Pubkey,
-    switchboard_deployment_slot: u64,
-    switchboard_executable_sha256: [u8; 32],
-    switchboard_upgrade_authority: Pubkey,
-    switchboard_feed: Pubkey,
-    switchboard_job_hash: [u8; 32],
+    oracle_program_id: Pubkey,
+    oracle_programdata: Pubkey,
+    oracle_deployment_slot: u64,
+    oracle_executable_sha256: [u8; 32],
+    oracle_upgrade_authority: Pubkey,
+    oracle_feed: Pubkey,
+    oracle_job_hash: [u8; 32],
     provider_id: u16,
     close_method_id: u16,
     activated_trading_day: u32,
@@ -44,13 +44,13 @@ pub fn handler(
     f.bump = ctx.bumps.feed_version;
     f.version_id = version_id;
     f.ticker_id = ticker_id;
-    f.switchboard_program_id = switchboard_program_id;
-    f.switchboard_programdata = switchboard_programdata;
-    f.switchboard_deployment_slot = switchboard_deployment_slot;
-    f.switchboard_executable_sha256 = switchboard_executable_sha256;
-    f.switchboard_upgrade_authority = switchboard_upgrade_authority;
-    f.switchboard_feed = switchboard_feed;
-    f.switchboard_job_hash = switchboard_job_hash;
+    f.oracle_program_id = oracle_program_id;
+    f.oracle_programdata = oracle_programdata;
+    f.oracle_deployment_slot = oracle_deployment_slot;
+    f.oracle_executable_sha256 = oracle_executable_sha256;
+    f.oracle_upgrade_authority = oracle_upgrade_authority;
+    f.oracle_feed = oracle_feed;
+    f.oracle_job_hash = oracle_job_hash;
     f.provider_id = provider_id;
     f.close_method_id = close_method_id;
     f.activated_trading_day = activated_trading_day;

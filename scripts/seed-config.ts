@@ -10,8 +10,8 @@
  *               fails fast instead of at simulation.
  *
  * Kept dependency-light (only Buffer) so it unit-tests without a validator.
- * Per-ticker Switchboard feed pubkeys are NOT resolved here — those land with
- * the real oracle transport (#16); this resolves the oracle *program* only.
+ * Per-ticker feeds are NOT resolved here — on devnet they are the Pyth adapter's
+ * delivery PDAs (derived in seed-demo.ts); this resolves the oracle *program* only.
  */
 
 // Mirror programs/meridian/src/constants.rs: the strict build requires
@@ -85,6 +85,6 @@ export function resolveSeedConfig(env: Env): SeedConfig {
     metadataUri: need("METADATA_URI"),
     normalDelaySecs: requireAtLeast("NORMAL_DELAY_SECS", NORMAL_DELAY_FLOOR),
     overrideDelaySecs: requireAtLeast("OVERRIDE_DELAY_SECS", OVERRIDE_DELAY_FLOOR),
-    oracleProgram: need("SWITCHBOARD_PROGRAM_ID"),
+    oracleProgram: need("ORACLE_PROGRAM_ID"), // the Pyth adapter program id (owner-pin, ADR-0030)
   };
 }

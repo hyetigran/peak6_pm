@@ -4,14 +4,14 @@
 //! layout** Meridian's `finalize_settlement` reads (`official_close_1e6@8,
 //! delivery_slot@16, observed_ts@24, halt_status@32, sample_count@33`). The
 //! adapter OWNS the delivery account, so Meridian's owner-pin
-//! (`delivery.owner == record.switchboard_program_id`) points at THIS program;
+//! (`delivery.owner == record.oracle_program_id`) points at THIS program;
 //! `register_transport` snapshots this program id + the delivery account.
 //!
 //! This is the swap unit (ADR-0017 versioned transports): swapping oracles is a
 //! new adapter + a new transport version — Meridian never changes. Pyth carries
 //! no "official close" / halt semantics, so `halt_status` is set to
 //! NormalOfficialClose; this adapter feeds the SYNTHETIC devnet demo
-//! (ADR-0028), not the ADR-0021 NOCP proof (that's the Switchboard track).
+//! (ADR-0028), not the ADR-0021 Official-Close proof (G11 still needs the Nasdaq NOCP calibration, #9).
 
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::hash::hashv;
@@ -107,7 +107,7 @@ pub struct Crank<'info> {
     pub price_update: Account<'info, PriceUpdateV2>,
     /// The per-ticker delivery account this adapter owns and Meridian reads. Its
     /// stable, deterministic address is what `register_transport` pins once as
-    /// the record's `switchboard_feed`; each settlement overwrites it in place
+    /// the record's `oracle_feed`; each settlement overwrites it in place
     /// (same model as the harness mock feed).
     #[account(
         init_if_needed, payer = cranker, space = 8 + DeliveryFeed::INIT_SPACE,

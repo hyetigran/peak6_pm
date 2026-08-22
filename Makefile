@@ -62,12 +62,20 @@ demo: build
 # Prerequisites (see .env.example): the program deployed to devnet (build-devnet
 # then `solana program deploy`), funded GOVERNANCE_KEYPAIR + OPERATOR_KEYPAIR_PATH,
 # QUOTE_MINT, OPENBOOK_EXECUTABLE_SHA256, OPENBOOK_UPGRADE_AUTHORITY, METADATA_URI,
-# and SWITCHBOARD_PROGRAM_ID + SWITCHBOARD_FEEDS (the per-ticker feeds land with #16).
+# and ORACLE_PROGRAM_ID (the deployed pyth-adapter; per-ticker feeds are its delivery PDAs).
 # The Pyth oracle adapter (synthetic demo track): a swappable transport that
 # reads a Pyth PriceUpdateV2 and writes the normalized delivery layout Meridian
 # reads. Separate program; Meridian is untouched.
 build-adapter:
 	cargo build-sbf --manifest-path programs/pyth-adapter/Cargo.toml
+
+# Full keeper-in-pyth-mode settlement proof on localnet (#16): Pyth-cloned
+# validator -> seed with the adapter as transport -> keeper KEEPER_ORACLE=pyth
+# (Hermes pull -> post PriceUpdateV2 -> adapter crank -> finalize -> settle) ->
+# assert the Settlement Record's Official Close IS the real Pyth price. Needs
+# network (devnet clone + Hermes). Nonzero on failure.
+pyth-settle-e2e: build build-adapter
+	./scripts/pyth-settle-e2e.sh
 
 demo-devnet: build-devnet
 	@[ "$$RPC_URL" ] || { echo "demo-devnet: set RPC_URL to a devnet endpoint (and the devnet env — see .env.example / Makefile note)"; exit 1; }
@@ -82,6 +90,12 @@ indexer: services-install
 
 keeper: services-install
 	cd services/keeper && DEMO_CONFIG=$(CURDIR)/.demo-config.json KEEPER_STATUS=$(CURDIR)/.keeper-status.json pnpm start
+
+# Production keeper (#19, ADR-0031/0035): scheduler-driven (two jobs/day + a
+# durable run-ledger), NOT the per-second demo poll. A cron/at-least-once trigger
+# runs this; the lock file prevents overlap. See PRODUCTION_INFRA §2.
+keeper-prod: services-install
+	cd services/keeper && DEMO_CONFIG=$(CURDIR)/.demo-config.json KEEPER_LEDGER=$(CURDIR)/.keeper-ledger.json KEEPER_LOCK=$(CURDIR)/.keeper.lock pnpm prod
 
 marketmaker: services-install
 	cd services/marketmaker && DEMO_CONFIG=$(CURDIR)/.demo-config.json MM_STATUS=$(CURDIR)/.mm-status.json pnpm start

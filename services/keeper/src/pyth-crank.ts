@@ -8,13 +8,16 @@
  * DEVNET-GATED: the Pyth receiver + Wormhole live on devnet/mainnet (or a
  * cloned-local validator), so this can't run against a plain localnet — the
  * localnet demo keeps the m0-harness mock feed. Type-checked, not run-tested
- * here. Capture AT the close: Pyth equity feeds are RTH-only and go stale after
- * 16:00 ET, whereas settlement is ~close+20m.
+ * here. Capture AT the close (#26): Pyth equity feeds are RTH-only and go
+ * stale after 16:00 ET, whereas settlement is ~close+20m — so `publishTime`
+ * (the close) selects the update via Hermes' at-timestamp endpoint; omit it
+ * for "latest" (demo only). See pyth-capture.ts for the policy.
  */
 import type { VersionedTransaction, Signer } from "@solana/web3.js";
 import type { PythSolanaReceiver } from "@pythnetwork/pyth-solana-receiver";
 import type { HermesClient } from "@pythnetwork/hermes-client";
 import { crankIx, PYTH_FEED_IDS, PYTH_ADAPTER_PID } from "./pyth-adapter.js";
+import { selectCloseUpdate } from "./pyth-capture.js";
 import { PublicKey } from "@solana/web3.js";
 
 /** Hermes wants the 0x-prefixed feed id; our config stores the bare hex. */
@@ -32,6 +35,9 @@ export async function buildPythCrankTxs(opts: {
   cranker: PublicKey;
   tickerId: number;
   maxAgeSecs?: bigint;
+  /** Unix seconds (the close): select the update published in the close window around it
+   *  (Hermes at-timestamp is first-at-or-after, so a descending ladder is probed). null/undefined = latest. */
+  publishTime?: number | null;
   adapter?: PublicKey;
 }): Promise<{ tx: VersionedTransaction; signers: Signer[] }[]> {
   const feedId = hermesFeedId(opts.tickerId);
@@ -39,8 +45,14 @@ export async function buildPythCrankTxs(opts: {
 
   // base64: the receiver's addPostPriceUpdates expects base64-encoded updates
   // (Hermes v3 defaults to hex -> "Invalid accumulator message").
-  const updates = await opts.hermes.getLatestPriceUpdates([feedId], { encoding: "base64" });
-  const data = updates.binary.data; // base64 signed updates
+  const data: string[] = opts.publishTime != null
+    ? (await selectCloseUpdate(opts.publishTime, async (t) => {
+        const u = await opts.hermes.getPriceUpdatesAtTimestamp(t, [feedId], { encoding: "base64", parsed: true });
+        const publishTime = u.parsed?.[0]?.price.publish_time;
+        if (publishTime == null) throw new Error("Hermes returned no parsed publish_time");
+        return { publishTime, update: u.binary.data };
+      })).update
+    : (await opts.hermes.getLatestPriceUpdates([feedId], { encoding: "base64" })).binary.data; // base64 signed updates
 
   const builder = opts.receiver.newTransactionBuilder({ closeUpdateAccounts: true });
   await builder.addPostPriceUpdates(data);

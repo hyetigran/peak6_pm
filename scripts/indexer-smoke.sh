@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -uo pipefail
 cd "$(dirname "$0")/.."
+mkdir -p logs
 pkill -9 -f solana-test-validator 2>/dev/null; pkill -f "src/index.ts" 2>/dev/null; sleep 1
 rm -rf .validator services/indexer/.indexer.sqlite*
-./scripts/localnet.sh --ledger .validator > .validator-test.log 2>&1 &
+./scripts/localnet.sh --ledger .validator > logs/validator-test.log 2>&1 &
 VPID=$!
 for i in $(seq 1 60); do solana cluster-version -u localhost >/dev/null 2>&1 && break; sleep 1; done
 pnpm exec tsx --test tests/meridian-foundation.test.ts >/dev/null 2>&1 || true

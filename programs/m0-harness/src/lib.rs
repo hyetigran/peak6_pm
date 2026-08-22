@@ -24,10 +24,10 @@ pub const VENUE_AUTHORITY_SEED: &[u8] = b"venue_authority";
 pub const CONFIG_SEED: &[u8] = b"config";
 pub const VENUE_GATE_SEED: &[u8] = b"venue_gate";
 /// Mock settlement-delivery feed (localnet only): a stand-in for the
-/// Switchboard On-Demand feed that Meridian's `finalize_settlement_normal`
+/// Pyth-adapter delivery account that Meridian's `finalize_settlement_normal`
 /// reads. One per ticker; whoever operates settlement publishes the Official
 /// Close here and Meridian reads it back — the same account-read path the real
-/// Switchboard feed would exercise on devnet.
+/// Pyth adapter delivery account would exercise on devnet.
 pub const MOCK_FEED_SEED: &[u8] = b"mock_feed";
 /// ADR-scoped unsignable fee-admin sentinel: a System-Program PDA. Off-curve
 /// (no private key can exist) and the System Program has no `invoke_signed`

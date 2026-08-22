@@ -16,8 +16,10 @@ Ship a reproducible Solana **devnet** lifecycle: create → mint → trade all f
 
 Two required demo paths (ADR-0028):
 
-- `make demo-devnet` — labeled public-HTTPS **synthetic** Settlement Record (plumbing).
-- `make oracle-e2e-devnet` — real Nasdaq Official Close / provider proof (non-waiverable M0 gate).
+- `make demo-devnet` — labeled public-HTTPS **synthetic** Settlement Record (plumbing). Seed path exists; it is not a clean-clone E2E yet.
+- `make oracle-e2e-devnet` — real Nasdaq Official Close / provider proof (non-waiverable M0 gate). **Not implemented.**
+
+Localnet plumbing is already live: `make demo` runs validator + seed + indexer + keeper + market-maker + frontend.
 
 ## In scope (V1)
 
@@ -29,7 +31,7 @@ Two required demo paths (ADR-0028):
 - One canonical Settlement Record PDA per ticker and Trading Day, consumed by every Strike that day.
 - Official Close = unadjusted primary-listing close; for V1 MAG7 this is **Nasdaq NOCP**.
 - Delayed Manual Settlement Override: two agreeing evidenced values; program derives the winner.
-- Frontend: Landing, Markets, Trade, Portfolio, History, with Directional Guardrail and Recovery-only Mode.
+- Frontend: Markets, Trade, Portfolio, History (root redirects to Markets; demo also has Admin). Directional Guardrail and Recovery-only Mode are specified; Recovery-only Mode exists as a lag banner; Exposure Interval is not yet evaluated in the UI.
 - Off-chain automation, EventHeap keeper, read-only indexer with History Completeness.
 - Circle six-decimal Solana Devnet USDC as the quote mint.
 - Permanent Arweave metadata published and verified before mint creation.
@@ -70,14 +72,23 @@ Two required demo paths (ADR-0028):
 
 | Layer | Owns | Location |
 | --- | --- | --- |
-| Source specification | Product requirements (PDF is source of truth) | `docs/REQUIREMENTS.md`; also `design mockups/uploads/meridian-spec.md` |
-| Reconciled product plan | Product behavior and acceptance | `docs/PRD.md` **v0.7** (SHA-256 `05410e441fd4ca9498dea512fad137f22be78d5839c47e2c1ddbe8705b7fccca`) |
-| Implementation architecture | Component boundaries, CPI, accounts, services | `docs/ARCHITECTURE.md` **v1.1** |
+| Source specification | Product requirements (PDF is source of truth) | `docs/REQUIREMENTS.md` |
+| Reconciled product plan | Product behavior and acceptance | `docs/PRD.md` **v0.7.1** |
+| Implementation architecture | Component boundaries, CPI, accounts, services | `docs/ARCHITECTURE.md` **v1.1.1** |
 | Domain glossary | Vocabulary; avoid listed synonyms | `CONTEXT.md` |
-| Accepted decisions | Rounds 1–6 product/architecture decisions | `docs/adr/0001`–`0028` |
+| Accepted decisions | Rounds 1–6 plus later venue/lifecycle ADRs | `docs/adr/0001`–`0033` |
+| Off-chain topology | Scheduler, redundancy, secrets, observability | `docs/PRODUCTION_INFRA.md` |
+| Devnet runbook | Localnet → M6 checklist | `docs/DEVNET_DEPLOY.md` |
+| Governance / keys | Config roles, upgrade authority, key custody | `docs/GOVERNANCE.md` |
 
-Accepted ADRs and the v0.7/v1.1 freeze are reconciled. Use `CONTEXT.md` terms. If new work contradicts an ADR, say so explicitly.
+Accepted ADRs and the v0.7.1/v1.1.1 freeze are reconciled. Use `CONTEXT.md` terms. If new work contradicts an ADR, say so explicitly.
+
+ADR-0031–0033 are accepted lifecycle additions (keeper triggers, rolling creation, open-when-exists). They do not reopen G11 or the Official Close contract.
 
 ## Current phase
 
-**M0 validation candidate.** Product decision frontier is empty. M0 (G1–G12) may begin. M1 and full build start only after a **signed go/no-go report**. No on-chain program, services, or app code yet.
+**Localnet stack is live. Devnet path is the next engineering target.**
+
+`programs/meridian` exists and is the V1 program (id `HiREMEBW…`). M0 gates G1–G10 and G12 are proven on localnet (`make m0`). **G11 is still blocked** on Official-Close provider selection (#9). The signed M0 go/no-go (#17) is still open — ADR-0020 still requires it — but the user directed building the program → services → frontend on localnet anyway.
+
+Uncommitted in the working tree (2026-08-22): ADR-0033 `validate_schedule` change (`MAX_SESSION_SECS`, bounded session instead of 3.5h/6.5h pin) — issue #22.

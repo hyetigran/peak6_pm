@@ -1,9 +1,9 @@
 # Meridian — Architecture
 
-**Version:** 1.1.1 (ADR-0030 G1 revision)
+**Version:** 1.2 (ADR-0034: Pyth replaces Switchboard as the settlement transport; field names `switchboard_*` → `oracle_*`, layout unchanged)
 **Date:** 2026-08-20  
 **Status:** M0 validation candidate; full build pending non-waiverable gates
-**Product plan:** `docs/PRD.md` / Meridian Implementation Plan v0.7.1
+**Product plan:** `docs/PRD.md` / Meridian Implementation Plan v0.8
 **PRD SHA-256:** `1621c24df9a37e4b9fd6399f7c4ba8e419165ea636ea9326d113be40fbd3f089`
 **Source specification:** `docs/REQUIREMENTS.md` (converted from the source PDF; the PDF remains source of truth when available)
 **Primary venue:** OpenBook V2 deployed v1.7  
@@ -13,7 +13,7 @@
 
 ## 0. Document Authority and Change Control
 
-This document is the implementation architecture derived from Meridian PRD v0.7 and reconciled with `CONTEXT.md` plus ADR-0001 through ADR-0028.
+This document is the implementation architecture derived from Meridian PRD v0.7 and reconciled with `CONTEXT.md` plus ADR-0001 through ADR-0034 (ADR-0034 replaces every former Switchboard reference with the Pyth transport).
 
 The PRD owns **product behavior and acceptance requirements**. This document owns **component boundaries, account topology, trust boundaries, CPI composition, service responsibilities, data flows, failure handling, and implementation structure**.
 
@@ -97,8 +97,8 @@ Meridian may control program-owned vaults required for fully collateralized issu
 
 The architecture separates:
 
-- **write path:** wallet/automation -> Meridian/OpenBook/Switchboard on Solana;
-- **read path:** Solana/OpenBook/Switchboard -> indexer -> REST/WS -> frontend;
+- **write path:** wallet/automation -> Meridian/OpenBook/Pyth adapter on Solana;
+- **read path:** Solana/OpenBook/Pyth-adapter delivery accounts -> indexer -> REST/WS -> frontend;
 - **automation path:** operator jobs + EventHeap keeper + settlement orchestration;
 - **governance path:** cold/separate authorities, not service hot keys.
 
@@ -120,7 +120,7 @@ flowchart LR
     OB[OpenBook V2 v1.7]
     SPL[SPL Token Program]
     MPL[Metaplex Metadata]
-    SB[Switchboard On-Demand]
+    SB[Pyth receiver + Meridian Pyth adapter]
     PRICE[Official-Close Provider]
 
     U --> FE
@@ -215,11 +215,11 @@ Meridian MUST validate the exact attached market configuration before using it.
 
 #### Public feed delivery
 
-Switchboard On-Demand is the initial delivery path, not the source of truth. Meridian validates:
+Pyth (via the Meridian Pyth adapter, `programs/pyth-adapter`) is the delivery path, not the source of truth. The keeper pulls the signed update from Hermes, posts it as a `PriceUpdateV2` through the Pyth receiver, and cranks the adapter, which writes the per-ticker delivery PDA (`[b"delivery", ticker_id]`) in the frozen delivery layout. Pyth equity feeds are regular-hours only, so the capture happens at the close. Meridian validates:
 
-- feed identity;
-- owner program;
-- feed hash;
+- delivery-account identity (`oracle_feed` address pin);
+- owner program (the adapter, `oracle_program_id`);
+- Pyth feed id (`oracle_job_hash`);
 - publication time;
 - record identity, Trading Day, and observation time;
 - sample/freshness;
@@ -239,7 +239,7 @@ External publication source for the Official Close. Selection is a go/no-go cali
 | `governance`              | cold/separate          | two-step Config-role rotation, future settlement params, Settlement Transport Version registration/activation | rewrite Outcome Market or Settlement Record snapshots  |
 | program upgrade authority | dedicated cold deployer | program upgrades during the proof-of-concept milestones; publish program-data/hash/slot proof | load into services; non-demo use without multisig       |
 
-Governance proposes replacements for every Config role—governance, operator, Pause Authority, and Override Authority—and the incoming key must accept. Operational roles cannot rotate themselves. Program upgrade authority transfers through the Solana loader rather than Config governance. Transfer of program upgrade authority to the published 2-of-3 multisig is a mandatory final-demo acceptance gate; every non-demo deployment requires multisignature control for both program upgrades and Manual Settlement Override.
+Governance proposes replacements for every Config role—governance, operator, Pause Authority, and Override Authority—and the incoming key must accept. Operational roles cannot rotate themselves. Program upgrade authority transfers through the Solana loader rather than Config governance. Transfer of program upgrade authority to the published 2-of-3 multisig is a mandatory final-demo acceptance gate; every non-demo deployment requires multisignature control for both program upgrades and Manual Settlement Override. Live instruction coverage, labeled-demo key collapse, and custody rules are in [`docs/GOVERNANCE.md`](./GOVERNANCE.md).
 
 ---
 
@@ -476,7 +476,7 @@ Wire discriminants are permanent and explicit: `TickerId (u8)` is `0 = Invalid`,
 | program Yes trade ATA            | SPL Token      | Market PDA                                         |
 | OpenBook market/book/heap/vaults | OpenBook       | configured admins / OpenBook                       |
 | OpenOrders                       | OpenBook       | user owner/delegate                                |
-| public settlement feed           | Switchboard    | external delivery; identity/verifier snapshotted   |
+| public settlement feed           | Pyth adapter   | external delivery; adapter identity snapshotted    |
 
 ### 5.3 Mint policy
 
@@ -570,13 +570,13 @@ schema_version: u8
 reserved_padding: [u8; 64]
 version_id: u32
 ticker_id: u8
-switchboard_program_id
-switchboard_programdata
-switchboard_deployment_slot: u64
-switchboard_executable_sha256: [u8; 32]
-switchboard_upgrade_authority: Pubkey # all-zero means None
-switchboard_feed
-switchboard_job_hash
+oracle_program_id
+oracle_programdata
+oracle_deployment_slot: u64
+oracle_executable_sha256: [u8; 32]
+oracle_upgrade_authority: Pubkey # all-zero means None
+oracle_feed
+oracle_job_hash
 provider_id
 close_method_id
 activated_trading_day
@@ -590,7 +590,7 @@ Rules:
 - an Outcome Market stores its exact Settlement Transport Version identity and fields;
 - version IDs start at one, increase monotonically per ticker, and are never reused.
 
-The Switchboard executable identity is part of each immutable version. Registration verifies the executable owner, Upgradeable Loader-derived ProgramData address, deployment slot, current upgrade-authority field, and an independently reproduced executable SHA-256. The hash is an off-chain published audit commitment, not an on-chain hashing claim. `finalize_settlement_record` receives the version's ProgramData read-only and verifies its owner, derived address, exact deployment slot, and exact authority while that account is read-locked for the transaction. An immutable deployment is preferred. If an external retained authority upgrades or rotates it, normal finalization fails closed; a new version may activate only for future Trading Days, and an already-Pending record remains bound to the old identity and uses the delayed Manual path rather than silently trusting new code.
+The Pyth adapter executable identity is part of each immutable version. Registration verifies the executable owner, Upgradeable Loader-derived ProgramData address, deployment slot, current upgrade-authority field, and an independently reproduced executable SHA-256. The hash is an off-chain published audit commitment, not an on-chain hashing claim. `finalize_settlement_record` receives the version's ProgramData read-only and verifies its owner, derived address, exact deployment slot, and exact authority while that account is read-locked for the transaction. An immutable deployment is preferred. If an external retained authority upgrades or rotates it, normal finalization fails closed; a new version may activate only for future Trading Days, and an already-Pending record remains bound to the old identity and uses the delayed Manual path rather than silently trusting new code.
 
 Every creation monotonically updates `latest_created_trading_day[ticker_id]`. On-chain scheduling requires a new activation day later than that value; automation also verifies it is a future NYSE Trading Day. For a target Trading Day, the resolver selects pending when the target is on/after `pending_transport_activation_day`, otherwise current. Installing another version first promotes any already-effective pending entry to current; if the existing pending entry is not effective yet, replacement rejects. The new pointer/day cannot alter resolution for an earlier Trading Day. Every creation path and Pending SettlementRecord initialization uses this resolver, so same-day Add Strike remains on the same header.
 
@@ -608,13 +608,13 @@ header:
   close_ts: i64
   prior_official_close_1e6: u64
   settlement_transport_version_id: u32
-  switchboard_program_id: Pubkey
-  switchboard_programdata: Pubkey
-  switchboard_deployment_slot: u64
-  switchboard_executable_sha256: [u8; 32]
-  switchboard_upgrade_authority: Pubkey # all-zero means None
-  switchboard_feed: Pubkey         # 32 bytes
-  switchboard_job_hash: [u8; 32]
+  oracle_program_id: Pubkey
+  oracle_programdata: Pubkey
+  oracle_deployment_slot: u64
+  oracle_executable_sha256: [u8; 32]
+  oracle_upgrade_authority: Pubkey # all-zero means None
+  oracle_feed: Pubkey         # 32 bytes
+  oracle_job_hash: [u8; 32]
   provider_id: u16
   close_method_id: u16
   normal_settlement_delay_secs: u32
@@ -721,13 +721,13 @@ venue:
 
 settlement transport snapshot:
   settlement_transport_version_id
-  switchboard_program_id
-  switchboard_programdata
-  switchboard_deployment_slot
-  switchboard_executable_sha256
-  switchboard_upgrade_authority
-  switchboard_feed
-  switchboard_job_hash
+  oracle_program_id
+  oracle_programdata
+  oracle_deployment_slot
+  oracle_executable_sha256
+  oracle_upgrade_authority
+  oracle_feed
+  oracle_job_hash
   provider_id
   close_method_id
 
@@ -1052,6 +1052,8 @@ Initial operational thresholds:
 
 G6 must provision capacity for at least twice measured worst-case event throughput and may tighten these thresholds. These are monitoring thresholds evaluated over the EventHeap **account subscription** (ADR-0031), not a busy-poll; escalation raises priority fees / alerts, and residual drain folds into the settlement preflight.
 
+Implementation status (#20): the **heap-depth** dimension is evaluated live over the `onAccountChange` subscription — `>=50%` escalates the crank priority fee, `>=75%` raises a critical alert (webhook receiver is #10); a minutes-scale reconcile poll backstops a dropped subscription event. The **oldest-event age** target (`<5s`/`<2s`) is not yet evaluated: a count-only account read cannot see per-event timestamps, and decoding them needs the pinned OpenBook EventHeap node layout — tracked under #20. Depth is the dimension with a defined escalation action, so it drives the live SLO response today.
+
 ---
 
 ## 9. User Transaction Flows
@@ -1302,7 +1304,7 @@ Each ticker and Trading Day has one canonical immutable Settlement Record. It mu
 
 For the V1 MAG7 universe, the expected Close Method is Nasdaq Official Closing Price (NOCP), including Nasdaq's documented halt/contingency treatment. A generic daily-bar close, last trade, midpoint, adjusted close, or previous close is never substituted.
 
-Changing a provider, Close Method, Switchboard feed, or verification job creates a new Settlement Transport Version for future Trading Days. A provider that cannot expose one immutable, atomically bound record or whose correction/finality behavior is unsuitable is rejected.
+Changing a provider, Close Method, delivery account, or Pyth feed id creates a new Settlement Transport Version for future Trading Days. A provider that cannot expose one immutable, atomically bound record or whose correction/finality behavior is unsuitable is rejected.
 
 ### 12.2 Settlement Quality Predicate
 
@@ -1310,7 +1312,7 @@ Normal finalization writes only the result and verifies:
 
 1. the canonical SettlementRecord PDA exists in Pending state with an immutable initialized header;
 2. ticker and Trading Day match the PDA, and evidence transport identity matches the immutable Pending header;
-3. account owners, Switchboard feed, job hash, provider, and Close Method match that immutable version;
+3. account owners, delivery account, Pyth feed id, provider, and Close Method match that immutable version;
 4. the provider record supplies explicit `is_final = 1` and `is_unadjusted = 1` values;
 5. record identity, Close Method, publication time, observation time, opaque-revision hash, and raw-response digest are atomically bound;
 6. `close_ts <= official_close_observed_ts <= exchange_published_ts <= provider_observed_ts <= Clock.unix_timestamp`, and `finalized_ts` is set from that Clock no earlier than `close_ts`;
@@ -1518,7 +1520,7 @@ Subscriptions:
 - SettlementRecord accounts/events;
 - OpenBook market/bids/asks/EventHeap;
 - OpenBook logs/events;
-- Switchboard feed accounts;
+- Pyth-adapter delivery accounts (and the posted `PriceUpdateV2` accounts);
 - the eligible SIP-derived Live Underlying Price stream plus entitlement, delay, venue, and observation metadata;
 - tracked Yes/No mint and token-account changes plus their transaction signatures;
 - typed operational incidents emitted by automation, including correction-monitor observations;
@@ -1842,7 +1844,7 @@ It requires a previously paused, pre-close Active Outcome Market, the Pause Auth
 
 Governance proposes replacements for governance, operator, Pause Authority, and Override Authority; the incoming key accepts. Proposal/acceptance is evented and operational roles cannot rotate themselves.
 
-The devnet upgrade key is dedicated and cold, never loaded by automation or frontend. Deployment publishes the ProgramData address, binary hash, and slot. Transfer of upgrade authority to the published 2-of-3 multisig is a mandatory final-demo acceptance gate, not a best-effort follow-up. All non-demo deployments require multisignature upgrade and Manual Settlement Override policies.
+The devnet upgrade key is dedicated and cold, never loaded by automation or frontend. Deployment publishes the ProgramData address, binary hash, and slot. Transfer of upgrade authority to the published 2-of-3 multisig is a mandatory final-demo acceptance gate, not a best-effort follow-up. All non-demo deployments require multisignature upgrade and Manual Settlement Override policies. Operational custody and the labeled-demo key collapse are in [`docs/GOVERNANCE.md`](./GOVERNANCE.md).
 
 The final-demo mechanism is the immutable Squads Protocol V4 devnet deployment:
 
@@ -2090,7 +2092,7 @@ off-chain
 
 All Solana execution and collateral remain devnet/test-value only. Production Arweave uploads and paid SIP data are ancillary integration costs held outside protocol funds; they do not authorize mainnet deployment or real trading funds.
 
-A localhost/RFC1918 data source is invalid for remote Switchboard operation.
+A localhost/RFC1918 Hermes or RPC endpoint is invalid for remote Pyth operation.
 
 ### 20.3 Secrets
 
@@ -2129,11 +2131,11 @@ OPENBOOK_PROGRAMDATA_ADDRESS
 OPENBOOK_DEPLOYMENT_SLOT
 OPENBOOK_EXECUTABLE_SHA256
 OPENBOOK_UPGRADE_AUTHORITY=none
-SWITCHBOARD_PROGRAM_ID
-SWITCHBOARD_PROGRAMDATA_ADDRESS
-SWITCHBOARD_DEPLOYMENT_SLOT
-SWITCHBOARD_EXECUTABLE_SHA256
-SWITCHBOARD_UPGRADE_AUTHORITY
+ORACLE_PROGRAM_ID            # the Meridian Pyth adapter
+ORACLE_PROGRAMDATA_ADDRESS
+ORACLE_DEPLOYMENT_SLOT
+ORACLE_EXECUTABLE_SHA256
+ORACLE_UPGRADE_AUTHORITY
 ```
 
 Only `OPERATOR_KEYPAIR_PATH` above is a protocol role; the remaining entries are non-authority external-service credentials. The real `.env`, `keys/`, and secret mounts are gitignored, and key paths resolve outside the repository. Governance, pause, override, and program-upgrade variables are consumed only by offline deployment/runbook commands and are never injected into automation or frontend. The earlier-milestone upgrade key remains dedicated/cold until the mandatory M6 Squads transfer; its ProgramData address, binary hash, deployment slot, and superseding vault authority are published.
@@ -2433,7 +2435,7 @@ Run `make oracle-e2e-devnet` and prove:
 - `max_sample_spread_bps = 0` means exact normalized equality, and `max_stale_slots` checks delivery-account freshness at submission while allowing anyone to refresh only the same immutable identity/revision;
 - Config rejects quality parameters outside the compile-time sample/stale/band bounds; G11 signs the deployed selections before M1, and checked-`u128` inclusive band vectors cover below/exact/above plus overflow;
 - one atomically bound record contains ticker, Trading Day, Official Close, observation/publication times, provider revision hash, Close Method/status, record identity, and raw-response digest;
-- each Settlement Transport Version publishes the Switchboard executable owner, program ID, derived ProgramData, deployment slot, executable SHA-256, and upgrade authority; finalization read-locks and validates the exact ProgramData/slot/authority, with wrong owner/address/slot/authority vectors rejecting;
+- each Settlement Transport Version publishes the Pyth adapter executable owner, program ID, derived ProgramData, deployment slot, executable SHA-256, and upgrade authority; finalization read-locks and validates the exact ProgramData/slot/authority, with wrong owner/address/slot/authority vectors rejecting;
 - any post-registration executable upgrade makes the old Pending version fail closed and use delayed Manual Settlement; only a newly registered future-day version may select the changed identity;
 - the first Outcome Market preinitializes the Pending header, every later Strike must match it, and a registered-but-wrong transport cannot win the permanent record;
 - one canonical Settlement Record PDA is shared by all Outcome Markets for the tuple and the first valid permissionless submission wins;
