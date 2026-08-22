@@ -85,7 +85,7 @@ fn create_metadata_v3<'info>(
     data.push(0); // creators: None
     data.push(0); // collection: None
     data.push(0); // uses: None
-    data.push(1); // is_mutable: true
+    data.push(0); // is_mutable: false — permanent (ADR-0016); update_authority is the Market PDA
     data.push(0); // collection_details: None
 
     let ix = Instruction {

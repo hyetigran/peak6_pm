@@ -558,6 +558,19 @@ No Token-2022 extension is assumed.
 
 Before mint creation, automation serializes each Yes/No metadata JSON document as RFC 8785 canonical UTF-8 bytes, hashes the exact JSON and image bytes, uploads them to production Arweave, and verifies every digest through two gateways. IPFS is only an explicit fallback with a raw CID and two independent pins. Publication or verification failure aborts Outcome Market creation. Gateway verification is off-chain; the program binds the submitted URI/content hashes, re-derives the fixed manifest root below, and validates the Metaplex mint/metadata relationships and immutable flags.
 
+> **Implementation status (demo-only).** What ships today is `publish_metadata`
+> (`programs/meridian/src/instructions/market/publish_metadata.rs`): an
+> operator-signed Metaplex `CreateMetadataAccountV3` CPI for the Yes/No mints
+> with `update_authority = Market PDA` and `is_mutable = false`, called by
+> `scripts/seed-demo.ts` after venue creation and wrapped in try/catch (a
+> failure logs and does not abort creation). The manifest pipeline above —
+> RFC 8785 serialization, content hashing, Arweave upload, two-gateway
+> verification, and program-side binding of URI/content digests — is **not
+> implemented**; `metadata_manifest_sha256` is bound but the demo seeds a
+> placeholder constant, and the program only rejects the all-zero value. Wallets
+> therefore show names/symbols, but permanence and verification are not yet
+> guaranteed. Tracked in #27.
+
 ---
 
 ## 6. Meridian Data Model
