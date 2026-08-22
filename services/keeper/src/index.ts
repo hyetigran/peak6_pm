@@ -125,6 +125,32 @@ async function main() {
       { retries: 2, baseMs: 400, onRetry: (a, e) => console.warn(`[keeper] send retry ${a}: ${(e as Error).message.slice(0, 60)}`) },
     );
 
+  // How the per-ticker delivery account gets a fresh Official Close before
+  // finalize. `harness` (localnet) writes the mock feed; `pyth` (devnet) pulls
+  // Hermes -> posts a PriceUpdateV2 -> cranks the adapter that OWNS the delivery
+  // account Meridian reads. Pyth deps are dynamically imported so localnet
+  // doesn't load them. (KEEPER_PYTH_MAX_AGE_SECS is large for the weekend-stale
+  // demo; prod captures at the live close.)
+  const ORACLE_MODE = process.env.KEEPER_ORACLE ?? "harness";
+  const PYTH_MAX_AGE = BigInt(process.env.KEEPER_PYTH_MAX_AGE_SECS ?? "604800");
+  const oracle: { refresh: (tickerId: number, close1e6: bigint, feed: PublicKey) => Promise<void> } =
+    await (async () => {
+      if (ORACLE_MODE !== "pyth") {
+        return { refresh: async (tickerId: number, close1e6: bigint, feed: PublicKey) => { await send([publishMockFeedIx(op.publicKey, feed, tickerId, close1e6)]); } };
+      }
+      const { PythSolanaReceiver } = await import("@pythnetwork/pyth-solana-receiver");
+      const { HermesClient } = await import("@pythnetwork/hermes-client");
+      const { buildPythCrankTxs } = await import("./pyth-crank.js");
+      const wallet: any = { publicKey: op.publicKey, payer: op, signTransaction: async (t: any) => { t.sign([op]); return t; }, signAllTransactions: async (t: any[]) => { t.forEach((x) => x.sign([op])); return t; } };
+      const receiver = new PythSolanaReceiver({ connection: conn, wallet });
+      const hermes = new HermesClient("https://hermes.pyth.network");
+      console.log("[keeper] oracle = pyth (Hermes pull -> post -> adapter crank)");
+      return { refresh: async (tickerId: number) => {
+        const txs = await buildPythCrankTxs({ receiver, hermes, cranker: op.publicKey, tickerId, maxAgeSecs: PYTH_MAX_AGE });
+        for (const { tx, signers } of txs) { tx.sign([op, ...signers]); await conn.confirmTransaction(await conn.sendTransaction(tx), "confirmed"); }
+      } };
+    })();
+
   const loop = async () => {
     ticks++;
     const actions: string[] = [];
@@ -162,7 +188,9 @@ async function main() {
           if (!recInfo || recInfo.data[8] === 0) { // Pending -> publish feed, then finalize once per ticker/day
             const feed = new PublicKey(feedB58);
             const slot = BigInt(await conn.getSlot("confirmed"));
-            await send([publishMockFeedIx(op.publicKey, feed, m.ticker_id, close1e6)]);
+            // Refresh the delivery account (mock feed on localnet, real Pyth on
+            // devnet), then finalize — Meridian READS the close from that feed.
+            await oracle.refresh(m.ticker_id, close1e6, feed);
             await send([finalizeNormalIx(op.publicKey, record, feed, close1e6, slot, BigInt(now))]);
           }
           await send([settleMarketIx(op.publicKey, new PublicKey(m.pubkey), record)]);
