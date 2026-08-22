@@ -71,10 +71,11 @@ fn parse_delivery(data: &[u8]) -> Result<DeliveryReading> {
     })
 }
 
-/// Capture-at-close (ADR-0034, #26): the delivered reading must have been
-/// observed AT the Official Close — not a stale pre-close tick, not a later
-/// after-hours print. Strict build only; the localnet demo settles synthetic
-/// closes against whatever the mock/weekend feed holds.
+/// Settlement Quality Predicate, close window (ADR-0034 §Capture window, #26):
+/// the delivered reading must have been observed AT the Official Close — not a
+/// stale pre-close tick, not a later after-hours print. Strict build only (the
+/// `localnet` feature relaxes it, see Cargo.toml): the localnet demo settles
+/// synthetic closes against whatever the mock/weekend feed holds.
 #[cfg(not(feature = "localnet"))]
 fn check_observed_at_close(observed_ts: i64, close_ts: i64) -> Result<()> {
     use crate::constants::{OBSERVED_AFTER_CLOSE_MAX_SECS, OBSERVED_BEFORE_CLOSE_MAX_SECS};

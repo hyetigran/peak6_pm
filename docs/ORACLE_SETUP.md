@@ -117,9 +117,13 @@ immutable deployment is preferred; a post-registration upgrade fails closed.
 `finalize_settlement_normal` (reads the delivery account) → `settle_market`.
 **Capture at the close** (#26, enforced both sides): Pyth equity feeds are
 RTH-only and stale afterwards, so the keeper (`KEEPER_PYTH_CAPTURE=at-close`,
-the default) asks Hermes for the update published **at `close_ts`** and sizes
-the adapter's `max_age_secs` to `(now − close_ts) + 300s` so that update is
-still accepted at settlement (`services/keeper/src/pyth-capture.ts`). The
+the default) selects the update published **at `close_ts`** — Hermes' at-timestamp
+endpoint returns the first update at-or-*after* a time, so the keeper probes a
+descending ladder (`close, −1s, −5s, −15s, −60s`) and keeps the first in-window
+result, failing closed if none — and sizes the adapter's `max_age_secs` to
+`(now − close_ts) + 300s` so that update is still accepted at settlement
+(`services/keeper/src/pyth-capture.ts`). This is a back-dated query at
+settlement time; the scheduled close-time capture step is ADR-0031 / #19. The
 **strict** Meridian build independently reads `observed_ts` (the Pyth publish
 time) from the delivery account and rejects a reading outside
 `[close_ts − 60s, close_ts + 900s]` (`ObservedOutsideCloseWindow`), and records

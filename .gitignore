@@ -97,4 +97,3 @@ design_mockups/
 .pyth-settle-run.log
 services/indexer/.indexer-pyth.sqlite*
 .rename-*.log
-.cap-*.log

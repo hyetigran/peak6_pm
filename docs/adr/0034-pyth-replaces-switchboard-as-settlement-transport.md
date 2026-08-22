@@ -43,6 +43,32 @@ calibrate the captured-at-close Pyth value against the Official-Close provider
 (`min_samples`, `max_stale_slots`, `max_price_band_bps`) before M1. Synthetic
 evidence (`make demo-devnet`, `make pyth-settle-e2e`) remains synthetic.
 
+**Capture window (amendment, #26).** Pyth equity feeds publish during RTH
+only, so the reading that *is* the close is the update published at `close_ts`;
+"latest" at settlement (~close+20m) is the same tick on a good day and a
+stale/wrong one otherwise. Two changes, both sides of the seam:
+
+- *Program (strict build).* `finalize_settlement_normal` reads `observed_ts`
+  (the oracle publish time, delivery offset 24) from the owner-pinned delivery
+  account — the caller arg is advisory like the rest — records it as
+  `official_close_observed_ts` / `provider_observed_ts`, and adds a Settlement
+  Quality Predicate condition: `close_ts − 60s ≤ observed_ts ≤ close_ts + 900s`,
+  else `ObservedOutsideCloseWindow`. This is a deliberate Meridian change (the
+  #26 text said "Meridian never changes"): without it a cranker could settle on
+  a stale pre-close tick or a later print, which ADR-0023's fail-closed rule
+  forbids. The bounds are initial engineering values; the settlement-quality
+  calibration ADR (G11) may tighten them. The `localnet` feature skips this one
+  check so the synthetic demo (closes at now+20s against a weekend feed) runs.
+- *Keeper.* `KEEPER_PYTH_CAPTURE=at-close` (default) selects the update with
+  Hermes' at-timestamp endpoint. That endpoint returns the **first update
+  at-or-after** the requested time, so the keeper probes a descending ladder
+  (`close, −1s, −5s, −15s, −60s`) and keeps the first result whose
+  `publish_time` is in-window, failing closed if none; the adapter's
+  `max_age_secs` is sized to `(now − close_ts) + 300s` so that update is still
+  accepted at settlement. This is a back-dated query at settlement time; the
+  scheduled close-time capture *step* remains ADR-0031 / #19. `latest` is
+  demo-only.
+
 **Consequences.** ADR-0021 (Official Close semantics), ADR-0023 (atomic record,
 permissionless first-valid finalization), and ADR-0030 (monitored fail-closed
 executable identity) keep their decisions; where they say "Switchboard" read

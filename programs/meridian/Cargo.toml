@@ -10,12 +10,14 @@ name = "meridian"
 
 [features]
 default = []
-# `localnet` relaxes ONLY the timing floors: it bounds the trading session
-# (ADR-0033) rather than pinning 3.5h/6.5h and drops the settlement-delay floors
-# so the demo can run in one sitting. Both builds READ the Official Close from
-# the owner-pinned delivery feed (finalize_settlement) — never from the caller;
+# `localnet` relaxes ONLY time-based checks: it bounds the trading session
+# (ADR-0033) rather than pinning 3.5h/6.5h, drops the settlement-delay floors,
+# and skips the Settlement Quality Predicate close window on observed_ts
+# (ADR-0034 §Capture window) — so the demo can settle synthetic closes in one
+# sitting. Both builds READ the Official Close (and observed_ts) from the
+# owner-pinned delivery feed (finalize_settlement) — never from the caller;
 # only the feed's writer differs (harness mock on localnet, the Pyth adapter
-# normalizer on devnet, #16). Localnet is for tests + demo only.
+# on devnet, #26). Localnet is for tests + demo only.
 localnet = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
