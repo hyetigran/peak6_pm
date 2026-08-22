@@ -43,26 +43,39 @@ mod delivery {
     pub const MIN_LEN: usize = 66;
 }
 
-/// Read (official_close_1e6, halt_status, delivery_slot, sample_count) from the
-/// owner-pinned feed account's data. BOTH builds read the feed — the caller's
-/// args of the same name are advisory and always overridden here, so a cranker
-/// can never supply its own Official Close (fail-closed, ADR-0023).
-fn parse_delivery(data: &[u8]) -> Result<(u64, u8, u64, u8)> {
-    require!(data.len() >= delivery::MIN_LEN, MeridianError::SettlementHeaderMismatch);
-    let read_u64 = |o: usize| u64::from_le_bytes(data[o..o + 8].try_into().unwrap());
-    Ok((read_u64(delivery::CLOSE_1E6), data[delivery::HALT], read_u64(delivery::SLOT), data[delivery::SAMPLES]))
-}
-
-// The close/slot/halt/samples args are advisory — always overridden by the
-// feed read below — so they are unused in both builds.
-#[allow(unused_variables)]
-pub fn finalize_normal(
-    ctx: Context<FinalizeSettlementNormal>,
+/// The normalized reading the delivery feed provides — named fields so the
+/// close/slot/halt/samples can't be transposed on the settlement path.
+struct DeliveryReading {
     official_close_1e6: u64,
     halt_status: u8,
-    observed_ts: i64,
     delivery_slot: u64,
     sample_count: u8,
+}
+
+/// Read the delivery reading from the owner-pinned feed account's data. BOTH
+/// builds read the feed — the caller's args of the same name are advisory and
+/// always overridden here, so a cranker can never supply its own Official Close
+/// (fail-closed, ADR-0023).
+fn parse_delivery(data: &[u8]) -> Result<DeliveryReading> {
+    require!(data.len() >= delivery::MIN_LEN, MeridianError::SettlementHeaderMismatch);
+    let read_u64 = |o: usize| u64::from_le_bytes(data[o..o + 8].try_into().unwrap());
+    Ok(DeliveryReading {
+        official_close_1e6: read_u64(delivery::CLOSE_1E6),
+        halt_status: data[delivery::HALT],
+        delivery_slot: read_u64(delivery::SLOT),
+        sample_count: data[delivery::SAMPLES],
+    })
+}
+
+// The `_`-prefixed args are advisory — the feed (read below) is authoritative,
+// never the caller. observed_ts / raw_response_sha256 are still caller-supplied.
+pub fn finalize_normal(
+    ctx: Context<FinalizeSettlementNormal>,
+    _official_close_1e6: u64,
+    _halt_status: u8,
+    observed_ts: i64,
+    _delivery_slot: u64,
+    _sample_count: u8,
     raw_response_sha256: [u8; 32],
 ) -> Result<()> {
     // The delivery feed is pinned by address (account constraint) AND by owner:
@@ -77,7 +90,7 @@ pub fn finalize_normal(
     // The Official Close is READ from the owner-pinned feed account, never
     // trusted from the caller — in BOTH builds. Only the writer differs (the
     // harness mock on localnet, a Switchboard normalizer on devnet).
-    let (official_close_1e6, halt_status, delivery_slot, sample_count) = {
+    let feed = {
         let d = ctx.accounts.delivery.try_borrow_data()?;
         parse_delivery(&d[..])?
     };
@@ -86,29 +99,29 @@ pub fn finalize_normal(
     let r = &mut ctx.accounts.record;
     require!(r.state == SettlementRecordState::Pending as u8, MeridianError::AlreadyFinalized);
     require!(now >= r.close_ts + r.normal_settlement_delay_secs as i64, MeridianError::SettlementTooEarly);
-    require!(official_close_1e6 > 0, MeridianError::InvalidPriorClose);
+    require!(feed.official_close_1e6 > 0, MeridianError::InvalidPriorClose);
     require!(
-        halt_status == HaltOrContingencyStatus::NormalOfficialClose as u8
-            || halt_status == HaltOrContingencyStatus::OfficialCloseAfterHalt as u8
-            || halt_status == HaltOrContingencyStatus::OfficialContingencyClose as u8,
+        feed.halt_status == HaltOrContingencyStatus::NormalOfficialClose as u8
+            || feed.halt_status == HaltOrContingencyStatus::OfficialCloseAfterHalt as u8
+            || feed.halt_status == HaltOrContingencyStatus::OfficialContingencyClose as u8,
         MeridianError::CollateralInvariant
     );
     // quality bounds (frozen at creation): sample count and freshness
-    require!(sample_count >= r.min_samples, MeridianError::CollateralInvariant);
+    require!(feed.sample_count >= r.min_samples, MeridianError::CollateralInvariant);
     let cur_slot = Clock::get()?.slot;
-    require!(cur_slot.saturating_sub(delivery_slot) <= r.max_stale_slots, MeridianError::CollateralInvariant);
+    require!(cur_slot.saturating_sub(feed.delivery_slot) <= r.max_stale_slots, MeridianError::CollateralInvariant);
 
     r.state = SettlementRecordState::FinalOracle as u8;
-    r.official_close_1e6 = official_close_1e6;
-    r.halt_or_contingency_status = halt_status;
+    r.official_close_1e6 = feed.official_close_1e6;
+    r.halt_or_contingency_status = feed.halt_status;
     r.is_final = 1;
     r.is_unadjusted = 1;
     r.finalized_ts = now;
     r.official_close_observed_ts = observed_ts;
     r.provider_observed_ts = observed_ts;
     r.raw_response_sha256 = raw_response_sha256;
-    r.delivery_update_slot = delivery_slot;
-    r.sample_count = sample_count;
+    r.delivery_update_slot = feed.delivery_slot;
+    r.sample_count = feed.sample_count;
     Ok(())
 }
 
@@ -158,7 +171,8 @@ mod delivery_tests {
     use super::{delivery, parse_delivery};
 
     // Build a minimal normalized delivery payload at the pinned offsets.
-    fn payload(close: u64, slot: u64, halt: u8, samples: u8) -> Vec<u8> {
+    // Arg order matches DeliveryReading's field order (close, halt, slot, samples).
+    fn payload(close: u64, halt: u8, slot: u64, samples: u8) -> Vec<u8> {
         let mut d = vec![0u8; delivery::MIN_LEN];
         d[delivery::CLOSE_1E6..delivery::CLOSE_1E6 + 8].copy_from_slice(&close.to_le_bytes());
         d[delivery::SLOT..delivery::SLOT + 8].copy_from_slice(&slot.to_le_bytes());
@@ -169,11 +183,11 @@ mod delivery_tests {
 
     #[test]
     fn reads_the_normalized_layout() {
-        let (close, halt, slot, samples) = parse_delivery(&payload(204_590_000, 12_345, 1, 7)).unwrap();
-        assert_eq!(close, 204_590_000);
-        assert_eq!(halt, 1);
-        assert_eq!(slot, 12_345);
-        assert_eq!(samples, 7);
+        let r = parse_delivery(&payload(204_590_000, 1, 12_345, 7)).unwrap();
+        assert_eq!(r.official_close_1e6, 204_590_000);
+        assert_eq!(r.halt_status, 1);
+        assert_eq!(r.delivery_slot, 12_345);
+        assert_eq!(r.sample_count, 7);
     }
 
     #[test]
