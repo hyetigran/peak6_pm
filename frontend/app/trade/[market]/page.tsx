@@ -249,22 +249,29 @@ export default function Trade() {
                 );
               })}
             </div>
-            {/* Market/Limit row is kept in the layout (hidden, not removed) for NO so the slip never shifts */}
-            <div style={{ display: "flex", gap: 16, fontSize: 14, visibility: outcome === "YES" ? "visible" : "hidden" }} aria-hidden={outcome !== "YES"}>
-              {[["Market", market], ["Limit", !market]].map(([label, on]) => (
-                <div key={label as string} onClick={() => setMarketOrder(label === "Market")} style={{ cursor: "pointer", paddingBottom: 5, color: on ? "var(--ink)" : "var(--ink-60)", borderBottom: `2px solid ${on ? "var(--accent)" : "transparent"}` }}>{label as string}</div>
-              ))}
-            </div>
+            {/* Market/Limit row always occupies the same slot so the slip never shifts. For NO the
+                mode is fixed (Buy NO = limit, Sell NO = market), so the tabs show it but are inert. */}
+            {(() => {
+              const yes = outcome === "YES";
+              const effMarket = yes ? market : noSellLimit;
+              return (
+                <div style={{ display: "flex", gap: 16, fontSize: 14, opacity: yes ? 1 : 0.55 }} aria-disabled={!yes}>
+                  {[["Market", effMarket], ["Limit", !effMarket]].map(([label, on]) => (
+                    <div key={label as string} onClick={yes ? () => setMarketOrder(label === "Market") : undefined} style={{ cursor: yes ? "pointer" : "default", paddingBottom: 5, color: on ? "var(--ink)" : "var(--ink-60)", borderBottom: `2px solid ${on ? "var(--accent)" : "transparent"}` }}>{label as string}</div>
+                  ))}
+                </div>
+              );
+            })()}
             {/* price / mode slot — same height in every mode so the CTA never jumps */}
             {noSellLimit ? (
               <div>
-                <div className="sub" style={{ fontSize: 13, marginBottom: 6, visibility: "hidden" }}>x</div>
-                <div style={{ ...fieldBox, opacity: 0.6 }}><span className="sub" style={{ fontSize: 12.5 }}>Sell No is market-only — buys Yes & redeems the pair.</span></div>
+                <div className="sub" style={{ fontSize: 13, marginBottom: 6 }}>Price</div>
+                <div style={{ ...slotBox, opacity: 0.6 }}><span className="sub" style={slotNote}>Sell No is market-only — buys Yes & redeems the pair.</span></div>
               </div>
             ) : (!market || outcome === "NO") ? (
               <div>
                 <div className="sub" style={{ fontSize: 13, marginBottom: 6 }}>Limit price (¢)</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, ...fieldBox }}>
+                <div style={{ gap: 8, ...slotBox }}>
                   <input className="mono" value={price} onChange={(e) => setPrice(e.target.value)} style={bareInput} />
                   <span className="sub" style={{ fontSize: 15 }}>¢</span>
                   <span className="sub" style={{ marginLeft: "auto", fontSize: 12 }}>expires 16:00 ET</span>
@@ -272,8 +279,8 @@ export default function Trade() {
               </div>
             ) : (
               <div>
-                <div className="sub" style={{ fontSize: 13, marginBottom: 6, visibility: "hidden" }}>x</div>
-                <div style={{ ...fieldBox, opacity: 0.6 }}><span className="sub" style={{ fontSize: 12.5 }}>Market order — fills at the best available price.</span></div>
+                <div className="sub" style={{ fontSize: 13, marginBottom: 6 }}>Price</div>
+                <div style={{ ...slotBox, opacity: 0.6 }}><span className="sub" style={slotNote}>Market order — fills at the best available price.</span></div>
               </div>
             )}
 
@@ -314,6 +321,9 @@ export default function Trade() {
 
 const seg = (on: boolean): React.CSSProperties => ({ flex: 1, textAlign: "center", padding: 9, borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: "pointer", border: "none", background: on ? "var(--accent)" : "transparent", color: on ? "var(--on-accent)" : "var(--ink-60)" });
 const fieldBox: React.CSSProperties = { padding: "12px 14px", borderRadius: 10, background: "var(--chip)", border: "1px solid var(--line)", display: "flex", alignItems: "center" };
+// price / mode slot: fixed height so swapping input <-> note never moves the rows below
+const slotBox: React.CSSProperties = { ...fieldBox, height: 50, padding: "0 14px", boxSizing: "border-box" };
+const slotNote: React.CSSProperties = { fontSize: 12.5, lineHeight: 1.3 };
 const bareInput: React.CSSProperties = { flex: 1, minWidth: 0, background: "transparent", border: "none", outline: "none", color: "var(--ink)", fontSize: 19, fontFamily: "var(--mono)", padding: 0 };
 
 function PriceCard({ side, price, prob, active, onClick }: { side: "YES" | "NO"; price: number | null; prob?: number | null; active: boolean; onClick: () => void }) {
