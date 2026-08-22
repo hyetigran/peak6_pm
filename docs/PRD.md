@@ -264,6 +264,11 @@ now < trade_open_ts        -> Meridian signs no orders
 trade_open_ts <= now       -> order gate may open
 ```
 
+Per ADR-0033, `trade_open_ts` is **creation-relative** (`creation + 30m`), not
+the 9:30 session bell, so the order gate opens when the market exists; the gate
+predicate above is unchanged. `validate_schedule` correspondingly bounds the
+session length instead of pinning it to 3.5h/6.5h.
+
 #### Normal close
 
 Two layers:
@@ -931,8 +936,12 @@ timing convenience, not a dependency: the strike ladder anchors on the prior
 Official Close, which is only known at settlement (~close+20m). So the next
 session's markets are created at **resolution + 5 minutes** (~close+30m), off
 the settlement job's completion, as a continuous roll rather than a next-morning
-batch — the chain is 24/7 and this is the earliest the anchor exists. Creation
-and trading stay decoupled (mint 09:00 / trade 09:30 are unchanged). The morning
+batch — the chain is 24/7 and this is the earliest the anchor exists. **Trading
+opens when the market exists (ADR-0033)**, not at the session bell: the schedule
+is `mint_open = creation`, `trade_open = creation + 30m` (the 30-minute mint-seed
+lead is kept), `close = the NYSE session close` — a creation→close window of
+~23.5h overnight, up to ~4 days across a long-weekend gap, still settling on the
+same 4pm Official Close. The morning
 job's safety gates move with it: NYSE trading-day eligibility (ADR-0014) and the
 two-source Corporate Action Blackout (ADR-0022) are evaluated at creation for the
 target session, and a **pre-open re-validation gate** `abandon_market`s any
