@@ -45,11 +45,18 @@ test("devnet: resolves the real identities; delays default to the strict floors"
 });
 
 test("devnet: each required identity throws when missing", () => {
-  for (const k of ["QUOTE_MINT", "OPENBOOK_EXECUTABLE_SHA256", "OPENBOOK_UPGRADE_AUTHORITY", "METADATA_URI", "SWITCHBOARD_PROGRAM_ID"]) {
+  for (const k of ["OPENBOOK_EXECUTABLE_SHA256", "OPENBOOK_UPGRADE_AUTHORITY", "METADATA_URI", "SWITCHBOARD_PROGRAM_ID"]) {
     const env = { ...DEVNET_ENV };
     delete env[k];
     assert.throws(() => resolveSeedConfig(env), new RegExp(k), `missing ${k} should throw naming it`);
   }
+});
+
+test("devnet: QUOTE_MINT defaults to Circle devnet USDC, override respected", () => {
+  const noMint = { ...DEVNET_ENV };
+  delete noMint.QUOTE_MINT;
+  assert.equal(resolveSeedConfig(noMint).quoteMint, "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+  assert.equal(resolveSeedConfig({ ...DEVNET_ENV, QUOTE_MINT: "9nZ2u5FakeMintForTest1111111111111111111111" }).quoteMint, "9nZ2u5FakeMintForTest1111111111111111111111");
 });
 
 test("devnet: delays below the strict floor are rejected", () => {

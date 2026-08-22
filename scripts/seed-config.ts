@@ -23,6 +23,8 @@ export const OVERRIDE_DELAY_FLOOR = 3600;
 const CANONICAL_OPENBOOK_PROGRAMDATA = "DktN5HJ9uHKVRZ7FXGap4PEGVnEdc2VNBCXTt1AqJQYB";
 const CANONICAL_OPENBOOK_SLOT = 282042596n;
 const DEFAULT_PUBKEY = "11111111111111111111111111111111"; // PublicKey.default
+// Circle's devnet USDC (ADR-0015); the devnet default, overridable via QUOTE_MINT.
+const CIRCLE_DEVNET_USDC = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 
 export interface SeedConfig {
   mode: "localnet" | "devnet";
@@ -40,12 +42,16 @@ export interface SeedConfig {
 type Env = Record<string, string | undefined>;
 
 export function resolveSeedConfig(env: Env): SeedConfig {
+  // OpenBook deployment identity is the same shape in both modes.
+  const openbookProgramData = env.OPENBOOK_PROGRAMDATA ?? CANONICAL_OPENBOOK_PROGRAMDATA;
+  const openbookDeploymentSlot = BigInt(env.OPENBOOK_DEPLOYMENT_SLOT ?? CANONICAL_OPENBOOK_SLOT.toString());
+
   if (env.DEMO_MODE !== "devnet") {
     return {
       mode: "localnet",
       quoteMint: null,
-      openbookProgramData: env.OPENBOOK_PROGRAMDATA ?? CANONICAL_OPENBOOK_PROGRAMDATA,
-      openbookDeploymentSlot: BigInt(env.OPENBOOK_DEPLOYMENT_SLOT ?? CANONICAL_OPENBOOK_SLOT.toString()),
+      openbookProgramData,
+      openbookDeploymentSlot,
       openbookExecutableSha256: Buffer.alloc(32, 0xaa), // placeholder ok — localnet doesn't pin identity
       openbookUpgradeAuthority: env.OPENBOOK_UPGRADE_AUTHORITY ?? DEFAULT_PUBKEY,
       metadataUri: env.METADATA_URI ?? "https://meridian.markets",
@@ -60,9 +66,9 @@ export function resolveSeedConfig(env: Env): SeedConfig {
     if (!v) throw new Error(`devnet seed requires ${k}`);
     return v;
   };
-  const floor = (k: string, def: number, min: number): number => {
-    const v = env[k] === undefined ? def : Number(env[k]);
-    if (!Number.isFinite(v) || v < min) throw new Error(`${k}=${env[k]} is below the strict floor ${min}`);
+  const requireAtLeast = (k: string, floor: number): number => {
+    const v = env[k] === undefined ? floor : Number(env[k]);
+    if (!Number.isFinite(v) || v < floor) throw new Error(`${k}=${env[k]} is below the strict floor ${floor}`);
     return v;
   };
   const shaHex = need("OPENBOOK_EXECUTABLE_SHA256");
@@ -71,14 +77,14 @@ export function resolveSeedConfig(env: Env): SeedConfig {
 
   return {
     mode: "devnet",
-    quoteMint: need("QUOTE_MINT"),
-    openbookProgramData: env.OPENBOOK_PROGRAMDATA ?? CANONICAL_OPENBOOK_PROGRAMDATA,
-    openbookDeploymentSlot: BigInt(env.OPENBOOK_DEPLOYMENT_SLOT ?? CANONICAL_OPENBOOK_SLOT.toString()),
+    quoteMint: env.QUOTE_MINT ?? CIRCLE_DEVNET_USDC, // Circle devnet USDC by default (ADR-0015)
+    openbookProgramData,
+    openbookDeploymentSlot,
     openbookExecutableSha256: sha,
     openbookUpgradeAuthority: need("OPENBOOK_UPGRADE_AUTHORITY"),
     metadataUri: need("METADATA_URI"),
-    normalDelaySecs: floor("NORMAL_DELAY_SECS", NORMAL_DELAY_FLOOR, NORMAL_DELAY_FLOOR),
-    overrideDelaySecs: floor("OVERRIDE_DELAY_SECS", OVERRIDE_DELAY_FLOOR, OVERRIDE_DELAY_FLOOR),
+    normalDelaySecs: requireAtLeast("NORMAL_DELAY_SECS", NORMAL_DELAY_FLOOR),
+    overrideDelaySecs: requireAtLeast("OVERRIDE_DELAY_SECS", OVERRIDE_DELAY_FLOOR),
     oracleProgram: need("SWITCHBOARD_PROGRAM_ID"),
   };
 }

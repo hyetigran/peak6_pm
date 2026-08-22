@@ -94,7 +94,12 @@ async function main() {
   // Switchboard oracle + per-ticker feed (the feed pubkeys are provided via
   // SWITCHBOARD_FEEDS and land with the real oracle transport, #16).
   const oracleProgram = cfg.oracleProgram ? new PublicKey(cfg.oracleProgram) : ob.HARNESS_PID;
-  const devnetFeeds: Record<string, string> = cfg.mode === "devnet" && process.env.SWITCHBOARD_FEEDS ? JSON.parse(process.env.SWITCHBOARD_FEEDS) : {};
+  const devnetFeeds: Record<string, string> = (() => {
+    const raw = cfg.mode === "devnet" ? process.env.SWITCHBOARD_FEEDS : undefined;
+    if (!raw) return {};
+    try { return JSON.parse(raw); }
+    catch { throw new Error('SWITCHBOARD_FEEDS must be JSON: {"<tickerId>":"<feedPubkey>", ...}'); }
+  })();
   const feedFor = (tid: number): PublicKey => {
     if (cfg.mode !== "devnet") return ob.mockFeedPda(tid);
     const f = devnetFeeds[String(tid)];
