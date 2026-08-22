@@ -13,7 +13,8 @@ default = []
 # `localnet` relaxes the schedule/settlement timing floors AND supplies the
 # mock feed read in finalize_settlement. The strict/default (devnet) build
 # compiles that read out, so until the Switchboard adapter lands (#16) it uses
-# the instruction args; it also enforces the real 3.5h/6.5h sessions and delays.
+# the instruction args; it also enforces the real settlement-delay floors and
+# bounds the trading session (ADR-0033) rather than pinning 3.5h/6.5h.
 # Localnet is for tests + demo only.
 localnet = []
 cpi = ["no-entrypoint"]

@@ -41,6 +41,13 @@ pub const QUOTE_DECIMALS: u8 = 6;
 pub const MIN_OVERRIDE_DELAY_SECS: u32 = 3600;
 pub const DEVNET_NORMAL_SETTLEMENT_DELAY_SECS: u32 = 1200; // close+20m
 pub const MIN_ADD_STRIKE_LEAD_SECS: i64 = 1800; // close-30m
+/// Upper bound on a trading session (trade_open -> close). Trading opens at
+/// market creation (ADR-0033), so the window runs from ~23.5h overnight up to a
+/// long holiday gap. The worst legitimate consecutive-trading-day gap is ~4
+/// nights (e.g. a Monday holiday after a weekend, or Good Friday): ~95h of
+/// window after the creation offset. Capped at 5 days, ~90k s of headroom, to
+/// bound operator-proposed schedules while admitting every real gap.
+pub const MAX_SESSION_SECS: i64 = 432_000; // 5 days
 pub const MAX_SAMPLE_SPREAD_BPS: u16 = 0; // exact equality in V1
 
 // --- Zero-fee venue (ADR-0001/0007) ------------------------------------
