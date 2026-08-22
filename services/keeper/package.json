@@ -6,6 +6,7 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "prod": "tsx src/scheduler.ts",
+    "monitor": "tsx src/identity-monitor.ts",
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit"
   },

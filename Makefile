@@ -97,6 +97,13 @@ keeper: services-install
 keeper-prod: services-install
 	cd services/keeper && DEMO_CONFIG=$(CURDIR)/.demo-config.json KEEPER_LEDGER=$(CURDIR)/.keeper-ledger.json KEEPER_LOCK=$(CURDIR)/.keeper.lock pnpm prod
 
+# Identity-drift monitor (#25, ADR-0030): independently re-derives the pinned
+# OpenBook + oracle-adapter executable identity and alerts on drift (webhook
+# ALERT_WEBHOOK_URL, receiver #10). Devnet: the hash dimension needs the
+# upgradeable loader. See PRODUCTION_INFRA §5.
+identity-monitor: services-install
+	cd services/keeper && pnpm monitor
+
 marketmaker: services-install
 	cd services/marketmaker && DEMO_CONFIG=$(CURDIR)/.demo-config.json MM_STATUS=$(CURDIR)/.mm-status.json pnpm start
 
