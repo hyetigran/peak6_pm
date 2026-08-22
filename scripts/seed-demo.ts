@@ -11,7 +11,7 @@ import { createMint, createAssociatedTokenAccount, mintTo } from "@solana/spl-to
 import fs from "node:fs";
 import * as m from "@meridian/sdk/meridian";
 import * as ob from "@meridian/sdk/openbook";
-import { resolveSeedConfig } from "./seed-config.js";
+import { resolveSeedConfig, assertStrictSchedule } from "./seed-config.js";
 import { deliveryPda, PYTH_ADAPTER_PID } from "../services/keeper/src/pyth-adapter.js";
 
 /** Load a keypair from a JSON secret-key file path, or null if unset. */
@@ -47,6 +47,15 @@ async function send(ixs: TransactionInstruction[], signers: Keypair[]) {
 async function main() {
   const cfg = resolveSeedConfig(process.env);
   console.log(`[seed] mode=${cfg.mode} oracle=${process.env.DEMO_ORACLE ?? "harness"}`);
+  if (cfg.mode === "devnet") {
+    console.log("=".repeat(72));
+    console.log("  SYNTHETIC PLUMBING DEMO (ADR-0028) — make demo-devnet");
+    console.log("  Settlement Records seeded here are SYNTHETIC, not a real Nasdaq");
+    console.log("  Official Close. This proves the create->mint->trade->settle wiring on");
+    console.log("  a strict-build devnet; it does NOT satisfy G11 (that is oracle-e2e-devnet");
+    console.log("  / #16, real provider #9). Do not treat this as settlement-correctness evidence.");
+    console.log("=".repeat(72));
+  }
   // localnet generates throwaway authorities and airdrops them; devnet loads the
   // real (externally funded) governance/operator keys — devnet has no faucet for
   // 200 SOL, and these authorities must persist across runs.
@@ -107,6 +116,14 @@ async function main() {
     await send([m.registerTransportIx({ governance: gov.publicKey, versionId: 1, tickerId: tid, feed, oracleProgram })], [gov]);
     for (const s of strikes) {
       const strike = BigInt(s) * 1_000_000n;
+      if (cfg.mode === "devnet") {
+        // Fail closed with a clear message before the strict build reverts with
+        // an opaque InvalidSchedule (e.g. a sub-floor DEMO_SETTLE window).
+        assertStrictSchedule(
+          { mintOpen: Number(mo), tradeOpen: Number(to), close: Number(close), now: Number(now) },
+          `${name}-${s}`,
+        );
+      }
       await send([m.createOutcomeMarketIx({
         operator: operator.publicKey, quoteMint, tickerId: tid, tradingDay: DAY, strike,
         versionId: 1, priorClose: BigInt(prior) * 1_000_000n, mintOpenTs: mo, tradeOpenTs: to, closeTs: close,
@@ -143,5 +160,6 @@ async function main() {
   fs.writeFileSync(".demo-faucet.json", JSON.stringify({ quoteMint: quoteMint.toBase58(), authority: [...gov.secretKey] }));
   fs.writeFileSync(".demo-config.json", JSON.stringify({ quoteMint: quoteMint.toBase58(), governance: [...gov.secretKey], operator: [...operator.secretKey], day: DAY, transports }, null, 2));
   console.log(`\ndone: ${created} Active markets across ${FULL.length} tickers. quoteMint=${quoteMint.toBase58()}`);
+  if (cfg.mode === "devnet") console.log("[seed] SYNTHETIC demo seeded (ADR-0028). Settlement here is not a real Official Close.");
 }
 main().catch((e) => { console.error(e); process.exit(1); });

@@ -8,7 +8,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveSeedConfig, NORMAL_DELAY_FLOOR, OVERRIDE_DELAY_FLOOR } from "../scripts/seed-config.js";
+import { resolveSeedConfig, NORMAL_DELAY_FLOOR, OVERRIDE_DELAY_FLOOR,
+  assertStrictSchedule, MINT_TO_TRADE_SECS, MIN_ADD_STRIKE_LEAD_SECS, MAX_SESSION_SECS } from "../scripts/seed-config.js";
 
 const CIRCLE_DEVNET_USDC = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 const DEVNET_ENV: Record<string, string> = {
@@ -74,4 +75,32 @@ test("devnet: delays at or above the floor are accepted", () => {
 
 test("devnet: OPENBOOK_EXECUTABLE_SHA256 must be 32 bytes of hex", () => {
   assert.throws(() => resolveSeedConfig({ ...DEVNET_ENV, OPENBOOK_EXECUTABLE_SHA256: "abcd" }), /SHA256|32/);
+});
+
+const NOW = 1_700_000_000;
+const okSched = { mintOpen: NOW - 30 - MINT_TO_TRADE_SECS, tradeOpen: NOW - 30, close: NOW + 6 * 3600, now: NOW };
+
+test("assertStrictSchedule: the seed's normal 6h window passes the strict floors", () => {
+  assert.doesNotThrow(() => assertStrictSchedule(okSched));
+});
+
+test("assertStrictSchedule: a sub-floor DEMO_SETTLE close (now+90) fails closed with a clear message", () => {
+  assert.throws(() => assertStrictSchedule({ ...okSched, close: NOW + 90 }), /add-strike lead|sub-floor|DEMO_SETTLE/i);
+});
+
+test("assertStrictSchedule: close exactly at the lead boundary passes; one second inside fails", () => {
+  assert.doesNotThrow(() => assertStrictSchedule({ ...okSched, close: NOW + MIN_ADD_STRIKE_LEAD_SECS }));
+  assert.throws(() => assertStrictSchedule({ ...okSched, close: NOW + MIN_ADD_STRIKE_LEAD_SECS - 1 }));
+});
+
+test("assertStrictSchedule: a mint->trade gap other than 1800 fails (ADR-0033)", () => {
+  assert.throws(() => assertStrictSchedule({ ...okSched, mintOpen: NOW - 30 - 1000 }), /1800/);
+});
+
+test("assertStrictSchedule: a session longer than MAX_SESSION_SECS fails", () => {
+  assert.throws(() => assertStrictSchedule({ ...okSched, close: okSched.tradeOpen + MAX_SESSION_SECS + 1 }), /MAX_SESSION_SECS|session/i);
+});
+
+test("assertStrictSchedule: out-of-order schedule fails", () => {
+  assert.throws(() => assertStrictSchedule({ mintOpen: NOW, tradeOpen: NOW - 10, close: NOW + 3600, now: NOW }), /mint_open < trade_open/);
 });

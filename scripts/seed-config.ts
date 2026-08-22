@@ -18,6 +18,25 @@
 // normal_settlement_delay_secs >= 1200 and override_delay_secs >= 3600.
 export const NORMAL_DELAY_FLOOR = 1200;
 export const OVERRIDE_DELAY_FLOOR = 3600;
+// Strict-build validate_schedule floors, mirrored from the program
+// (instructions/market/mod.rs validate_schedule, not(localnet); the 1800 gap is
+// a literal there, MAX_SESSION_SECS + MIN_ADD_STRIKE_LEAD_SECS are in constants.rs).
+// The devnet seed pre-checks each market against these so a
+// misconfigured window (e.g. a sub-floor DEMO_SETTLE) fails closed with a clear
+// message instead of an opaque on-chain InvalidSchedule revert.
+export const MINT_TO_TRADE_SECS = 1800;        // trade_open - mint_open must equal this
+export const MAX_SESSION_SECS = 432_000;       // close - trade_open <= this (5 days)
+export const MIN_ADD_STRIKE_LEAD_SECS = 1800;  // now <= close - this (close-30m)
+
+/** Throw if (mint_open, trade_open, close) would be rejected by the strict build
+ *  at `now`. All values are unix seconds. */
+export function assertStrictSchedule(o: { mintOpen: number; tradeOpen: number; close: number; now: number }, label = "market"): void {
+  const { mintOpen, tradeOpen, close, now } = o;
+  if (!(mintOpen < tradeOpen && tradeOpen < close)) throw new Error(`${label}: schedule must be mint_open < trade_open < close`);
+  if (tradeOpen - mintOpen !== MINT_TO_TRADE_SECS) throw new Error(`${label}: trade_open - mint_open must equal ${MINT_TO_TRADE_SECS}s (ADR-0033), got ${tradeOpen - mintOpen}`);
+  if (close - tradeOpen > MAX_SESSION_SECS) throw new Error(`${label}: session ${close - tradeOpen}s exceeds MAX_SESSION_SECS ${MAX_SESSION_SECS}`);
+  if (now > close - MIN_ADD_STRIKE_LEAD_SECS) throw new Error(`${label}: close ${close} is within the ${MIN_ADD_STRIKE_LEAD_SECS}s add-strike lead of now ${now} — the strict build rejects this (a sub-floor DEMO_SETTLE window?)`);
+}
 
 // Canonical devnet OpenBook deployment (ADR-0030); overridable for other clusters.
 const CANONICAL_OPENBOOK_PROGRAMDATA = "DktN5HJ9uHKVRZ7FXGap4PEGVnEdc2VNBCXTt1AqJQYB";
