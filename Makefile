@@ -13,15 +13,20 @@ build: fixture-verify
 # Strict, devnet-bound build: NO `localnet` feature (enforces the real
 # schedule/settlement floors and the not(localnet) settlement-read path), and
 # the m0-harness (mock feed) is intentionally NOT built or deployed to devnet.
-# Emits a reproducible manifest: commit + executable SHA-256 + program id.
+# Deletes any prior meridian.so first so the manifest can never hash a stale
+# artifact. Emits a manifest (commit + executable SHA-256 + program id) under
+# gitignored target/; commit it to the deployment record at deploy time
+# (DEVNET_DEPLOY Phase 2) — the build never auto-commits.
 build-devnet: fixture-verify
+	rm -f target/deploy/meridian.so
 	cargo build-sbf --manifest-path programs/meridian/Cargo.toml
 	cp wallets/meridian-program.json target/deploy/meridian-keypair.json
-	@printf 'commit  %s\nsha256  %s\nprogram %s\n' \
-	  "$$(git rev-parse HEAD)" \
-	  "$$(shasum -a 256 target/deploy/meridian.so | awk '{print $$1}')" \
-	  "$$(solana-keygen pubkey wallets/meridian-program.json)" \
-	  | tee target/deploy/meridian-devnet.manifest
+	@set -e; \
+	commit=$$(git rev-parse HEAD); \
+	sha=$$(shasum -a 256 target/deploy/meridian.so | awk '{print $$1}'); \
+	prog=$$(solana-keygen pubkey wallets/meridian-program.json); \
+	[ -n "$$commit" ] && [ -n "$$sha" ] && [ -n "$$prog" ] || { echo "build-devnet: manifest field empty (commit='$$commit' sha='$$sha' prog='$$prog')" >&2; exit 1; }; \
+	printf 'commit  %s\nsha256  %s\nprogram %s\n' "$$commit" "$$sha" "$$prog" | tee target/deploy/meridian-devnet.manifest
 
 localnet: build
 	./scripts/localnet.sh
