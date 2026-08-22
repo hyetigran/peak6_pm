@@ -78,17 +78,25 @@ async function main() {
     console.log(`funded ${DEMO_WALLET}: 10,000 test USD + 5 SOL (quote mint ${quoteMint.toBase58()})`);
   } catch (e) { console.error("could not fund DEMO_WALLET:", (e as Error).message); }
 
-  await send([m.initializeConfigIx({
-    governance: gov.publicKey, quoteMint, openbookProgramData: new PublicKey(cfg.openbookProgramData),
-    operator: operator.publicKey, pauseAuthority: gov.publicKey, overrideAuthority: gov.publicKey,
-    supportedTickerMask: 0xfe, openbookDeploymentSlot: cfg.openbookDeploymentSlot,
-    openbookExecutableSha256: cfg.openbookExecutableSha256, openbookUpgradeAuthority: new PublicKey(cfg.openbookUpgradeAuthority),
-    minSamples: 3, maxStaleSlots: 1_000_000n, maxPriceBandBps: 50,
-  })], [gov]);
+  const exists = async (pk: PublicKey): Promise<boolean> => (await conn.getAccountInfo(pk)) !== null;
+
+  // Idempotent: only initialize Config once (a devnet re-run after a partial
+  // seed must not re-init — the account already exists).
+  if (await exists(m.configPda())) {
+    console.log("[seed] Config already initialized — skipping init");
+  } else {
+    await send([m.initializeConfigIx({
+      governance: gov.publicKey, quoteMint, openbookProgramData: new PublicKey(cfg.openbookProgramData),
+      operator: operator.publicKey, pauseAuthority: gov.publicKey, overrideAuthority: gov.publicKey,
+      supportedTickerMask: 0xfe, openbookDeploymentSlot: cfg.openbookDeploymentSlot,
+      openbookExecutableSha256: cfg.openbookExecutableSha256, openbookUpgradeAuthority: new PublicKey(cfg.openbookUpgradeAuthority),
+      minSamples: 3, maxStaleSlots: 1_000_000n, maxPriceBandBps: 50,
+    })], [gov]);
+  }
 
   const now = BigInt(Math.floor(Date.now() / 1000));
   const to = now - 30n, mo = to - 1800n, cl = to + 6n * 3600n; // trading open, closes in ~6h
-  let created = 0;
+  let created = 0, skipped = 0;
   const transports: Record<number, string> = {}; // tickerId -> delivery feed (needed to settle)
 
   // For the settlement walkthrough, DEMO_SETTLE makes TSLA (7) + GOOGL (3)
@@ -113,9 +121,16 @@ async function main() {
   for (const [tid, name, prior, strikes, close] of FULL) {
     const feed = feedFor(tid);
     transports[tid] = feed.toBase58();
-    await send([m.registerTransportIx({ governance: gov.publicKey, versionId: 1, tickerId: tid, feed, oracleProgram })], [gov]);
+    if (await exists(m.feedVersionPda(tid, 1))) {
+      console.log(`[seed] transport for ticker ${tid} already registered — skipping`);
+    } else {
+      await send([m.registerTransportIx({ governance: gov.publicKey, versionId: 1, tickerId: tid, feed, oracleProgram })], [gov]);
+    }
     for (const s of strikes) {
       const strike = BigInt(s) * 1_000_000n;
+      // Idempotent: skip a strike whose Outcome Market already exists (resume a
+      // partial devnet seed without re-creating / erroring on it).
+      if (await exists(m.outcomeMarketPda(tid, DAY, strike))) { skipped++; continue; }
       if (cfg.mode === "devnet") {
         // Fail closed with a clear message before the strict build reverts with
         // an opaque InvalidSchedule (e.g. a sub-floor DEMO_SETTLE window).
@@ -159,7 +174,7 @@ async function main() {
   }
   fs.writeFileSync(".demo-faucet.json", JSON.stringify({ quoteMint: quoteMint.toBase58(), authority: [...gov.secretKey] }));
   fs.writeFileSync(".demo-config.json", JSON.stringify({ quoteMint: quoteMint.toBase58(), governance: [...gov.secretKey], operator: [...operator.secretKey], day: DAY, transports }, null, 2));
-  console.log(`\ndone: ${created} Active markets across ${FULL.length} tickers. quoteMint=${quoteMint.toBase58()}`);
+  console.log(`\ndone: ${created} markets created${skipped ? `, ${skipped} already existed (skipped)` : ""} across ${FULL.length} tickers. quoteMint=${quoteMint.toBase58()}`);
   if (cfg.mode === "devnet") console.log("[seed] SYNTHETIC demo seeded (ADR-0028). Settlement here is not a real Official Close.");
 }
 main().catch((e) => { console.error(e); process.exit(1); });
