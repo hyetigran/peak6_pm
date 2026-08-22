@@ -8,6 +8,7 @@
 # Needs network (devnet clone + Hermes). ~3-4 min.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+mkdir -p logs
 ROOT="$(pwd)"
 TICKERS="${PYTH_TICKERS:-3,7}"
 SETTLE_SECS="${DEMO_SETTLE_SECS:-20}"
@@ -26,11 +27,11 @@ trap cleanup EXIT INT TERM
 
 echo "[pyth-settle] starting Pyth-cloned localnet (devnet clone of receiver + wormhole)…"
 rm -f services/indexer/.indexer-pyth.sqlite*
-./scripts/pyth-local.sh > .validator-pyth.log 2>&1 &
+./scripts/pyth-local.sh > logs/validator-pyth.log 2>&1 &
 VPID=$!
 for i in $(seq 1 120); do
   solana cluster-version -u localhost >/dev/null 2>&1 && break
-  kill -0 "$VPID" 2>/dev/null || { echo "validator died:"; tail -20 .validator-pyth.log; exit 1; }
+  kill -0 "$VPID" 2>/dev/null || { echo "validator died:"; tail -20 logs/validator-pyth.log; exit 1; }
   sleep 1
 done
 echo "[pyth-settle] validator up."
@@ -40,14 +41,14 @@ DEMO_ORACLE=pyth DEMO_TICKERS="$TICKERS" DEMO_SETTLE=1 DEMO_SETTLE_SECS="$SETTLE
   pnpm exec tsx scripts/seed-demo.ts || { echo "[pyth-settle] seed failed"; exit 1; }
 
 echo "[pyth-settle] starting indexer…"
-( cd services/indexer && INDEXER_DB=.indexer-pyth.sqlite PORT=8787 DEMO_CONFIG="$ROOT/.demo-config.json" KEEPER_STATUS="$ROOT/.keeper-status.json" pnpm start > "$ROOT/.indexer-pyth.log" 2>&1 & echo $! > "$ROOT/.pyth-idx.pid" )
+( cd services/indexer && INDEXER_DB=.indexer-pyth.sqlite PORT=8787 DEMO_CONFIG="$ROOT/.demo-config.json" KEEPER_STATUS="$ROOT/.keeper-status.json" pnpm start > "$ROOT/logs/indexer-pyth.log" 2>&1 & echo $! > "$ROOT/.pyth-idx.pid" )
 IDX_PID="$(cat .pyth-idx.pid)"; rm -f .pyth-idx.pid
 for i in $(seq 1 30); do curl -s localhost:8787/markets >/dev/null 2>&1 && break; sleep 1; done
 
 echo "[pyth-settle] starting keeper in KEEPER_ORACLE=pyth mode…"
 # KEEPER_PYTH_CAPTURE=latest: the demo close_ts is synthetic (now+20s, often a
 # weekend) so no Pyth update exists AT it; prod/devnet keeps the at-close default.
-( cd services/keeper && KEEPER_ORACLE=pyth KEEPER_PYTH_CAPTURE=latest KEEPER_TICK=5 DEMO_CONFIG="$ROOT/.demo-config.json" KEEPER_STATUS="$ROOT/.keeper-status.json" KEEPER_INDEXER=http://127.0.0.1:8787 pnpm start > "$ROOT/.keeper-pyth.log" 2>&1 & echo $! > "$ROOT/.pyth-keeper.pid" )
+( cd services/keeper && KEEPER_ORACLE=pyth KEEPER_PYTH_CAPTURE=latest KEEPER_TICK=5 DEMO_CONFIG="$ROOT/.demo-config.json" KEEPER_STATUS="$ROOT/.keeper-status.json" KEEPER_INDEXER=http://127.0.0.1:8787 pnpm start > "$ROOT/logs/keeper-pyth.log" 2>&1 & echo $! > "$ROOT/.pyth-keeper.pid" )
 KEEPER_PID="$(cat .pyth-keeper.pid)"; rm -f .pyth-keeper.pid
 
 echo "[pyth-settle] waiting for the keeper to crank Pyth + finalize + settle (timeout ${TIMEOUT}s)…"
@@ -60,6 +61,6 @@ for i in $(seq 1 "$TIMEOUT"); do
 done
 echo
 echo "[pyth-settle] keeper log (settlement lines):"
-grep -i "settle\|pyth\|finalize\|fail\|error" .keeper-pyth.log | tail -12
+grep -i "settle\|pyth\|finalize\|fail\|error" logs/keeper-pyth.log | tail -12
 
 DEMO_CONFIG=.demo-config.json pnpm exec tsx scripts/pyth-settle-check.ts "$TICKERS"
