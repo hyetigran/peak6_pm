@@ -23,6 +23,8 @@ export function TopNav() {
     return () => clearInterval(t);
   }, []);
   const recovery = health && !health.complete;
+  // The landing page carries its own header.
+  if (path === "/") return null;
   return (
     <>
       <nav className="nav">

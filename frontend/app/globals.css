@@ -131,3 +131,39 @@ tr:last-child td { border-bottom: none; }
 /* form inputs */
 input[type=text], input:not([type]), .field { background: var(--chip); border: 1px solid var(--line); border-radius: 10px; color: var(--ink); }
 input:focus { outline: none; border-color: var(--accent-border); }
+
+/* landing page (app/page.tsx) — from "Meridian Landing" mockup */
+.landing { min-height: 100vh; background: var(--shell); color: var(--ink); }
+.landing-header { display: flex; align-items: center; gap: 14px; padding: 0 clamp(18px, 5vw, 40px); height: 68px; border-bottom: 1px solid var(--line-2); background: var(--nav); position: sticky; top: 0; z-index: 10; }
+.landing-brand { font-size: 19px; font-weight: 600; letter-spacing: -.3px; }
+.landing-pill { margin-left: 12px; padding: 5px 11px; border-radius: 20px; background: var(--chip); font-size: 12px; color: oklch(0.74 0.012 255); }
+.landing-cta { padding: 16px 28px; border-radius: 12px; background: var(--accent); color: var(--on-accent); font-size: 17px; font-weight: 600; text-align: center; transition: background .12s; }
+.landing-cta:hover { background: oklch(0.72 0.14 255); }
+.landing-cta-sm { margin-left: auto; padding: 9px 18px; border-radius: 10px; font-size: 14px; }
+.landing-cta-light { padding: 18px 34px; background: var(--ink); color: oklch(0.18 0.02 255); font-size: 18px; }
+.landing-cta-light:hover { background: oklch(0.90 0.02 255); }
+.landing-cta-ghost { padding: 16px 26px; border-radius: 12px; border: 1px solid oklch(0.34 0.014 255); color: oklch(0.90 0.008 255); font-size: 17px; font-weight: 500; transition: border-color .12s; }
+.landing-cta-ghost:hover { border-color: oklch(0.52 0.03 255); }
+.landing-hero, .landing-videos, .landing-footer { max-width: 1080px; margin: 0 auto; padding: clamp(48px, 7vw, 80px) clamp(20px, 5vw, 40px) 0; }
+.landing-hero { padding-top: clamp(48px, 8vw, 88px); }
+.landing-footer { padding-bottom: clamp(60px, 9vw, 100px); }
+.landing-eyebrow { font-size: 12px; letter-spacing: 1.4px; color: oklch(0.70 0.10 255); margin-bottom: 22px; }
+.landing-headline { font-size: clamp(34px, 6vw, 64px); font-weight: 600; letter-spacing: -2px; line-height: 1.04; max-width: 900px; margin: 0; text-wrap: pretty; }
+.landing-subhead { font-size: clamp(17px, 2.2vw, 21px); line-height: 1.6; color: var(--ink-70); max-width: 720px; margin: 26px 0 0; text-wrap: pretty; }
+.landing-actions { display: flex; gap: 14px; margin-top: 36px; align-items: center; flex-wrap: wrap; }
+.landing-videos { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 24px; align-items: stretch; scroll-margin-top: 88px; }
+.landing-video { border-radius: 16px; background: var(--card-2); border: 1px solid oklch(0.27 0.014 255); overflow: hidden; display: flex; flex-direction: column; }
+.landing-video-hd { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 18px 24px; border-bottom: 1px solid var(--line-2); }
+.landing-tag { padding: 5px 11px; border-radius: 7px; font-size: 11px; letter-spacing: .7px; }
+.landing-tag-blue { background: oklch(0.26 0.03 255); color: oklch(0.84 0.06 255); }
+.landing-tag-green { background: oklch(0.24 0.04 158); color: oklch(0.84 0.10 158); }
+.landing-length { font-size: 13px; color: oklch(0.64 0.012 255); }
+.landing-video-title { flex-basis: 100%; font-size: 18px; font-weight: 600; text-wrap: pretty; }
+.landing-video-body { padding: 20px 24px 24px; flex: 1; display: flex; flex-direction: column; }
+.landing-blurb { font-size: 16px; line-height: 1.6; color: oklch(0.78 0.010 255); margin: 0 0 18px; flex: 1; text-wrap: pretty; }
+.landing-frame { position: relative; width: 100%; padding-bottom: 56.25%; border-radius: 12px; overflow: hidden; background: oklch(0.16 0.012 255); }
+.landing-frame iframe, .landing-frame-empty { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.landing-frame-empty { display: flex; align-items: center; justify-content: center; font-size: 13px; letter-spacing: .06em; color: var(--ink-40); text-transform: uppercase; }
+.landing-callout { padding: clamp(30px, 5vw, 52px) clamp(22px, 4vw, 44px); border-radius: 20px; background: oklch(0.23 0.05 255); border: 1px solid oklch(0.40 0.08 255); display: flex; align-items: center; gap: 36px; flex-wrap: wrap; }
+.landing-callout-title { flex: 1; min-width: 260px; font-size: clamp(28px, 4.5vw, 38px); font-weight: 600; letter-spacing: -1px; line-height: 1.1; text-wrap: pretty; }
+.landing-callout .landing-cta { flex: 1; min-width: 240px; }
