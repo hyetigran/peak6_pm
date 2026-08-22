@@ -147,7 +147,7 @@ input:focus { outline: none; border-color: var(--accent-border); }
 .landing-hero, .landing-videos, .landing-footer { max-width: 1080px; margin: 0 auto; padding: clamp(48px, 7vw, 80px) clamp(20px, 5vw, 40px) 0; }
 .landing-hero { padding-top: clamp(48px, 8vw, 88px); position: relative; }
 .landing-hero > :not(.landing-contours) { position: relative; z-index: 1; }
-.landing-contours { position: absolute; inset: 0 -100vw 0 -100vw; width: auto; height: 100%; z-index: 0; pointer-events: none;
+.landing-contours { position: absolute; top: 0; bottom: 0; left: 50%; width: 100vw; height: 100%; transform: translateX(-50%); z-index: 0; pointer-events: none;
   -webkit-mask-image: radial-gradient(120% 100% at 50% 50%, #000 30%, transparent 100%);
   mask-image: radial-gradient(120% 100% at 50% 50%, #000 30%, transparent 100%); }
 .landing-footer { padding-bottom: clamp(60px, 9vw, 100px); }
