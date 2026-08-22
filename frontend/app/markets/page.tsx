@@ -117,11 +117,11 @@ export default function Markets() {
       {markets.length > 0 && (
         <div className="card" style={{ marginTop: 16, padding: "16px 20px", display: "flex", alignItems: "center", gap: 20 }}>
           <div className="sub" style={{ maxWidth: 560, lineHeight: 1.5, fontSize: 14 }}>
-            Strikes are generated each morning at ±3%, ±6% and ±9% from yesterday&rsquo;s close, rounded to the nearest $10. Duplicates are removed.
+            Strikes roll out ~30 min after each close at ±3%, ±6% and ±9% from that close, rounded to the nearest $10. Duplicates are removed. Trading opens as soon as a market exists — no session bell.
           </div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-            {["08:00 strikes", "09:00 minting", "09:30 trading", "16:00 settle"].map((s, i) => (
-              <span key={s} className="mono" style={{ fontSize: 12, padding: "6px 10px", borderRadius: 7, background: i === 2 ? "var(--accent-soft)" : "var(--chip-2)", color: "var(--ink-60)" }}>{s}</span>
+            {["strikes roll +30m", "mint + trade open", "16:00 ET close", "settle +20m"].map((s, i) => (
+              <span key={s} className="mono" style={{ fontSize: 12, padding: "6px 10px", borderRadius: 7, background: i === 1 ? "var(--accent-soft)" : "var(--chip-2)", color: "var(--ink-60)" }}>{s}</span>
             ))}
           </div>
         </div>

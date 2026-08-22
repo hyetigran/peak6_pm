@@ -60,12 +60,12 @@ export default function Admin() {
   const openOverride = () => { const m = closeableMarkets[0]; if (!m) return; setSettleTarget(m); setSettlePrice(strikeUsd(m.strike_1e6)); setMode("override"); setMsg(null); };
 
   const stages: Stage[] = [
-    { time: "08:00", label: "strikes generated", status: n ? `Done · ${n} strikes` : "Waiting", state: n ? "done" : "queued" },
-    { time: "08:30", label: "markets created", status: n ? `Done · ${n} books attached` : "Waiting", state: n ? "done" : "queued" },
-    { time: "09:00", label: "minting open", status: minted ? "Done" : "Queued", state: minted ? "done" : "queued" },
-    { time: "09:30", label: "trading live", status: trading ? `In progress · ${nextClose ? countdown(nextClose) : "—"} to close` : settled === n && n ? "Closed" : "Queued", state: trading ? "live" : settled === n && n ? "done" : "queued" },
-    { time: "16:00", label: "close & settle", status: settled ? `${settled} / ${n} settled` : `Queued · ${n} markets`, state: settled === n && n ? "done" : settled ? "live" : "queued" },
-    { time: "16:20", label: "collect fees", status: "Queued · no-op at 0 bps", state: "queued" },
+    { time: "roll", label: "strikes rolled out (+30m after close)", status: n ? `Done · ${n} strikes` : "Waiting", state: n ? "done" : "queued" },
+    { time: "create", label: "markets created", status: n ? `Done · ${n} books attached` : "Waiting", state: n ? "done" : "queued" },
+    { time: "open", label: "mint + trade open at creation", status: minted ? "Done" : "Queued", state: minted ? "done" : "queued" },
+    { time: "live", label: "trading live", status: trading ? `In progress · ${nextClose ? countdown(nextClose) : "—"} to close` : settled === n && n ? "Closed" : "Queued", state: trading ? "live" : settled === n && n ? "done" : "queued" },
+    { time: "16:00", label: "close, settle +20m", status: settled ? `${settled} / ${n} settled` : `Queued · ${n} markets`, state: settled === n && n ? "done" : settled ? "live" : "queued" },
+    { time: "+5m", label: "next strikes roll", status: "Queued · continuous roll", state: "queued" },
   ];
   const stageColor = (s: Stage["state"]) => s === "done" ? "var(--yes)" : s === "live" ? "var(--accent)" : "var(--line)";
 

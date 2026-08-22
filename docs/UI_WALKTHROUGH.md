@@ -7,6 +7,17 @@ Runtime: ~15–20 min. Everything is devnet/test value — no real funds.
 
 ---
 
+## Lifecycle model (how markets roll)
+
+Meridian runs a continuous 24/7 cycle, not an 8–5 session:
+
+- **Strikes roll out ~30 min after each close** — ±3/6/9% of that close, rounded to $10, deduped (ADR-0032). No morning batch.
+- **Trading opens as soon as a market exists** — `mint_open = creation`, `trade_open = creation + 30m`; there is no 9:30 bell (ADR-0033). A market trades from creation through its **16:00 ET close** (~23.5h overnight, longer across weekends), still settling on that day's 4pm Official Close.
+- **Settlement runs at close + ~20 min**, once the Nasdaq Official Close is published (ADR-0021).
+- In **production** the keeper is scheduled jobs + an EventHeap subscription (ADR-0031). In **this localnet demo** it's a ~5s poll, all markets are seeded once at startup, and (with `DEMO_SETTLE`) closing-soon markets settle immediately with no delay — so you can watch the whole arc in minutes.
+
+---
+
 ## 0. Bring the stack up
 
 ```bash
@@ -42,7 +53,7 @@ This starts, in order: validator (with OpenBook + Metaplex + Squads fixtures) �
 
 - [ ] Go to **Markets**. Header shows stat pills: **Session** (Trading open), **Settles in** (countdown), **Open interest**.
 - [ ] Ticker cards (AAPL, MSFT, NVDA, …) each list strike chips with a phase and OI.
-- [ ] The bottom strip shows the daily timeline (08:00 strikes → 09:30 trading → 16:00 settle).
+- [ ] The bottom strip shows the lifecycle rhythm (**strikes roll +30m → mint + trade open → 16:00 close → settle +20m**) — trading opens at creation, not a 9:30 bell.
 
 ---
 
@@ -96,6 +107,8 @@ Use a **closing-soon** market so you can see the whole close→settle→claim ar
 - [ ] Open **TSLA $350** (from Markets or `/trade`). Note the short TIME TO CLOSE.
 - [ ] **Mint 10 pairs** here immediately (you now hold 10 YES + 10 NO), so you'll hold the winning side after settlement.
 - [ ] Wait for the countdown to hit zero. Within a keeper tick (~5s past close) the market **auto-settles** — the page flips to **Settled**, showing the outcome (YES or NO won) and the official close.
+
+> Demo vs prod: the demo settles immediately (zero settlement delay, ~5s poll) so you don't wait. In production, settlement runs at **close + ~20 min** once the Nasdaq Official Close is published, via the **scheduled** keeper reading the oracle (ADR-0031/0021) — not a per-second poll.
 - [ ] The winning side is now claimable. Click **Claim … winning → USDC** (or the **Claim →** link on Portfolio), approve. You receive $1.00 per winning token; the losing side is worth $0.
 
 Cross-check: `curl -s localhost:8787/markets` shows TSLA/GOOGL `state=Settled` with an outcome.

@@ -334,7 +334,7 @@ function Chart({ pk, mark }: { pk: string; mark: number | null }) {
   }, [pk, mark]);
   return (
     <div className="card-2" style={{ padding: 14 }}>
-      <div className="hd" style={{ marginBottom: 8 }}><div style={{ fontSize: 14, fontWeight: 600 }}>YES price today</div><div className="sub mono" style={{ fontSize: 11 }}>09:30 → 16:00 ET</div></div>
+      <div className="hd" style={{ marginBottom: 8 }}><div style={{ fontSize: 14, fontWeight: 600 }}>YES price today</div><div className="sub mono" style={{ fontSize: 11 }}>open → 16:00 ET</div></div>
       <svg viewBox="0 0 600 150" preserveAspectRatio="none" style={{ width: "100%", height: 150, display: "block" }}>
         <path d={`${d} L 600 150 L 0 150 Z`} fill="var(--yes-soft)" opacity={0.5} stroke="none" />
         <path d={d} fill="none" stroke="var(--yes)" strokeWidth={1.5} strokeLinejoin="round" />
