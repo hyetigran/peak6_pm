@@ -13,12 +13,14 @@ import * as m from "@meridian/sdk/meridian";
 import * as ob from "@meridian/sdk/openbook";
 import { resolveSeedConfig, assertStrictSchedule } from "./seed-config.js";
 import { deliveryPda, PYTH_ADAPTER_PID } from "../services/keeper/src/pyth-adapter.js";
+import { decodeOutcomeMarket } from "../services/indexer/src/layout.js";
 
 /** Load a keypair from a JSON secret-key file path, or null if unset. */
 const loadKeypair = (path: string | undefined): Keypair | null =>
   path ? Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(path, "utf8")))) : null;
 
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
+const SYS = "11111111111111111111111111111111"; // PublicKey.default (an unset optional pubkey)
 const conn = new Connection(RPC, "confirmed");
 
 // all 7 MAG7 tickers: [id, name, priorClose$]. Strikes are derived (below).
@@ -118,9 +120,18 @@ async function main() {
   const oracleProgram = cfg.oracleProgram ? new PublicKey(cfg.oracleProgram) : PYTH ? PYTH_ADAPTER_PID : ob.HARNESS_PID;
   const feedFor = (tid: number): PublicKey => (PYTH ? deliveryPda(tid) : ob.mockFeedPda(tid));
 
-  for (const [tid, name, prior, strikes, close] of FULL) {
+  for (const [tid, name, prior, strikes, close0] of FULL) {
     const feed = feedFor(tid);
     transports[tid] = feed.toBase58();
+    // The shared SettlementRecord fixes close_ts for the whole ticker/day
+    // (ADR-0023): if it already exists (a resumed seed), every remaining strike
+    // must match its stored close_ts exactly — reuse it, don't recompute from now.
+    let close = close0;
+    const recInfo = await conn.getAccountInfo(m.settlementRecordPda(tid, DAY));
+    if (recInfo) {
+      close = recInfo.data.readBigInt64LE(16); // SettlementRecord.close_ts @16
+      console.log(`[seed] ticker ${tid}: matching existing SettlementRecord close_ts ${close}`);
+    }
     if (await exists(m.feedVersionPda(tid, 1))) {
       console.log(`[seed] transport for ticker ${tid} already registered — skipping`);
     } else {
@@ -128,9 +139,12 @@ async function main() {
     }
     for (const s of strikes) {
       const strike = BigInt(s) * 1_000_000n;
-      // Idempotent: skip a strike whose Outcome Market already exists (resume a
-      // partial devnet seed without re-creating / erroring on it).
-      if (await exists(m.outcomeMarketPda(tid, DAY, strike))) { skipped++; continue; }
+      const market = m.outcomeMarketPda(tid, DAY, strike);
+      // Idempotent resume: skip a strike that is already fully created (has a
+      // venue). A market that exists WITHOUT a venue (a partial seed that failed
+      // mid-venue) falls through to have its venue attached — not skipped.
+      const mInfo = await conn.getAccountInfo(market);
+      if (mInfo && decodeOutcomeMarket(market.toBase58(), mInfo.data).openbookMarket !== SYS) { skipped++; continue; }
       if (cfg.mode === "devnet") {
         // Fail closed with a clear message before the strict build reverts with
         // an opaque InvalidSchedule (e.g. a sub-floor DEMO_SETTLE window).
@@ -139,13 +153,16 @@ async function main() {
           `${name}-${s}`,
         );
       }
-      await send([m.createOutcomeMarketIx({
-        operator: operator.publicKey, quoteMint, tickerId: tid, tradingDay: DAY, strike,
-        versionId: 1, priorClose: BigInt(prior) * 1_000_000n, mintOpenTs: mo, tradeOpenTs: to, closeTs: close,
-        metadataManifest: Buffer.alloc(32, 7), normalDelaySecs: cfg.normalDelaySecs, overrideDelaySecs: cfg.overrideDelaySecs,
-      })], [operator]);
+      if (!mInfo) {
+        await send([m.createOutcomeMarketIx({
+          operator: operator.publicKey, quoteMint, tickerId: tid, tradingDay: DAY, strike,
+          versionId: 1, priorClose: BigInt(prior) * 1_000_000n, mintOpenTs: mo, tradeOpenTs: to, closeTs: close,
+          metadataManifest: Buffer.alloc(32, 7), normalDelaySecs: cfg.normalDelaySecs, overrideDelaySecs: cfg.overrideDelaySecs,
+        })], [operator]);
+      } else {
+        console.log(`[seed] ${name}-${s}: market exists without a venue — attaching venue`);
+      }
       // attach a venue so the market is Active
-      const market = m.outcomeMarketPda(tid, DAY, strike);
       const yesMint = m.yesMintPda(market);
       const obMarket = Keypair.generate(), bids = Keypair.generate(), asks = Keypair.generate(), heap = Keypair.generate();
       const bookRent = await conn.getMinimumBalanceForRentExemption(ob.BOOKSIDE_SPACE);
