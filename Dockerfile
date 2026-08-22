@@ -20,7 +20,7 @@ COPY . .
 RUN sed -i '/frontend/d' pnpm-workspace.yaml \
     && pnpm install --prod=false
 
-RUN chown -R node:node /app
+RUN mkdir -p /data && chown -R node:node /app /data
 USER node
 
 # One image, two services: SERVICE_ENTRY (an env var set per Railway service)
