@@ -23,14 +23,14 @@ export function OrderBook({ book, view, setView, last }: { book: Book | null; vi
   const maxCum = Math.max(1, asks[asks.length - 1]?.cumShares ?? 0, bids[bids.length - 1]?.cumShares ?? 0);
   const spread = asks[0] && bids[0] ? +(asks[0].price - bids[0].price).toFixed(1) : null;
 
-  const grid: React.CSSProperties = { display: "grid", gridTemplateColumns: "minmax(90px,1fr) 80px 110px 110px", alignItems: "center", gap: 8 };
+  const grid: React.CSSProperties = { display: "grid", alignItems: "center", gap: 8 };
   const num: React.CSSProperties = { textAlign: "right", fontSize: 13 };
 
   const row = (l: Row, kind: "ask" | "bid", badge: boolean) => (
     <div key={`${kind}${l.price}`} style={{ position: "relative", padding: "0 14px" }}>
       {/* stepped cumulative depth fill, anchored left, behind the row */}
       <div style={{ position: "absolute", inset: "0 auto 0 0", width: `${(l.cumShares / maxCum) * DEPTH_MAX * 100}%`, background: kind === "ask" ? "var(--no-soft)" : "var(--yes-soft)" }} />
-      <div className="mono" style={{ ...grid, position: "relative", height: 34 }}>
+      <div className="mono order-book-grid" style={{ ...grid, position: "relative", height: 34 }}>
         <span>
           {badge && (
             <span style={{ padding: "3px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, fontFamily: "var(--sans)", background: kind === "ask" ? "var(--no)" : "var(--yes)", color: "var(--bg)" }}>
@@ -48,12 +48,12 @@ export function OrderBook({ book, view, setView, last }: { book: Book | null; vi
   return (
     <div className="card-2" style={{ padding: "10px 0 6px" }}>
       {/* header: view switch + column labels */}
-      <div className="mono" style={{ ...grid, padding: "4px 14px 10px", fontSize: 10.5, letterSpacing: ".05em", color: "var(--ink-40)", borderBottom: "1px solid var(--line-2)" }}>
+      <div className="mono order-book-grid" style={{ ...grid, padding: "4px 14px 10px", fontSize: 10.5, letterSpacing: ".05em", color: "var(--ink-40)", borderBottom: "1px solid var(--line-2)" }}>
         <span style={{ display: "flex", gap: 2, alignItems: "center" }}>
           {(["YES", "NO"] as const).map((v) => (
             <span key={v} onClick={() => setView(v)}
               style={{ padding: "3px 8px", borderRadius: 6, cursor: "pointer", background: view === v ? "var(--chip-2)" : "transparent", color: view === v ? `var(--${v === "YES" ? "yes" : "no"}-hi)` : "var(--ink-40)" }}>
-              TRADE {v}
+              <span className="order-book-trade-prefix">TRADE </span>{v}
             </span>
           ))}
         </span>

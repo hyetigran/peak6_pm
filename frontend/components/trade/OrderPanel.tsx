@@ -137,7 +137,7 @@ export function OrderPanel({ m, book, outcome, setOutcome, side, setSide }: {
   const winClause = outcome === "YES" ? "at or above" : "below";
 
   return (
-    <div className="card" style={{ padding: 18, height: "fit-content", position: "sticky", top: 84, display: "flex", flexDirection: "column", gap: 14 }}>
+    <div className="card event-order-panel" style={{ padding: 18, height: "fit-content", display: "flex", flexDirection: "column", gap: 14 }}>
       {!settled ? (
         <>
           <div style={{ display: "flex", gap: 3, padding: 3, borderRadius: 10, background: "var(--chip)" }}>

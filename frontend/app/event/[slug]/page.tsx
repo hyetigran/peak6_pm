@@ -105,10 +105,10 @@ export default function EventPage() {
   const settledEvent = active.length === 0;
 
   return (
-    <div style={{ maxWidth: 1280, margin: "0 auto", padding: "26px 24px 48px", display: "grid", gridTemplateColumns: "minmax(0,1fr) 336px", gap: 20, alignItems: "start" }}>
+    <div className="event-layout">
       {/* ---------- EVENT ---------- */}
       <div style={{ minWidth: 0 }}>
-        <div className="hd" style={{ alignItems: "flex-start", gap: 20 }}>
+        <div className="hd event-header" style={{ alignItems: "flex-start", gap: 20 }}>
           <div style={{ minWidth: 0 }}>
             <div className="sub" style={{ fontSize: 14 }}>Equities · {NAMES[ticker] ?? "MAG7"} · 0DTE</div>
             <h1 style={{ fontSize: 28, marginTop: 4 }}>{ticker} closes above __ today?</h1>
@@ -136,8 +136,8 @@ export default function EventPage() {
             const phase = marketPhase(m);
             return (
               <div key={m.pubkey} style={{ borderTop: i === 0 ? "none" : "1px solid var(--line-2)" }}>
-                <div onClick={() => toggleRow(m)}
-                  style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 170px auto", gap: 14, alignItems: "center", padding: "18px 18px", cursor: "pointer", background: isOpen ? "var(--chip)" : "transparent" }}>
+                <div className="event-row" onClick={() => toggleRow(m)}
+                  style={{ background: isOpen ? "var(--chip)" : "transparent" }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 16, fontWeight: 600 }}>${fmtStrike(m.strike_1e6)}</div>
                     <div className="sub mono" style={{ fontSize: 12.5, marginTop: 3 }}>
@@ -146,17 +146,17 @@ export default function EventPage() {
                     </div>
                   </div>
                   {/* table-form columns: % right-aligns in a fixed slot, change sits in its own slot */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 58px", alignItems: "baseline", gap: 8 }}>
+                  <div className="event-row-prob">
                     <span className="mono" style={{ fontSize: 26, fontWeight: 600, letterSpacing: "-0.5px", textAlign: "right" }}>{yes != null ? `${Math.round(yes)}%` : "—"}</span>
                     <span className="mono" style={{ fontSize: 12.5, color: chg != null && chg > 0 ? "var(--pos)" : "var(--neg)" }}>
                       {chg != null && chg !== 0 ? `${chg > 0 ? "▲" : "▼"} ${Math.abs(chg)}%` : ""}
                     </span>
                   </div>
-                  <div style={{ display: "flex", gap: 8 }}>
+                  <div className="event-row-actions">
                     <button onClick={(e) => { e.stopPropagation(); pickBuy(m, "YES"); }}
-                      style={rowBtn("yes", isSel && outcome === "YES")}>Buy Yes {yes != null ? `${fmtCents(yes)}¢` : ""}</button>
+                      className="event-row-button" style={rowBtn("yes", isSel && outcome === "YES")}>Buy Yes {yes != null ? `${fmtCents(yes)}¢` : ""}</button>
                     <button onClick={(e) => { e.stopPropagation(); pickBuy(m, "NO"); }}
-                      style={rowBtn("no", isSel && outcome === "NO")}>Buy No {no != null ? `${fmtCents(no)}¢` : ""}</button>
+                      className="event-row-button" style={rowBtn("no", isSel && outcome === "NO")}>Buy No {no != null ? `${fmtCents(no)}¢` : ""}</button>
                   </div>
                 </div>
                 {/* expanded drill-down: Graph | Order Book (order book ⅔ + recent fills ⅓) */}
@@ -171,11 +171,10 @@ export default function EventPage() {
                     {tab === "graph" ? (
                       <Chart pk={m.pubkey} mark={m.mark ?? null} openTs={m.trade_open_ts} />
                     ) : (
-                      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", gap: 14 }}>
+                      <div className="event-book-layout">
                         <OrderBook book={expBook} view={bookView} setView={setBookView} last={expFills[0]?.price ?? null} />
-                        {/* row height comes from the book; the fills card fills it and scrolls inside */}
-                        <div style={{ position: "relative" }}>
-                          <FillsPanel fills={expFills} orders={openOrders} connected={!!pubkey} style={{ position: "absolute", inset: 0 }} />
+                        <div>
+                          <FillsPanel fills={expFills} orders={openOrders} connected={!!pubkey} style={{ height: "100%" }} />
                         </div>
                       </div>
                     )}
@@ -221,7 +220,7 @@ export default function EventPage() {
 
 // fixed width so the Yes/No buttons form two clean columns across rows
 const rowBtn = (c: "yes" | "no", on: boolean): React.CSSProperties => ({
-  width: 132, padding: "10px 0", textAlign: "center", borderRadius: 9, fontSize: 14, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+  padding: "10px 0", textAlign: "center", borderRadius: 9, fontSize: 14, fontWeight: 600, cursor: "pointer",
   background: on ? `var(--${c})` : `var(--${c}-soft)`,
   border: `1px solid ${on ? `var(--${c})` : `var(--${c}-border)`}`,
   color: on ? "var(--bg)" : `var(--${c}-hi)`,
