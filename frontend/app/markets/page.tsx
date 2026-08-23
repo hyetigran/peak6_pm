@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { getMarkets, marketPhase, type Market } from "@/lib/api";
+import { getMarkets, marketPhase, eventUrl, tickerSlug, type Market } from "@/lib/api";
 import { strikeUsd, usd, countdown } from "@/lib/format";
 
 // Reference spot + intraday % change per ticker. Demo data (no live price feed
@@ -80,13 +80,13 @@ export default function Markets() {
           return (
             <div key={ticker} className="card" style={{ padding: 20 }}>
               <div className="hd" style={{ alignItems: "flex-start" }}>
-                <div>
+                <Link href={`/event/${tickerSlug(ticker)}`} style={{ color: "inherit" }}>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 9 }}>
                     <h2 style={{ fontSize: 20 }}>{ticker}</h2>
                     <span className="sub" style={{ fontSize: 13 }}>{ref.name}</span>
                   </div>
                   <div className="mono" style={{ fontSize: 24, fontWeight: 500, marginTop: 4, letterSpacing: "-0.5px" }}>{ref.px.toFixed(2)}</div>
-                </div>
+                </Link>
                 <div style={{ textAlign: "right" }}>
                   <div style={{ fontSize: 13, color: ref.chg >= 0 ? "var(--pos)" : "var(--neg)" }}>{ref.chg >= 0 ? "+" : ""}{ref.chg.toFixed(2)}%</div>
                   <div className="sub" style={{ fontSize: 12, marginTop: 2 }}>{ms.length} active strike{ms.length > 1 ? "s" : ""}</div>
@@ -100,7 +100,7 @@ export default function Markets() {
                   const yes = m.mark != null ? Math.round(m.mark) : null;
                   const yesColor = yes == null ? "var(--ink-60)" : yes >= 50 ? "var(--yes-hi)" : "var(--no-hi)";
                   return (
-                    <Link key={m.pubkey} href={`/trade/${m.pubkey}`} className="chip" style={{ display: "flex", alignItems: "baseline", gap: 8, flex: "1 1 auto" }}>
+                    <Link key={m.pubkey} href={eventUrl(m)} className="chip" style={{ display: "flex", alignItems: "baseline", gap: 8, flex: "1 1 auto" }}>
                       <span className="mono" style={{ fontSize: 13, color: "var(--ink-60)" }}>&gt; {strikeUsd(m.strike_1e6)}</span>
                       <span className="mono" style={{ fontSize: 15, marginLeft: "auto", color: yesColor }}>{yes != null ? `${yes}¢` : "—"}</span>
                     </Link>

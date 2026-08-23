@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getPortfolio, getMarkets, marketPhase, type Market } from "@/lib/api";
+import { getPortfolio, getMarkets, marketPhase, eventUrl, type Market } from "@/lib/api";
 import { usd, strikeUsd } from "@/lib/format";
 import { useWallet } from "@/lib/wallet";
 
@@ -69,7 +69,7 @@ export default function Portfolio() {
                   <td className="mono">{usd(p.yes, 0)}</td>
                   <td className="mono">{usd(p.no, 0)}</td>
                   <td><span className={`pos-tag ${p.position === "Yes-sided" ? "tag-yes" : p.position === "No-sided" ? "tag-no" : "tag-neutral"}`}>{p.position}</span></td>
-                  <td style={{ textAlign: "right" }}><Link href={`/trade/${p.pubkey}`} style={{ color: "var(--accent)", fontWeight: 600 }}>Open →</Link></td>
+                  <td style={{ textAlign: "right" }}><Link href={eventUrl(mById.get(p.pubkey) ?? p)} style={{ color: "var(--accent)", fontWeight: 600 }}>Open →</Link></td>
                 </tr>
               );
             })}
@@ -91,7 +91,7 @@ export default function Portfolio() {
                   <td><b>{p.ticker}</b> <span className="sub">&gt; ${strikeUsd(p.strike_1e6)}</span></td>
                   <td><span className={`pos-tag ${m.outcome_name === "Yes" ? "tag-yes" : "tag-no"}`}>{m.outcome_name} won</span></td>
                   <td className="mono">${usd(win)}</td>
-                  <td style={{ textAlign: "right" }}><Link href={`/trade/${p.pubkey}`} style={{ color: "var(--accent)", fontWeight: 600 }}>Claim →</Link></td>
+                  <td style={{ textAlign: "right" }}><Link href={eventUrl(m)} style={{ color: "var(--accent)", fontWeight: 600 }}>Claim →</Link></td>
                 </tr>
               );
             })}
