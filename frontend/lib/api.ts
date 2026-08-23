@@ -9,6 +9,8 @@ export interface Market {
   openbook_market: string; bids: string; asks: string; event_heap: string;
   openbook_base_vault: string; openbook_quote_vault: string; collateral_liability_atoms: string;
   mark?: number | null; yes_prob?: number | null; // live YES mark (cents) attached by /markets
+  volume_atoms?: string | null;  // traded notional in quote atoms (not served by the indexer yet)
+  change_24h?: number | null;    // 24h move of the YES probability, in percentage points
 }
 export interface Health { indexed_slot: number; chain_slot: number; lag: number; complete: boolean; }
 
@@ -62,6 +64,25 @@ export const overrideSettle = (pk: string, price: number, reason = 1) =>
   post<{ ok: boolean; sig: string; finalized: boolean; close_1e6: string }>(`/admin/override/${pk}`, { price, reason });
 export const settleAll = () =>
   post<{ ok: boolean; eligible: number; settled: number; errors: { market: string; error: string }[] }>("/admin/settle-all");
+
+// --- URLs ---
+// An event is (ticker, trading day); markets are addressed by slug, not pubkey:
+//   /event/aapl-close-above-on-august-22-2026
+//   /event/aapl   — shorthand; the page resolves the latest day and canonicalizes
+const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+export const tickerSlug = (ticker: string) => ticker.toLowerCase();
+export const eventUrl = (m: { ticker: string; trading_day?: number }) => {
+  const d = m.trading_day;
+  if (!d) return `/event/${tickerSlug(m.ticker)}`;
+  return `/event/${tickerSlug(m.ticker)}-close-above-on-${MONTHS[(Math.floor(d / 100) % 100) - 1]}-${d % 100}-${Math.floor(d / 10000)}`;
+};
+export function parseEventSlug(slug: string): { ticker: string; trading_day: number | null } {
+  const [t, date] = slug.toLowerCase().split("-close-above-on-");
+  const [mo, day, year] = date?.split("-") ?? [];
+  const mi = MONTHS.indexOf(mo);
+  if (mi < 0 || !Number(day) || !Number(year)) return { ticker: t, trading_day: null };
+  return { ticker: t, trading_day: Number(year) * 10000 + (mi + 1) * 100 + Number(day) };
+}
 
 /** Market Phase — the user-visible projection (PRD), not raw MarketState. */
 export function marketPhase(m: Market, now = Math.floor(Date.now() / 1000)): string {
