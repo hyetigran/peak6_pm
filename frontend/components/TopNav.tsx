@@ -1,19 +1,24 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { PublicKey } from "@solana/web3.js";
 import { useEffect, useState } from "react";
+import { useTokenBalance } from "@/components/useBalances";
 import { useWallet } from "@/lib/wallet";
-import { getHealth, getAdminState, faucet, type Health } from "@/lib/api";
-import { short } from "@/lib/format";
+import { getHealth, getAdminState, type Health } from "@/lib/api";
+import { short, usd } from "@/lib/format";
+import * as mx from "@/lib/meridian";
 
 const LINKS = [["/markets", "Markets"], ["/portfolio", "Portfolio"], ["/history", "History"], ["/admin", "Admin"]];
 
 export function TopNav() {
   const path = usePathname();
-  const { pubkey, sol, external, connect, connectBurner, disconnect } = useWallet();
+  const { pubkey, conn, connect, connectBurner, disconnect } = useWallet();
   const [health, setHealth] = useState<Health | null>(null);
   const [paused, setPaused] = useState(false);
   const [open, setOpen] = useState(false);
+  const [quoteMint, setQuoteMint] = useState<string | null>(null);
+
   useEffect(() => {
     const poll = () => {
       getHealth().then(setHealth).catch(() => setHealth(null));
@@ -22,6 +27,20 @@ export function TopNav() {
     poll(); const t = setInterval(poll, 4000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    if (quoteMint) return;
+    let stop = false;
+    const load = () => conn.getAccountInfo(mx.configPda()).then((info) => {
+      if (stop) return;
+      if (info) setQuoteMint(new PublicKey(info.data.subarray(8 + 2 + 32 * 8, 8 + 2 + 32 * 8 + 32)).toBase58());
+    }).catch(() => {});
+    load();
+    const t = setInterval(load, 3000);
+    return () => { stop = true; clearInterval(t); };
+  }, [conn, quoteMint]);
+
+  const quoteBal = useTokenBalance(quoteMint ?? undefined);
   const recovery = health && !health.complete;
   // The landing page carries its own header.
   if (path === "/") return null;
@@ -29,7 +48,7 @@ export function TopNav() {
     <>
       <nav className="nav">
         <div className="nav-inner">
-          <Link href="/markets" className="brand"><span className="brand-mark" />Meridian</Link>
+          <Link href="/" className="brand"><span className="brand-mark" />Meridian</Link>
           <div className="nav-links">
             {LINKS.map(([href, label]) => (
               <Link key={href} href={href} className={path.startsWith(href) ? "active" : ""}>{label}</Link>
@@ -39,11 +58,10 @@ export function TopNav() {
             <span className="badge"><span className="dot" />Devnet</span>
             {pubkey ? (
               <>
-                <button className="wallet-chip" onClick={() => faucet(pubkey.toBase58())} title="Mint 1000 test USDC (localnet)">+1000 USDC</button>
+                <a className="wallet-chip" href="https://faucet.circle.com/" target="_blank" rel="noreferrer">Faucet</a>
                 <div style={{ position: "relative" }}>
                   <button className="wallet-chip" onClick={() => setOpen((o) => !o)}>
-                    <span className="badge sm" style={{ background: external ? "var(--yes-soft)" : "var(--chip-2)", color: external ? "var(--yes-hi)" : "var(--ink-60)" }}>{external ? "Wallet" : "Test"}</span>
-                    <span className="bal mono">{sol.toFixed(2)} SOL</span>
+                    <span className="bal mono">{quoteMint ? `${usd(quoteBal, 2)} USDC` : "USDC --"}</span>
                     <span className="mono">{short(pubkey.toBase58())}</span>
                   </button>
                   {open && (
