@@ -38,7 +38,7 @@ export default function Home() {
         <h1 className="landing-headline">Thank you for the opportunity to interview for the AI Engineer role at Peak6.</h1>
         <p className="landing-subhead">
           Riyanka, your deep understanding of financial services and clear product vision is both inspiring and appealing.
-          James, building this Prediction Market on Solana was deeply interesting and intellectually rewarding.
+          James, building this Prediction Market on Solana was very interesting and intellectually rewarding.
         </p>
         <div className="landing-actions">
           <Link href="/markets" className="landing-cta">Enter the markets</Link>
