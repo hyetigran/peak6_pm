@@ -4,7 +4,8 @@
   "description": "Meridian M0 validation harness tests (G1-G12)",
   "type": "module",
   "scripts": {
-    "test:g2": "tsx --test tests/g2.test.ts"
+    "test:g2": "tsx --test tests/g2.test.ts",
+    "test:order-slip": "node --import tsx --test tests/order-slip.test.ts"
   },
   "devDependencies": {
     "@solana/spl-token": "^0.4.9",

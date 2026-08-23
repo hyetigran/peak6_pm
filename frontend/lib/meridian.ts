@@ -136,10 +136,10 @@ export enum Side { Bid = 0, Ask = 1 }
 export enum OrderType { Limit = 0, ImmediateOrCancel = 1, PostOnly = 2 }
 export enum STB { DecrementTake = 0, CancelProvide = 1, AbortTransaction = 2 }
 
-function encPlaceOrder(a: { side: Side; priceLots: bigint; maxBaseLots: bigint; maxQuote: bigint; clientId: bigint; orderType: OrderType; stb: STB; limit: number }): Buffer {
+function encPlaceOrder(a: { side: Side; priceLots: bigint; maxBaseLots: bigint; maxQuote: bigint; clientId: bigint; orderType: OrderType; expiryTimestamp: bigint; stb: STB; limit: number }): Buffer {
   return Buffer.concat([
     Buffer.from([a.side]), i64(a.priceLots), i64(a.maxBaseLots), i64(a.maxQuote), u64(a.clientId),
-    Buffer.from([a.orderType]), u64(0n), Buffer.from([a.stb]), Buffer.from([a.limit]),
+    Buffer.from([a.orderType]), u64(a.expiryTimestamp), Buffer.from([a.stb]), Buffer.from([a.limit]),
   ]);
 }
 function encTake(a: { side: Side; priceLots: bigint; maxBaseLots: bigint; maxQuote: bigint; orderType: OrderType; limit: number }): Buffer {
@@ -152,11 +152,11 @@ function encTake(a: { side: Side; priceLots: bigint; maxBaseLots: bigint; maxQuo
 export function placeLimitOrderIx(o: {
   user: PublicKey; market: PublicKey; obMarket: PublicKey; bids: PublicKey; asks: PublicKey;
   eventHeap: PublicKey; marketVault: PublicKey; userTokenAccount: PublicKey; ooAccount: PublicKey;
-  side: Side; priceLots: bigint; baseLots: bigint;
+  side: Side; priceLots: bigint; baseLots: bigint; expiryTimestamp?: bigint;
 }): TransactionInstruction {
   const args = encPlaceOrder({ side: o.side, priceLots: o.priceLots, maxBaseLots: o.baseLots,
     maxQuote: o.priceLots * o.baseLots, clientId: BigInt(Date.now()), orderType: OrderType.PostOnly,
-    stb: STB.AbortTransaction, limit: 16 });
+    expiryTimestamp: o.expiryTimestamp ?? 0n, stb: STB.AbortTransaction, limit: 16 });
   return new TransactionInstruction({
     programId: MERIDIAN,
     keys: [
