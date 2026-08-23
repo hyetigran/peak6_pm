@@ -5,6 +5,8 @@ import {
   computeOrderSlip,
   normalizeOrderMode,
   resolveExpiryTimestamp,
+  sanitizeMoneyInput,
+  sanitizeSharesInput,
   type OrderSlipState,
 } from "../frontend/lib/orderSlip.ts";
 
@@ -76,6 +78,19 @@ test("limit buy NO disables when pair collateral exceeds available USDC", () => 
   assert.match(result.reason, /Insufficient USDC/);
 });
 
+test("connected wallet with zero SOL is blocked before trade submission", () => {
+  const result = computeOrderSlip({
+    state: { ...baseState, amount: "10" },
+    book,
+    balances: { usdc: 50, yesShares: 0, noShares: 0 },
+    market: { ...market, solBalance: 0 },
+  });
+
+  assert.equal(result.disabled, true);
+  assert.equal(result.tone, "danger");
+  assert.match(result.reason, /Add SOL/);
+});
+
 test("sell flows validate against available outcome shares", () => {
   const result = computeOrderSlip({
     state: { ...baseState, side: "Sell", mode: "Market", shares: "6" },
@@ -107,4 +122,14 @@ test("sell NO normalizes to market mode because V1 has no sell-NO limit", () => 
 test("limit expiry clamps before the market close", () => {
   assert.equal(resolveExpiryTimestamp("1h", 2_000, 1_000), 1_999);
   assert.equal(resolveExpiryTimestamp("30m", 5_000, 1_000), 2_800);
+});
+
+test("money input caps whole-dollar entry at nine digits", () => {
+  assert.equal(sanitizeMoneyInput("1111111111"), "111111111");
+  assert.equal(sanitizeMoneyInput("$123,456,789.45"), "123456789.45");
+});
+
+test("shares input caps entry at nine digits", () => {
+  assert.equal(sanitizeSharesInput("1234567890"), "123456789");
+  assert.equal(sanitizeSharesInput("12,345 shares"), "12345");
 });

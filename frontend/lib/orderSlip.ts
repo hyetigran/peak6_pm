@@ -32,6 +32,7 @@ export interface OrderSlipMarketState {
   quoteReady: boolean;
   closeTs: number;
   now?: number;
+  solBalance?: number | null;
 }
 
 export interface OrderSlipComputation {
@@ -59,7 +60,7 @@ const EXPIRY_SECONDS: Record<Exclude<OrderExpiry, "close">, number> = {
 };
 
 export const DOLLAR_QUICK_ADDS = [1, 5, 10, 100] as const;
-export const SHARE_QUICK_ADDS = [5, 25, 100, 500] as const;
+export const SHARE_QUICK_ADDS = [-100, -10, 10, 100] as const;
 export const TOKEN_DECIMALS = 1_000_000;
 
 export function unitsFromAtoms(atoms: bigint): number {
@@ -72,13 +73,14 @@ export function wholeSharesFromAtoms(atoms: bigint): number {
 
 export function sanitizeMoneyInput(value: string): string {
   const cleaned = value.replace(/[^0-9.]/g, "");
-  const [whole, ...rest] = cleaned.split(".");
+  const [rawWhole, ...rest] = cleaned.split(".");
+  const whole = rawWhole.slice(0, 9);
   const decimals = rest.join("").slice(0, 2);
   return rest.length ? `${whole}.${decimals}` : whole;
 }
 
 export function sanitizeSharesInput(value: string): string {
-  return value.replace(/[^0-9]/g, "");
+  return value.replace(/[^0-9]/g, "").slice(0, 9);
 }
 
 export function sanitizePriceInput(value: string): string {
@@ -159,6 +161,9 @@ export function computeOrderSlip(input: {
 
   if (!input.market.tradeable) {
     reason = "Trading opens when the market is Active.";
+  } else if (input.market.connected && input.market.solBalance === 0) {
+    reason = "Add SOL to this wallet for network fees before trading.";
+    tone = "danger";
   } else if (mode === "Market" && (!priceCents || priceCents <= 0 || priceCents >= 100)) {
     reason = "No executable depth is available for this market order.";
   } else if (mode === "Limit" && (priceCents == null || !Number.isFinite(priceCents) || priceCents <= 0 || priceCents >= 100)) {

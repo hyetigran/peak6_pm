@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   DOLLAR_QUICK_ADDS,
   SHARE_QUICK_ADDS,
@@ -8,10 +8,7 @@ import {
   computeOrderSlip,
   defaultLimitPrice,
   formatInputNumber,
-  formatShares,
   formatUsd,
-  marketPriceCents,
-  maxBuyShares,
   normalizeOrderMode,
   sanitizeMoneyInput,
   sanitizePriceInput,
@@ -27,7 +24,7 @@ import {
 } from "@/lib/orderSlip";
 
 const EXPIRY_OPTIONS: { value: OrderExpiry; label: string }[] = [
-  { value: "close", label: "Market close" },
+  { value: "close", label: "Never" },
   { value: "30m", label: "30 minutes" },
   { value: "1h", label: "1 hour" },
   { value: "4h", label: "4 hours" },
@@ -86,17 +83,13 @@ export function OrderSlip({
   };
   const computed = computeOrderSlip({ state, book, balances, market: marketState });
   const activeMode = computed.mode;
-  const activePrice = activeMode === "Market"
-    ? marketPriceCents(state.side, state.outcome, book)
-    : computed.priceCents;
   const noPrice = book.yesMark == null ? null : 100 - book.yesMark;
-  const validationText = connected ? computed.reason : "Connect a wallet to trade with live balances.";
-  const actionDisabled = busy || (connected ? computed.disabled : !tradeable);
-  const actionLabel = !connected
-    ? "Connect wallet to trade"
-    : busy
-      ? "Submitting..."
-      : `${state.side} ${state.outcome} · ${computed.shares} share${computed.shares === 1 ? "" : "s"}`;
+  const validationText = connected && computed.reason !== "Enter a dollar amount to trade."
+    ? computed.reason
+    : "";
+  const actionDisabled = busy || !tradeable || (connected && computed.disabled);
+  const actionLabel = busy ? "Submitting..." : "Trade";
+  const nextMode = activeMode === "Market" ? "Limit" : "Market";
 
   const patch = (nextPatch: Partial<OrderSlipState>) => {
     const next = { ...state, ...nextPatch };
@@ -110,31 +103,28 @@ export function OrderSlip({
     });
   };
   const setSide = (side: TradeSide) => patch({ side, amount: "", shares: "" });
-  const setMode = (mode: OrderMode) => patch({ mode, amount: "", shares: "" });
+  const setMode = (mode: OrderMode) => patch({
+    mode,
+    amount: "",
+    shares: "",
+    limitPrice: mode === "Limit" ? "" : state.limitPrice,
+  });
+  const isModeDisabled = (mode: OrderMode) => mode === "Limit" && state.side === "Sell" && state.outcome === "NO";
+  const toggleMode = () => {
+    if (isModeDisabled(nextMode)) return;
+    setMode(nextMode);
+  };
   const addAmount = (amount: number) => {
     const next = computed.amount + amount;
-    patch({ amount: formatInputNumber(clamp(next, 0, 999_999)) });
+    patch({ amount: formatInputNumber(clamp(next, 0, 999_999_999)) });
   };
   const addShares = (shares: number) => {
     const next = Math.floor(Number(state.shares || "0")) + shares;
-    patch({ shares: String(clamp(next, 0, 999_999)) });
-  };
-  const applyMax = () => {
-    if (state.side === "Sell") {
-      patch({ shares: String(computed.availableShares) });
-      return;
-    }
-
-    if (computed.inputKind === "amount") {
-      patch({ amount: formatInputNumber(balances.usdc) });
-      return;
-    }
-
-    patch({ shares: String(maxBuyShares(balances.usdc, state.outcome, computed.priceCents)) });
+    patch({ shares: String(clamp(next, 0, 999_999_999)) });
   };
 
   return (
-    <section className="order-slip-card" aria-label="Order ticket">
+    <section className="order-slip-card" data-mode={activeMode.toLowerCase()} aria-label="Order ticket">
       <header className="order-slip-head">
         <div className="order-slip-market">
           <div className="order-slip-avatar" aria-hidden="true">{market.ticker}</div>
@@ -144,7 +134,6 @@ export function OrderSlip({
               <span>{market.strikeLabel}</span>
               <i aria-hidden="true" />
               <strong>{settled ? winningOutcome : state.outcome}</strong>
-              {!settled && activePrice != null && <em>{Math.round(activePrice)}¢</em>}
             </div>
           </div>
         </div>
@@ -166,22 +155,18 @@ export function OrderSlip({
                 </button>
               ))}
             </div>
-            <div className="order-slip-mode-tabs" role="group" aria-label="Order type">
-              {(["Market", "Limit"] as OrderMode[]).map((mode) => {
-                const disabled = mode === "Limit" && state.side === "Sell" && state.outcome === "NO";
-                return (
-                  <button
-                    key={mode}
-                    type="button"
-                    disabled={disabled}
-                    aria-pressed={activeMode === mode}
-                    title={disabled ? "Sell NO uses market-assisted pair redemption in V1." : undefined}
-                    onClick={() => setMode(mode)}
-                  >
-                    {mode}
-                  </button>
-                );
-              })}
+            <div className="order-slip-mode-control">
+              <button
+                className="order-slip-mode-button"
+                type="button"
+                aria-label={`Switch to ${nextMode} order`}
+                disabled={isModeDisabled(nextMode)}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={toggleMode}
+              >
+                {activeMode}
+                <span aria-hidden="true" />
+              </button>
             </div>
           </div>
 
@@ -194,41 +179,46 @@ export function OrderSlip({
             />
 
             {activeMode === "Market" ? (
-              <MarketFields
-                addAmount={addAmount}
-                addShares={addShares}
-                applyMax={applyMax}
-                balances={balances}
-                computedInputKind={computed.inputKind}
-                onChange={patch}
-                state={state}
-              />
+              <>
+                <MarketFields
+                  addAmount={addAmount}
+                  addShares={addShares}
+                  balances={balances}
+                  computedInputKind={computed.inputKind}
+                  onChange={patch}
+                  state={state}
+                />
+                {computed.amount > 0 && computed.priceCents != null && (
+                  <MarketSummary computed={computed} />
+                )}
+              </>
             ) : (
               <LimitFields
                 addShares={addShares}
-                applyMax={applyMax}
                 balances={balances}
-                book={book}
+                computed={computed}
                 computedPrice={computed.priceCents}
                 onChange={patch}
                 state={state}
               />
             )}
 
-            <OrderSummary computed={computed} state={state} />
+            <div className="order-slip-action-area">
+              {validationText && (
+                <div className="order-slip-validation" data-tone={computed.tone} role="status">
+                  {validationText}
+                </div>
+              )}
 
-            <div className="order-slip-validation" data-tone={computed.tone} role="status">
-              {validationText}
+              <button
+                className="order-slip-primary"
+                type="button"
+                disabled={actionDisabled}
+                onClick={connected ? onSubmit : onConnect}
+              >
+                {actionLabel}
+              </button>
             </div>
-
-            <button
-              className="order-slip-primary"
-              type="button"
-              disabled={actionDisabled}
-              onClick={connected ? onSubmit : onConnect}
-            >
-              {actionLabel}
-            </button>
           </div>
         </>
       ) : (
@@ -238,9 +228,11 @@ export function OrderSlip({
             <strong>{winningOutcome} won</strong>
             <p>Winning tokens redeem for 1.00 USDC each.</p>
           </div>
-          <button className="order-slip-primary" type="button" disabled={busy || redeemDisabled} onClick={onRedeem}>
-            {busy ? "Submitting..." : redeemLabel}
-          </button>
+          <div className="order-slip-action-area">
+            <button className="order-slip-primary" type="button" disabled={busy || redeemDisabled} onClick={onRedeem}>
+              {busy ? "Submitting..." : redeemLabel}
+            </button>
+          </div>
         </div>
       )}
 
@@ -288,7 +280,6 @@ function OutcomeSelector({
 function MarketFields({
   addAmount,
   addShares,
-  applyMax,
   balances,
   computedInputKind,
   onChange,
@@ -296,37 +287,42 @@ function MarketFields({
 }: {
   addAmount: (amount: number) => void;
   addShares: (shares: number) => void;
-  applyMax: () => void;
   balances: OrderSlipBalances;
   computedInputKind: "amount" | "shares";
   onChange: (patch: Partial<OrderSlipState>) => void;
   state: OrderSlipState;
 }) {
   if (computedInputKind === "amount") {
+    const amountDisplay = formatAmountDisplay(state.amount);
+    const amountSize = amountTextSize(amountDisplay.length);
+
     return (
-      <div className="order-slip-field">
-        <div className="order-slip-field-row">
+      <div className="order-slip-market-entry">
+        <div className="order-slip-amount-row">
           <label htmlFor="order-slip-amount">Amount</label>
-          <span>Balance {formatUsd(balances.usdc)}</span>
+          <div
+            className="order-slip-money-input"
+            data-empty={state.amount === ""}
+            data-size={amountSize}
+          >
+            <span aria-hidden="true">$</span>
+            <input
+              id="order-slip-amount"
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              value={amountDisplay}
+              placeholder="0"
+              maxLength={14}
+              aria-label={`Amount in dollars. Balance ${formatUsd(balances.usdc)}`}
+              onChange={(event) => onChange({ amount: sanitizeMoneyInput(event.target.value) })}
+            />
+          </div>
         </div>
-        <div className="order-slip-money-input">
-          <span aria-hidden="true">$</span>
-          <input
-            id="order-slip-amount"
-            type="text"
-            inputMode="decimal"
-            autoComplete="off"
-            value={state.amount}
-            placeholder="0"
-            aria-label="Amount in dollars"
-            onChange={(event) => onChange({ amount: sanitizeMoneyInput(event.target.value) })}
-          />
-        </div>
-        <QuickRow>
+        <QuickRow className="order-slip-quick-row--right">
           {DOLLAR_QUICK_ADDS.map((amount) => (
             <button key={amount} type="button" onClick={() => addAmount(amount)}>+${amount}</button>
           ))}
-          <button type="button" onClick={applyMax}>Max</button>
         </QuickRow>
       </div>
     );
@@ -335,7 +331,6 @@ function MarketFields({
   return (
     <SharesField
       addShares={addShares}
-      applyMax={applyMax}
       balanceLabel={`${state.outcome === "YES" ? balances.yesShares : balances.noShares} shares`}
       onChange={onChange}
       state={state}
@@ -343,30 +338,37 @@ function MarketFields({
   );
 }
 
+function formatAmountDisplay(value: string): string {
+  if (!value) return "";
+  const hasDecimal = value.includes(".");
+  const [whole, decimals = ""] = value.split(".");
+  const groupedWhole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return hasDecimal ? `${groupedWhole}.${decimals}` : groupedWhole;
+}
+
+function amountTextSize(length: number): "xl" | "lg" | "md" | "sm" | "xs" {
+  if (length >= 10) return "xs";
+  if (length >= 8) return "sm";
+  if (length >= 6) return "md";
+  if (length >= 4) return "lg";
+  return "xl";
+}
+
 function LimitFields({
   addShares,
-  applyMax,
   balances,
-  book,
+  computed,
   computedPrice,
   onChange,
   state,
 }: {
   addShares: (shares: number) => void;
-  applyMax: () => void;
   balances: OrderSlipBalances;
-  book: OrderSlipBook;
+  computed: ReturnType<typeof computeOrderSlip>;
   computedPrice: number | null;
   onChange: (patch: Partial<OrderSlipState>) => void;
   state: OrderSlipState;
 }) {
-  const bestLabel = state.side === "Buy"
-    ? state.outcome === "YES"
-      ? book.bestAsk == null ? "No best ask" : `Best ask ${book.bestAsk}¢`
-      : book.bestBid == null ? "No YES bid" : `Best NO ${100 - book.bestBid}¢`
-    : state.outcome === "YES"
-      ? book.bestBid == null ? "No best bid" : `Best bid ${book.bestBid}¢`
-      : "Market only";
   const nudgePrice = (delta: number) => {
     const next = clamp((computedPrice ?? 0) + delta, 1, 99);
     onChange({ limitPrice: String(next) });
@@ -374,11 +376,8 @@ function LimitFields({
 
   return (
     <div className="order-slip-limit-grid">
-      <div className="order-slip-field">
-        <div className="order-slip-field-row">
-          <label htmlFor="order-slip-price">Limit price</label>
-          <span>{bestLabel}</span>
-        </div>
+      <div className="order-slip-limit-row order-slip-limit-row--price">
+        <label htmlFor="order-slip-price">Limit price</label>
         <div className="order-slip-stepper">
           <button type="button" aria-label="Decrease limit price" onClick={() => nudgePrice(-1)}>-</button>
           <div>
@@ -400,7 +399,6 @@ function LimitFields({
 
       <SharesField
         addShares={addShares}
-        applyMax={applyMax}
         balanceLabel={state.side === "Sell"
           ? `${state.outcome === "YES" ? balances.yesShares : balances.noShares} shares`
           : `Balance ${formatUsd(balances.usdc)}`}
@@ -408,89 +406,157 @@ function LimitFields({
         state={state}
       />
 
-      <div className="order-slip-expiry">
-        <label htmlFor="order-slip-expiry">Expires</label>
-        <select
-          id="order-slip-expiry"
-          value={state.expiry}
-          aria-label="Limit order expiry"
-          onChange={(event) => onChange({ expiry: event.target.value as OrderExpiry })}
-        >
-          {EXPIRY_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </div>
+      <LimitSummary computed={computed} onChange={onChange} state={state} />
     </div>
   );
 }
 
 function SharesField({
   addShares,
-  applyMax,
   balanceLabel,
   onChange,
   state,
 }: {
   addShares: (shares: number) => void;
-  applyMax: () => void;
   balanceLabel: string;
   onChange: (patch: Partial<OrderSlipState>) => void;
   state: OrderSlipState;
 }) {
   return (
-    <div className="order-slip-field">
-      <div className="order-slip-field-row">
-        <label htmlFor="order-slip-shares">Shares</label>
-        <span>{balanceLabel}</span>
+    <div className="order-slip-limit-row order-slip-limit-row--shares">
+      <label htmlFor="order-slip-shares">Shares</label>
+      <div className="order-slip-shares-stack">
+        <div className="order-slip-shares-input" data-size={sharesTextSize(state.shares.length)}>
+          <input
+            id="order-slip-shares"
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            value={state.shares}
+            placeholder="0"
+            maxLength={9}
+            aria-label={`Shares. ${balanceLabel}`}
+            onChange={(event) => onChange({ shares: sanitizeSharesInput(event.target.value) })}
+          />
+        </div>
+        <QuickRow className="order-slip-quick-row--right">
+          {SHARE_QUICK_ADDS.map((shares) => (
+            <button key={shares} type="button" onClick={() => addShares(shares)}>
+              {shares > 0 ? `+${shares}` : shares}
+            </button>
+          ))}
+        </QuickRow>
       </div>
-      <div className="order-slip-shares-input">
-        <input
-          id="order-slip-shares"
-          type="text"
-          inputMode="numeric"
-          autoComplete="off"
-          value={state.shares}
-          placeholder="0"
-          aria-label="Shares"
-          onChange={(event) => onChange({ shares: sanitizeSharesInput(event.target.value) })}
-        />
-      </div>
-      <QuickRow>
-        {SHARE_QUICK_ADDS.map((shares) => (
-          <button key={shares} type="button" onClick={() => addShares(shares)}>+{shares}</button>
-        ))}
-        <button type="button" onClick={applyMax}>Max</button>
-      </QuickRow>
     </div>
   );
 }
 
-function QuickRow({ children }: { children: ReactNode }) {
-  return <div className="order-slip-quick-row">{children}</div>;
+function sharesTextSize(length: number): "md" | "sm" | "xs" {
+  if (length >= 8) return "xs";
+  if (length >= 6) return "sm";
+  return "md";
 }
 
-function OrderSummary({
+function QuickRow({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={className ? `order-slip-quick-row ${className}` : "order-slip-quick-row"}>{children}</div>;
+}
+
+function MarketSummary({
   computed,
+}: {
+  computed: ReturnType<typeof computeOrderSlip>;
+}) {
+  const winValue = formatUsd(computed.toWin);
+
+  return (
+    <div className="order-slip-market-summary" data-size={amountTextSize(winValue.length)} aria-label="Market order summary">
+      <div>
+        <strong>
+          To win
+          <i className="order-slip-cash-mark" aria-hidden="true">$</i>
+        </strong>
+        <span>
+          Avg. Price {computed.priceCents == null ? "—" : `${Math.round(computed.priceCents)}¢`}
+          <i className="order-slip-info-mark" aria-hidden="true">i</i>
+        </span>
+      </div>
+      <b>{winValue}</b>
+    </div>
+  );
+}
+
+function LimitSummary({
+  computed,
+  onChange,
   state,
 }: {
   computed: ReturnType<typeof computeOrderSlip>;
+  onChange: (patch: Partial<OrderSlipState>) => void;
   state: OrderSlipState;
 }) {
   const totalLabel = state.side === "Sell" ? "Receive" : "Total";
   const totalValue = state.side === "Sell" ? computed.receive : computed.total;
   const winLabel = state.side === "Sell" ? "Position value" : "To win";
-  const hasExtraFunding = state.side === "Buy" && computed.fundingRequired > computed.total + 0.005;
+  const winValue = formatUsd(computed.toWin);
 
   return (
     <div className="order-slip-summary" aria-label="Order summary">
-      <SummaryRow label="Avg price" value={computed.priceCents == null ? "—" : `${Math.round(computed.priceCents)}¢`} />
-      <SummaryRow label="Shares" value={formatShares(computed.shares)} />
-      <SummaryRow label={totalLabel} value={formatUsd(totalValue)} strong tone={state.side === "Sell" ? "receive" : undefined} />
-      {hasExtraFunding && <SummaryRow label="USDC needed" value={formatUsd(computed.fundingRequired)} />}
-      <SummaryRow label={winLabel} value={formatUsd(computed.toWin)} strong tone="win" />
-      {state.side === "Buy" && <SummaryRow label="Max profit" value={`+${formatUsd(computed.maxProfit)}`} />}
-      <SummaryRow label="Fees" value="0 bps" />
+      <div className="order-slip-summary-row order-slip-summary-row--expiry">
+        <span>Expires</span>
+        <ExpiryDropdown
+          value={state.expiry}
+          onChange={(expiry) => onChange({ expiry })}
+        />
+      </div>
+      <SummaryRow label={totalLabel} value={formatUsd(totalValue)} tone={state.side === "Sell" ? "receive" : "total"} />
+      <SummaryRow label={winLabel} value={winValue} withInfo withCash tone="win" size={amountTextSize(winValue.length)} />
+    </div>
+  );
+}
+
+function ExpiryDropdown({
+  onChange,
+  value,
+}: {
+  onChange: (value: OrderExpiry) => void;
+  value: OrderExpiry;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = EXPIRY_OPTIONS.find((option) => option.value === value) ?? EXPIRY_OPTIONS[0];
+  const chooseExpiry = (nextValue: OrderExpiry) => {
+    setOpen(false);
+    onChange(nextValue);
+  };
+
+  return (
+    <div className="order-slip-expiry-control">
+      <button
+        className="order-slip-expiry-button"
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Limit order expiry"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => setOpen((nextOpen) => !nextOpen)}
+      >
+        {current.label}
+        <span aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="order-slip-expiry-menu" role="menu" aria-label="Limit order expiry options">
+          {EXPIRY_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="menuitemradio"
+              aria-checked={value === option.value}
+              onClick={() => chooseExpiry(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -500,16 +566,28 @@ function SummaryRow({
   strong = false,
   tone,
   value,
+  withCash = false,
+  withInfo = false,
+  size,
 }: {
   label: string;
   strong?: boolean;
-  tone?: "receive" | "win";
+  tone?: "receive" | "total" | "win";
   value: string;
+  withCash?: boolean;
+  withInfo?: boolean;
+  size?: "xl" | "lg" | "md" | "sm" | "xs";
 }) {
   return (
-    <div className="order-slip-summary-row" data-strong={strong} data-tone={tone}>
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <div className="order-slip-summary-row" data-size={size} data-strong={strong} data-tone={tone}>
+      <span>
+        {label}
+        {withInfo && <i className="order-slip-info-mark" aria-hidden="true">i</i>}
+      </span>
+      <strong>
+        {withCash && <i className="order-slip-cash-mark" aria-hidden="true">$</i>}
+        {value}
+      </strong>
     </div>
   );
 }

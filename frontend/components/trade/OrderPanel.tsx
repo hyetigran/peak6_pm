@@ -26,12 +26,14 @@ export type Side = TradeSide;
  * buttons elsewhere on the page can drive it; trade details and wallet plumbing
  * stay local to the slip.
  */
-export function OrderPanel({ m, book, outcome, setOutcome, side, setSide }: {
+export function OrderPanel({ m, book, mobileOpen = false, onMobileClose, outcome, setOutcome, side, setSide }: {
   m: Market; book: Book | null;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
   outcome: Outcome; setOutcome: (o: Outcome) => void;
   side: Side; setSide: (s: Side) => void;
 }) {
-  const { pubkey, connect, send, conn } = useWallet();
+  const { pubkey, connect, send, conn, sol } = useWallet();
   const [quoteMint, setQuoteMint] = useState<PublicKey | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -95,7 +97,7 @@ export function OrderPanel({ m, book, outcome, setOutcome, side, setSide }: {
     state: slip,
     book: orderBook,
     balances: orderBalances,
-    market: { closeTs: m.close_ts, connected: !!pubkey, quoteReady: !!quoteMint, tradeable },
+    market: { closeTs: m.close_ts, connected: !!pubkey, quoteReady: !!quoteMint, solBalance: sol, tradeable },
   });
 
   const usdcAta = () => {
@@ -240,32 +242,48 @@ export function OrderPanel({ m, book, outcome, setOutcome, side, setSide }: {
   });
 
   return (
-    <div className="event-order-panel">
-      <OrderSlip
-        balances={orderBalances}
-        book={orderBook}
-        busy={busy}
-        connected={!!pubkey}
-        market={{
-          closeTs: m.close_ts,
-          question: `Will ${m.ticker} close at or above $${strikeUsd(m.strike_1e6)} today?`,
-          strikeLabel: `$${strikeUsd(m.strike_1e6)}`,
-          ticker: m.ticker,
-          tradingDay: m.trading_day,
-        }}
-        message={msg}
-        onChange={setSlipPatch}
-        onConnect={connect}
-        onRedeem={redeemWin}
-        onSubmit={submit}
-        quoteReady={!!quoteMint}
-        redeemDisabled={winBal === 0n || !quoteMint}
-        redeemLabel={`Claim ${usd(winBal.toString(), 0)} winning ${m.outcome_name} → USDC`}
-        settled={settled}
-        state={slip}
-        tradeable={tradeable}
-        winningOutcome={m.outcome_name}
+    <>
+      <button
+        aria-hidden={!mobileOpen}
+        className="event-order-backdrop"
+        data-open={mobileOpen}
+        onClick={onMobileClose}
+        tabIndex={mobileOpen ? 0 : -1}
+        type="button"
       />
-    </div>
+      <div className="event-order-panel" data-open={mobileOpen}>
+        <button
+          aria-label="Close order slip"
+          className="event-order-sheet-close"
+          onClick={onMobileClose}
+          type="button"
+        />
+        <OrderSlip
+          balances={orderBalances}
+          book={orderBook}
+          busy={busy}
+          connected={!!pubkey}
+          market={{
+            closeTs: m.close_ts,
+            question: `Will ${m.ticker} close at or above $${strikeUsd(m.strike_1e6)} today?`,
+            strikeLabel: `$${strikeUsd(m.strike_1e6)}`,
+            ticker: m.ticker,
+            tradingDay: m.trading_day,
+          }}
+          message={msg}
+          onChange={setSlipPatch}
+          onConnect={connect}
+          onRedeem={redeemWin}
+          onSubmit={submit}
+          quoteReady={!!quoteMint}
+          redeemDisabled={winBal === 0n || !quoteMint}
+          redeemLabel={`Claim ${usd(winBal.toString(), 0)} winning ${m.outcome_name} → USDC`}
+          settled={settled}
+          state={slip}
+          tradeable={tradeable}
+          winningOutcome={m.outcome_name}
+        />
+      </div>
+    </>
   );
 }

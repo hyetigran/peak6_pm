@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { getMarkets, getBook, getFills, getOrders, marketPhase, parseEventSlug, eventUrl, type Market, type Book, type MarketFill, type OpenOrder } from "@/lib/api";
 import { usd, countdown } from "@/lib/format";
@@ -18,6 +18,74 @@ const NAMES: Record<string, string> = { AAPL: "Apple", AMZN: "Amazon", GOOGL: "A
 const fmtStrike = (s: string) => (Number(BigInt(s)) / 1e6).toLocaleString("en-US", { maximumFractionDigits: 2 });
 const fmtCents = (c: number) => (c % 1 ? c.toFixed(1) : String(c));
 
+function EventSkeleton({ ticker }: { ticker: string }) {
+  return (
+    <div className="event-layout event-skeleton" aria-busy="true" aria-label="Loading event">
+      <div style={{ minWidth: 0 }}>
+        <div className="hd event-header" style={{ alignItems: "flex-start", gap: 20 }}>
+          <div className="event-skeleton-title">
+            <div className="skeleton-line skeleton-line-sm" />
+            <div className="skeleton-line skeleton-line-title" />
+          </div>
+          <div className="statpill event-skeleton-stat">
+            <div className="skeleton-line skeleton-line-label" />
+            <div className="skeleton-line skeleton-line-number" />
+          </div>
+        </div>
+        <div className="event-skeleton-meta">
+          <div className="skeleton-line skeleton-line-meta" />
+          <div className="skeleton-line skeleton-line-meta" />
+        </div>
+        <div className="card event-skeleton-card">
+          {[0, 1, 2, 3].map((row) => (
+            <div key={row} className="event-skeleton-row">
+              <div>
+                <div className="skeleton-line skeleton-line-strike" />
+                <div className="skeleton-line skeleton-line-sub" />
+              </div>
+              <div className="skeleton-line skeleton-line-prob" />
+              <div className="event-skeleton-actions">
+                <div className="skeleton-line skeleton-line-button" />
+                <div className="skeleton-line skeleton-line-button" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="event-order-panel event-skeleton-slip" data-open="false">
+        <section className="order-slip-card" aria-label={`Loading ${ticker} order slip`}>
+          <div className="order-slip-head">
+            <div className="order-slip-market">
+              <div className="skeleton-line skeleton-line-avatar" />
+              <div className="event-skeleton-slip-copy">
+                <div className="skeleton-line skeleton-line-slip-title" />
+                <div className="skeleton-line skeleton-line-slip-subtitle" />
+              </div>
+            </div>
+          </div>
+          <div className="order-slip-tradebar">
+            <div className="skeleton-line skeleton-line-tabs" />
+            <div className="skeleton-line skeleton-line-mode" />
+          </div>
+          <div className="order-slip-body">
+            <div className="order-slip-outcomes">
+              <div className="skeleton-line skeleton-line-outcome" />
+              <div className="skeleton-line skeleton-line-outcome" />
+            </div>
+            <div className="event-skeleton-slip-entry">
+              <div className="skeleton-line skeleton-line-field" />
+              <div className="skeleton-line skeleton-line-input" />
+            </div>
+            <div className="order-slip-action-area">
+              <div className="skeleton-line skeleton-line-primary" />
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
 export default function EventPage() {
   const { slug } = useParams<{ slug: string }>();
   const parsed = useMemo(() => parseEventSlug(slug), [slug]);
@@ -34,6 +102,8 @@ export default function EventPage() {
   const [expFills, setExpFills] = useState<MarketFill[]>([]);
   const [openOrders, setOpenOrders] = useState<OpenOrder[]>([]);
   const [showResolved, setShowResolved] = useState(false);
+  const [mobileSlipOpen, setMobileSlipOpen] = useState(false);
+  const initializedEventRef = useRef<string | null>(null);
   const { pubkey } = useWallet();
   const [, force] = useState(0);
 
@@ -64,12 +134,18 @@ export default function EventPage() {
     if (window.location.pathname !== canonical) window.history.replaceState(null, "", canonical);
   }, [eventDay, ticker, mine.length]);
 
-  // default order-slip target: the at-the-money strike
+  const eventKey = eventDay ? `${ticker}:${eventDay}` : null;
+
+  // default event view: first row expanded on the chart
   useEffect(() => {
-    if (sel || active.length === 0) return;
-    const atm = [...active].sort((a, b) => Math.abs((a.mark ?? 50) - 50) - Math.abs((b.mark ?? 50) - 50))[0];
-    setSel(atm.pubkey);
-  }, [active, sel]);
+    if (!eventKey || active.length === 0 || initializedEventRef.current === eventKey) return;
+    const first = active[0];
+    setSel(first.pubkey);
+    setExpanded(first.pubkey);
+    setTab("graph");
+    setMobileSlipOpen(false);
+    initializedEventRef.current = eventKey;
+  }, [active, eventKey]);
 
   // book for the order slip's market
   useEffect(() => {
@@ -95,10 +171,16 @@ export default function EventPage() {
   useEffect(() => setBookView(outcome), [outcome]);
 
   const toggleRow = (m: Market) => { setSel(m.pubkey); setExpanded((e) => (e === m.pubkey ? null : m.pubkey)); };
-  const pickBuy = (m: Market, o: Outcome) => { setSel(m.pubkey); setOutcome(o); setSide("Buy"); };
+  const pickBuy = (m: Market, o: Outcome) => {
+    const sameTicket = sel === m.pubkey && outcome === o && side === "Buy";
+    setSel(m.pubkey);
+    setOutcome(o);
+    setSide("Buy");
+    setMobileSlipOpen((open) => (sameTicket ? !open : true));
+  };
 
   if (loaded && mine.length === 0) return <div className="wrap sub" style={{ padding: 40 }}>No markets found for {ticker}.</div>;
-  if (!loaded) return <div className="wrap sub" style={{ padding: 40 }}>Loading event…</div>;
+  if (!loaded) return <EventSkeleton ticker={parsed.ticker.toUpperCase()} />;
 
   const totalVol = mine.reduce((a, m) => a + BigInt(m.volume_atoms ?? m.collateral_liability_atoms), 0n);
   const nextClose = active[0]?.close_ts;
@@ -212,7 +294,16 @@ export default function EventPage() {
 
       {/* ---------- ORDER SLIP ---------- */}
       {selMarket ? (
-        <OrderPanel m={selMarket} book={book} outcome={outcome} setOutcome={setOutcome} side={side} setSide={setSide} />
+        <OrderPanel
+          m={selMarket}
+          book={book}
+          mobileOpen={mobileSlipOpen}
+          onMobileClose={() => setMobileSlipOpen(false)}
+          outcome={outcome}
+          setOutcome={setOutcome}
+          side={side}
+          setSide={setSide}
+        />
       ) : <div />}
     </div>
   );
