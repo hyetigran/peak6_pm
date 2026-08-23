@@ -106,7 +106,8 @@ User-visible **Market Phase** (Preparing, Scheduled, Minting, Trading, Paused, C
 
 ## UX pages (as shipped on localnet)
 
-- **Markets** (`/`, redirects here) — MAG7 cards, strike chips, session/settles/OI pills, lifecycle strip. No separate Landing page.
+- **Landing** (`/`) — take-home header, two Loom slots (product tour + design deep dive). CTA → Markets.
+- **Markets** (`/markets`) — MAG7 cards, strike chips, session/settles/OI pills, lifecycle strip.
 - **Trade** (`/trade/[market]`) — three-column mockup: payoff sentence, mirrored YES/NO books, four intents, open orders, recent fills. Dark theme (Space Grotesk + IBM Plex Mono).
 - **Portfolio** — wallet Yes/No per market, Redeem.
 - **History** — thinner than the freeze (no full History Completeness / Platform-execution P&L yet).

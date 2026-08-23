@@ -18,7 +18,7 @@ After any reset, read all of `memory-bank/` before acting: `projectbrief.md`, `p
 3. `docs/PRD.md` **v0.7.1** owns reconciled product behavior and acceptance.
 4. `docs/ARCHITECTURE.md` **v1.1.1** owns component/CPI/account design.
 5. `docs/REQUIREMENTS.md` is the converted source spec; the original PDF is source of truth if present.
-6. `docs/PRODUCTION_INFRA.md` owns off-chain topology. `docs/DEVNET_DEPLOY.md` is the localnet→M6 runbook. `docs/GOVERNANCE.md` owns Config roles, upgrade authority, and key custody.
+6. `docs/PRODUCTION_INFRA.md` owns off-chain topology. `docs/DEPLOYMENT.md` owns the localnet→devnet runbook (program, services, frontend, M6 checklist). `docs/GOVERNANCE.md` owns Config roles, upgrade authority, and key custody.
 
 If output would contradict an ADR or the v0.7.1/v1.1.1 freeze, say so explicitly instead of silently overriding.
 

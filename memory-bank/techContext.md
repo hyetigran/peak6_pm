@@ -97,8 +97,8 @@ No book WebSocket. History Completeness is indexer-lag vs chain tip (`complete` 
   tests/                      g2–g10, g12; meridian-foundation/trading/settlement; seed-config
   fixtures/                   openbook_v2-v1.7.so, squads_v4.so, mpl_token_metadata.so, IDL
   docs/                       PRD v0.7.1, ARCHITECTURE v1.1.1, adr/0001–0033,
-                              PRODUCTION_INFRA.md, DEVNET_DEPLOY.md, DEPLOYMENT.md,
-                              GOVERNANCE.md, UI_WALKTHROUGH.md
+                              PRODUCTION_INFRA.md, DEPLOYMENT.md,
+                              GOVERNANCE.md
   Makefile                    demo, demo-devnet, build-devnet, m0, meridian-test
   .env.example
   wallets/                    gitignored; meridian-program.json is local
@@ -154,4 +154,4 @@ ATM default is decided: **on**. Do not scaffold dormant fee or surplus-withdrawa
 - Before exploring code, read `CONTEXT.md` and relevant `docs/adr/`.
 - Issues: `glab issue …`. MRs are GitLab merge requests. MRs are **not** a triage surface.
 - Domain layout is single-context: root `CONTEXT.md` + `docs/adr/`.
-- README / UI_WALKTHROUGH are **partially stale** vs the tree (they still mention a Landing page, paper-era copy, and “demo-devnet not implemented”). Prefer Makefile + ADRs + this Memory Bank for current commands.
+- Prefer Makefile + ADRs + this Memory Bank for engineering status.

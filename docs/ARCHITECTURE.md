@@ -2172,7 +2172,7 @@ off-chain
   Vercel   — frontend, Root Directory `frontend`, NEXT_PUBLIC_RPC / NEXT_PUBLIC_INDEXER / NEXT_PUBLIC_MERIDIAN
 ```
 
-Details: `docs/DEPLOYMENT.md`, `docs/DEPLOY_RAILWAY.md`, `docs/DEVNET_DEPLOY.md`.
+Details: [`DEPLOYMENT.md`](./DEPLOYMENT.md).
 
 `make demo-devnet` deterministically demonstrates plumbing with a clearly labeled synthetic Settlement Record. `make oracle-e2e-devnet` separately proves the real Nasdaq Official Close/provider path and is a non-waiverable M0 pass path. Synthetic evidence cannot satisfy provider-finality or production-readiness claims.
 
@@ -2258,8 +2258,8 @@ peak6_pm/
 │  ├─ adr/                      # ADR-0001 … ADR-0037 + gate measurement JSON
 │  ├─ agents/
 │  ├─ PRD.md · REQUIREMENTS.md · ARCHITECTURE.md · GOVERNANCE.md
-│  ├─ PRODUCTION_INFRA.md · DEPLOYMENT.md · DEPLOY_RAILWAY.md · DEVNET_DEPLOY.md · ORACLE_SETUP.md
-│  └─ UI_WALKTHROUGH.md · DEMO_VIDEOS.md · screenshots/
+│  ├─ PRODUCTION_INFRA.md · DEPLOYMENT.md · ORACLE_SETUP.md
+│  └─ screenshots/
 │
 ├─ Dockerfile                   # one image for indexer/keeper; SERVICE_ENTRY picks the process
 ├─ Anchor.toml · Cargo.toml · pnpm-workspace.yaml · package.json

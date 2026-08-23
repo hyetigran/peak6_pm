@@ -1,10 +1,9 @@
 # Meridian — Production Infrastructure
 
-Deployment topology for the **off-chain** services. This is the counterpart to
-`ARCHITECTURE.md` (which is on-chain / program-focused), `DEVNET_DEPLOY.md`
-(a step-by-step acceptance checklist), `DEPLOYMENT.md` (how to deploy
-the program, services, and Vercel frontend), and `GOVERNANCE.md`
-(Config roles, upgrade authority, and which process may load which key). On-chain safety does not depend on anything
+Deployment topology for the **off-chain** services. Counterpart to
+`ARCHITECTURE.md` (on-chain), [`DEPLOYMENT.md`](./DEPLOYMENT.md) (how to
+put program / services / frontend on devnet, including the M6 checklist),
+and `GOVERNANCE.md` (which process may load which key). On-chain safety does not depend on anything
 here: the program fails closed, and every off-chain action is idempotent
 on-chain, so this layer is about **liveness, cost, and observability**, never
 custody. No off-chain service can move funds or write protocol state except by
@@ -80,7 +79,7 @@ This section is only the **service** subset:
   the repo. `.env.example` already declares `OPERATOR_KEYPAIR_PATH`; the keeper
   does not yet read it (reconcile — see audit).
 - Upgrade / governance / override authorities are **cold** and move to Squads
-  2-of-3 at M6 (ADR-0024, DEVNET_DEPLOY Phase 8) — not held by any service.
+  2-of-3 at M6 (ADR-0024, [`DEPLOYMENT.md`](./DEPLOYMENT.md) §5 Phase 8) — not held by any service.
 - Market-maker key is demo liquidity only; scope and fund it separately.
 
 ## 5. Observability and alerting  [open]
@@ -89,7 +88,7 @@ This section is only the **service** subset:
   scheduler job success/lateness, operator SOL balance, RPC error rate).
 - **Alert on:** any market past `close_ts + delay` still unsettled; heap depth
   ≥ SLO escalation bands (§8.4); OpenBook/Pyth-adapter identity drift (ADR-0030,
-  DEVNET_DEPLOY Phase 7); operator balance low. Webhook receiver: issue #10.
+  [`DEPLOYMENT.md`](./DEPLOYMENT.md) §5 Phase 7); operator balance low. Webhook receiver: issue #10.
 - Graceful shutdown (SIGTERM) so DB WAL checkpoints and in-flight txs settle —
   no service handles signals today (see audit).
 
@@ -108,6 +107,6 @@ This section is only the **service** subset:
 | localnet (demo) | single test-validator | harness mock feed (ADR-0028) | 1s poll loop |
 | devnet | devnet cluster | Pyth (via `pyth-adapter`) | scheduled jobs + subscription |
 
-Devnet is the current target (DEVNET_DEPLOY.md). This doc does not assume a
-specific cloud; it names the shape, and the **[open]** items above are the
-decisions to close before Phase 6.
+Devnet is the current target ([`DEPLOYMENT.md`](./DEPLOYMENT.md)). This doc
+does not assume a specific cloud; it names the shape, and the **[open]**
+items above are the decisions to close before hosting services.

@@ -78,7 +78,7 @@ Localnet plumbing is already live: `make demo` runs validator + seed + indexer +
 | Domain glossary | Vocabulary; avoid listed synonyms | `CONTEXT.md` |
 | Accepted decisions | Rounds 1–6 plus later venue/lifecycle ADRs | `docs/adr/0001`–`0033` |
 | Off-chain topology | Scheduler, redundancy, secrets, observability | `docs/PRODUCTION_INFRA.md` |
-| Devnet runbook | Localnet → M6 checklist | `docs/DEVNET_DEPLOY.md` |
+| Devnet runbook | Program, services, frontend, M6 checklist | `docs/DEPLOYMENT.md` |
 | Governance / keys | Config roles, upgrade authority, key custody | `docs/GOVERNANCE.md` |
 
 Accepted ADRs and the v0.7.1/v1.1.1 freeze are reconciled. Use `CONTEXT.md` terms. If new work contradicts an ADR, say so explicitly.

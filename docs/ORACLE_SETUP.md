@@ -1,7 +1,7 @@
 # Meridian — Oracle Setup (Pyth)
 
 Runbook to stand up the real settlement oracle on devnet and close **#16** /
-DEVNET_DEPLOY **Phase 4**. The program side (audit **A1**) is already done: in
+[`DEPLOYMENT.md`](./DEPLOYMENT.md) §5 Phase 4. The program side (audit **A1**) is already done: in
 both builds `finalize_settlement` READS the Official Close from an owner-pinned
 delivery account and never trusts the cranker's args (`20f1545`). The **writer** is
 the Meridian Pyth adapter (`programs/pyth-adapter`, ADR-0034): it reads a Pyth

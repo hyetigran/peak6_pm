@@ -21,14 +21,14 @@ Date: 2026-08-22.
 
 - **`@meridian/sdk`**: shared builders used by tests/scripts/services.
 - **Indexer** (`:8787`): GPA ingest, SQLite, markets/book/fills/orders/portfolio/health. Localnet faucet + admin settle/pause/override.
-- **Frontend** (`:3100`): dark theme, Markets (no Landing), Trade 3-column with live book / open orders / fills, Portfolio, History, Admin. Recovery-only banner from indexer lag. Test-wallet + `+1000 USDC` faucet.
+- **Frontend** (`:3100`): dark theme, Landing (`/`) with two video slots, Markets, Trade 3-column with live book / open orders / fills, Portfolio, History, Admin. Recovery-only banner from indexer lag. Test-wallet + `+1000 USDC` faucet.
 - **Keeper**: 5s poll — consume EventHeap, publish mock Official Close, finalize + settle after `close_ts`.
 - **Market-maker**: seeds a deep book; intended 24/7-while-open (ADR-0033).
 - **`make demo`**: one-command localnet lifecycle.
 - **`make build-devnet`**: strict SBF + manifest (#23, closed).
 - **`make demo-devnet`**: `resolveSeedConfig` + `DEMO_MODE=devnet` seed (#24 landed on main; issue still open).
 - **`tests/seed-config.test.ts`**: resolver unit tests, no validator.
-- Docs: ADRs 0001–0033, PRODUCTION_INFRA, DEVNET_DEPLOY, DEPLOYMENT, GOVERNANCE, UI_WALKTHROUGH, README (README/walkthrough have stale sentences — see Known issues).
+- Docs: ADRs 0001–0033, PRODUCTION_INFRA, DEPLOYMENT, GOVERNANCE, README.
 
 ## Pyth oracle adapter (#16 synthetic track) — proven 2026-08-22
 
@@ -102,7 +102,7 @@ Date: 2026-08-22.
 
 ### Doc drift (process)
 
-README still says `make demo-devnet` is not implemented and lists a Landing page / ADRs only through 0030. UI_WALKTHROUGH still mentions a landing page and a Mint/Redeem slip section that was removed. Treat Makefile + ADRs + this file as current.
+Markets page subtitle still says “Binary contracts” (glossary drift). Treat Makefile + ADRs + this file as current for engineering status.
 
 ### Glossary drift
 

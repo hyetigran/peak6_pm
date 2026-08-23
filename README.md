@@ -19,7 +19,7 @@ This submission targets **Solana devnet / localnet only**. Do not use mainnet or
 | Production program | `programs/meridian` (Anchor 0.31.1), program id `HiREMEBWNojy6KJNbMbww2YkRJEYLGMgndaKwXndK6ZD` |
 | M0 harness | `programs/m0-harness` — validation scaffolding, **not** the product program. Never deploy it to devnet |
 | Indexer | `services/indexer` on `:8787` |
-| Frontend | Next.js 14 under `frontend/` on `:3100`. `/` redirects to Markets |
+| Frontend | Next.js 14 under `frontend/` on `:3100`. `/` is the landing page; Markets is `/markets` |
 | Keeper / market-maker | Localnet demo processes (poll + mock feed). Production shape is scheduled jobs + heap subscription ([ADR-0031](docs/adr/0031-trigger-keeper-actions-on-a-schedule-not-a-poll.md)) |
 | `make build-devnet` | **Done.** Strict SBF (no `localnet` feature) + `target/deploy/meridian-devnet.manifest` |
 | `make demo-devnet` | **Seed path exists.** Labeled **synthetic** plumbing: `DEMO_MODE=devnet` + `resolveSeedConfig` against a **already-deployed** strict binary. Not a clean-clone E2E. Not Official Close proof |
@@ -111,13 +111,13 @@ make demo
 DEMO_SETTLE=1 DEMO_SETTLE_SECS=300 make demo
 ```
 
-That adds two closing-soon markets (TSLA / GOOGL) so the keeper can finalize a mock Official Close before you get bored. Hands-on script: [`docs/UI_WALKTHROUGH.md`](docs/UI_WALKTHROUGH.md).
+That adds two closing-soon markets (TSLA / GOOGL) so the keeper can finalize a mock Official Close before you get bored.
 
 Then:
 
 | URL | What |
 | --- | --- |
-| http://localhost:3100 | Frontend — opens on **Markets** (Trade, Portfolio, History, Admin in the nav) |
+| http://localhost:3100 | Frontend — landing (`/`); **Enter the markets** → `/markets` (Trade, Portfolio, History, Admin in the nav) |
 | http://localhost:8787/markets | Indexer JSON |
 | http://localhost:8787/health | History Completeness (indexer lag vs chain tip) |
 | http://127.0.0.1:8899 | Solana RPC (localnet) |
@@ -165,7 +165,7 @@ Keep the synthetic-vs-real labels in command output. Mixing them is a spec failu
 
 Circle Devnet USDC for remote clusters: `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`. Do not label localnet test USD as USDC.
 
-Operator how-to (deploy program, host services, Vercel frontend): [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). Acceptance checklist: [`docs/DEVNET_DEPLOY.md`](docs/DEVNET_DEPLOY.md). Roles and key custody: [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md).
+Operator how-to and M6 checklist: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). Roles and key custody: [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md).
 
 ---
 
@@ -206,9 +206,7 @@ docs/REQUIREMENTS.md        converted source spec (PDF remains source of truth)
 docs/adr/                   accepted decisions 0001–0033
 docs/PRODUCTION_INFRA.md    off-chain topology
 docs/GOVERNANCE.md          Config roles, upgrade authority, key custody
-docs/DEVNET_DEPLOY.md       localnet → M6 acceptance checklist
-docs/DEPLOYMENT.md          operator how-to (program, services, Vercel)
-docs/UI_WALKTHROUGH.md      browser script for `make demo`
+docs/DEPLOYMENT.md          program, services, Vercel, M6 checklist
 CONTEXT.md                  domain glossary — use these terms
 .env.example                environment template
 ```
@@ -324,9 +322,7 @@ See Architecture §18 and PRD §18 for the full register.
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Accounts, CPI, services |
 | [`docs/PRODUCTION_INFRA.md`](docs/PRODUCTION_INFRA.md) | Off-chain topology (scheduler, secrets, observability) |
 | [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md) | Config roles, upgrade authority, and key custody |
-| [`docs/DEVNET_DEPLOY.md`](docs/DEVNET_DEPLOY.md) | Localnet → M6 acceptance checklist |
-| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Deploy programs, services, and the Vercel frontend |
-| [`docs/UI_WALKTHROUGH.md`](docs/UI_WALKTHROUGH.md) | Browser walkthrough for `make demo` |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Program, services, Vercel, M6 checklist |
 | [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) | Converted source specification |
 | [`docs/agents/`](docs/agents/) | GitLab issues, triage labels, Squads research |
 | [`AGENTS.md`](AGENTS.md) | Pointers for coding agents |

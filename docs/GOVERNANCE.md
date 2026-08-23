@@ -3,8 +3,8 @@
 Who can change protocol state, which keys exist, where they live, and how they
 rotate. This is the counterpart to [`ARCHITECTURE.md`](./ARCHITECTURE.md)
 (account/CPI design), [`PRODUCTION_INFRA.md`](./PRODUCTION_INFRA.md) (how
-services run), [`DEPLOYMENT.md`](./DEPLOYMENT.md) (how to deploy), and
-[`DEVNET_DEPLOY.md`](./DEVNET_DEPLOY.md) (M6 acceptance checklist).
+services run), and [`DEPLOYMENT.md`](./DEPLOYMENT.md) (program, services,
+frontend, M6 checklist).
 
 Accepted policy is [ADR-0024](./adr/0024-use-two-step-role-rotation-and-an-upgrade-trusted-devnet.md)
 plus Architecture §3.3 / §16.9 and PRD §“authority gate”. This file records
@@ -143,7 +143,7 @@ A dedicated **cold** deployer key may remain Upgradeable Loader authority
 through earlier milestones (ADR-0024). It must never be loaded by keeper,
 market-maker, indexer, or frontend.
 
-Publish with every deploy (ADR-0024 / DEVNET_DEPLOY Phase 2):
+Publish with every deploy (ADR-0024 / [`DEPLOYMENT.md`](./DEPLOYMENT.md) §1):
 
 - ProgramData address
 - deployment slot
@@ -152,14 +152,14 @@ Publish with every deploy (ADR-0024 / DEVNET_DEPLOY Phase 2):
 
 A single-key upgrade authority **cannot** pass the final demo.
 
-The local deployer pubkey currently recorded in DEVNET_DEPLOY is
+The local deployer pubkey currently recorded in [`DEPLOYMENT.md`](./DEPLOYMENT.md) is
 `4XT7HdQg59fmvvymZzUa9kWTHxyehCrLQEJHxrsjQfCq`. Treat that as the POC
 identity, not the M6 end state.
 
 ### 5.2 Final demo (M6) — Squads V4 2-of-3
 
-Non-waiverable (PRD authority gate, Architecture §16.9, DEVNET_DEPLOY
-Phase 8). Mechanism is frozen:
+Non-waiverable (PRD authority gate, Architecture §16.9,
+[`DEPLOYMENT.md`](./DEPLOYMENT.md) §5 Phase 8). Mechanism is frozen:
 
 ```text
 SQUADS_V4_PROGRAM_ID          = SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf
@@ -331,7 +331,7 @@ role split exists to protect.
 | **#9** | Official-Close provider (G11); not a key-management choice but it bounds whether override remains a rare path |
 | **#15** | Adopt or omit Emergency Expiry (Pause Authority instruction) |
 
-Until #11 is filled, DEVNET_DEPLOY Phase 8 is blocked. Until pause /
+Until #11 is filled, [`DEPLOYMENT.md`](./DEPLOYMENT.md) §5 Phase 8 is blocked. Until pause /
 override are distinct from governance, do not call a public cluster
 deployment “non-demo.”
 
@@ -347,7 +347,6 @@ deployment “non-demo.”
 | [ADR-0030](./adr/0030-bind-to-the-canonical-openbook-deployment-with-monitored-identity.md) | External OpenBook upgrade authority |
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) §3.3, §16.9 | Role table and upgrade isolation |
 | [`PRODUCTION_INFRA.md`](./PRODUCTION_INFRA.md) | Which *services* hold the operator key |
-| [`DEPLOYMENT.md`](./DEPLOYMENT.md) | Deploy how-to; Vercel must get no secrets |
-| [`DEVNET_DEPLOY.md`](./DEVNET_DEPLOY.md) | Phase 0 wallets + Phase 8 Squads choreography |
+| [`DEPLOYMENT.md`](./DEPLOYMENT.md) | Program, services, Vercel, M6 checklist |
 | [`agents/squads-v4-multisig-research.md`](./agents/squads-v4-multisig-research.md) | Squads V4 gates and derivation |
 | [`.env.example`](../.env.example) | Env names; copy to `.env`, never commit |

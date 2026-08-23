@@ -100,7 +100,7 @@ Emergency Expiry (ADR-0018) is a **conditional one-way fuse**. G3 proved OpenBoo
 
 Lots: 1 whole Yes = 1 base lot (1_000_000 atoms); quote lot = $0.01; prices 1–99 cents. Venue actions require whole-contract quantities; mint / direct Pair Redemption / Outcome Redemption operate on any positive atom count (ADR-0008).
 
-Deployment ALT (ADR-0025) holds **only** stable global addresses. Per-day/per-user accounts stay inline. After M0, ALT authority is removed. The frozen ALT is **not yet created on-chain** (DEVNET_DEPLOY Phase 2).
+Deployment ALT (ADR-0025) holds **only** stable global addresses. Per-day/per-user accounts stay inline. After M0, ALT authority is removed. The frozen ALT is **not yet created on-chain** ([`DEPLOYMENT.md`](../docs/DEPLOYMENT.md) §5 Phase 2).
 
 ## Collateral pattern
 

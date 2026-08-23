@@ -6,7 +6,7 @@
 
 Freeze: PRD **v0.7.1** + ARCHITECTURE **v1.1.1** + ADRs **0001–0033**. `main` is at `2d74f47` and tracks `origin/main` — the freeze **is** on origin (the old “docs-only working tree” fact is dead).
 
-Working-tree (uncommitted, 2026-08-22): ADR-0033 program change in `programs/meridian` — `MAX_SESSION_SECS = 432_000`, `validate_schedule` bounds the session instead of pinning 3.5h/6.5h, plus `not(localnet)` unit tests. This is issue **#22**. Docs (PRD §5, ARCH §4.4, PRODUCTION_INFRA, UI_WALKTHROUGH) already describe the 24/7 roll.
+Working-tree (uncommitted, 2026-08-22): ADR-0033 program change in `programs/meridian` — `MAX_SESSION_SECS = 432_000`, `validate_schedule` bounds the session instead of pinning 3.5h/6.5h, plus `not(localnet)` unit tests. This is issue **#22**. Docs (PRD §5, ARCH §4.4, PRODUCTION_INFRA) already describe the 24/7 roll.
 
 M0 is **not** closed. G1–G10 and G12 are localnet-green (`make m0`). **G11 and the signed go/no-go (#17) are still open.** The user directed building the V1 program → services → frontend on localnet anyway. Do not pretend ADR-0020 is satisfied.
 
@@ -18,7 +18,7 @@ M0 is **not** closed. G1–G10 and G12 are localnet-green (`make m0`). **G11 and
 - `make build-devnet` exists and is closed as #23 (strict, no `localnet` feature, writes a manifest).
 - `make demo-devnet` exists as a **seed** (`DEMO_MODE=devnet` + `resolveSeedConfig`). It is not a clean-clone E2E and does not replace `make oracle-e2e-devnet`.
 - Meridian tests last recorded: foundation 6/6, trading 5/5 (includes Sell No), settlement 4/4 (includes feed owner-pin).
-- Frontend: dark theme; `/` → `/markets`; Trade is the 3-column mockup; Mint/Redeem-pair buttons removed from the slip; Admin is a localnet console.
+- Frontend: dark theme; `/` is the landing (two Loom slots); Markets is `/markets`. Trade is the 3-column mockup; Mint/Redeem-pair buttons removed from the slip; Admin is a localnet console.
 - Keeper is still a 5s poll that writes the harness mock feed. Production shape is ADR-0031 (issues #19–#21).
 - **Pyth adapter (#16, synthetic-demo track) is proven through Meridian settlement on localnet** (2026-08-22, `de57f99`): `make pyth-settle-e2e` — Pyth-cloned validator → seed `DEMO_ORACLE=pyth` → keeper `KEEPER_ORACLE=pyth` (Hermes pull → post PriceUpdateV2 → adapter crank → finalize → settle); record close == real Pyth close (GOOGL $344.73, TSLA $362.80), 10/10 settled, keeper's advisory arg ignored (A1 holds under real data). Adapter `Egc4yk…`; devnet wiring = deploy adapter + `scripts/register-pyth-transports.ts`. **Not G11**: Pyth equity is a last trade, not the Nasdaq Official Close — the Official-Close provider (#9) + `oracle-e2e-devnet` remain.
 - Identity-drift monitor is #25 (new).
@@ -31,7 +31,7 @@ M0 is **not** closed. G1–G10 and G12 are localnet-green (`make m0`). **G11 and
 3. **`docs/ARCHITECTURE.md` v1.1.1** — accounts / CPI / services.
 4. **`docs/PRD.md` v0.7.1** — product behavior. Header still says “full build pending gates”; engineering has moved past that sentence.
 5. **`docs/PRODUCTION_INFRA.md`** — off-chain topology (scheduler, redundancy, secrets, observability). Several items still **[open]**.
-6. **`docs/DEVNET_DEPLOY.md`** — localnet → M6 checklist.
+6. **`docs/DEPLOYMENT.md`** — program, services, frontend, M6 checklist.
 7. **`docs/GOVERNANCE.md`** — Config roles, two-step rotation, upgrade authority, key custody.
 8. **`docs/REQUIREMENTS.md`** — converted source spec; PDF remains upstream source of truth.
 
@@ -57,7 +57,7 @@ M0 is **not** closed. G1–G10 and G12 are localnet-green (`make m0`). **G11 and
 1. **#22 landed** (`c99e7a1`); nothing left but the devnet redeploy via `make build-devnet`.
 2. **Close or explicitly leave #24 open** — seed path is on `main`; remaining work is ops (keys, funding, deploy) not more seed code.
 3. **#16** — Pyth adapter loop is code-complete + proven locally (`make pyth-settle-e2e`). Remaining: devnet deploy + ADR-0030 identity capture of the adapter (ops), then the G11 half (Official-Close provider #9, `oracle-e2e-devnet`, calibration ADR).
-4. **#25 identity-drift monitor** — ADR-0030 fail-closed alerting (DEVNET_DEPLOY Phase 7).
+4. **#25 identity-drift monitor** — ADR-0030 fail-closed alerting ([`DEPLOYMENT.md`](../docs/DEPLOYMENT.md) §5 Phase 7).
 5. **#19 / #20 / #21** — replace the keeper poll with scheduled settlement + market-open jobs, subscription crank, and pre-open re-validation. Scheduling substrate is still **[open]** in PRODUCTION_INFRA.
 6. Human-owned: #9 provider, #10 webhook, #11 Squads members, #15 Emergency Expiry disposition, #8 G2-devnet, #17 signed go/no-go.
 7. Do not start a mainnet conversation. Do not invent Official Close from last trade.
