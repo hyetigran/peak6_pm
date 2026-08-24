@@ -1058,7 +1058,12 @@ A direct OpenBook order-creation call cannot produce the PDA signature and there
 
 ### 7.6 Normal venue cleanup
 
-If M0 proves the pinned OpenBook prune/close instructions and their account semantics, Meridian exposes permissionless `prune_expired_venue` and `close_venue` wrappers. Both require post-close state, pin the stored Venue Market/book/EventHeap/vault accounts, and sign only with `venue_close_authority`. `close_venue` additionally proves all venue state and balances empty and pins every recoverable operator-funded rent destination to the snapshotted Venue Rent Refund Address; callers cannot supply a replacement. Unsupported close paths remain unavailable and are not counted as reclaimed rent.
+M0 proved the pinned OpenBook `set_market_expired` / `prune_orders` / `close_market` semantics (G3, G8), so Meridian exposes two **permissionless** wrappers (`instructions/settlement/close_venue.rs`); the OutcomeMarket PDA is the venue's `close_market_admin` and signs both CPIs.
+
+- `prune_venue_orders(limit)` — requires the market `Settled` or `Abandoned` with a live venue; blows the one-way expiry fuse if `time_expiry` is not already past (ADR-0018), then prunes one OpenOrders account's resting orders. Cancelled funds credit the owner's OpenOrders position; the owner withdraws with OpenBook `settle_funds` (unchanged recovery path).
+- `close_venue` — same state gate, pins the stored Venue Market/bids/asks/EventHeap accounts, refuses while `base_deposit_total` or `quote_deposit_total` is non-zero (no user value can be stranded, since `close_market` deletes the account `settle_funds` needs), and accepts **only** the snapshotted `venue_rent_refund_address` as `sol_destination`. OpenBook then re-proves expiry + empty book + empty heap and returns the four accounts' rent (~1.9 SOL at v1.7 sizes). Stamps `venue_closed_ts` and emits `VenueClosed`; one-shot.
+
+The keeper's settlement job runs prune → close per market after `settle_market` and re-attempts blocked venues on its reconcile tick (`services/keeper/src/ix.ts::reclaimVenue`). Not reclaimable: the two venue vault ATAs, Yes/No mints, SettlementRecord, immutable metadata.
 
 ---
 

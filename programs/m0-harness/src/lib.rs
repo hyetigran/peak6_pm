@@ -32,8 +32,6 @@ pub const MOCK_FEED_SEED: &[u8] = b"mock_feed";
 /// ADR-scoped unsignable fee-admin sentinel: a System-Program PDA. Off-curve
 /// (no private key can exist) and the System Program has no `invoke_signed`
 /// path, so NOTHING can ever produce this signature. G9-proven.
-pub const FEE_ADMIN_SENTINEL_SEED: &[u8] = b"meridian_fee_admin_sentinel";
-/// The derived sentinel, fixed forever: PDA(FEE_ADMIN_SENTINEL_SEED, System).
 /// G9.2 asserts this constant equals the live derivation.
 pub const FEE_ADMIN_SENTINEL: Pubkey =
     anchor_lang::solana_program::pubkey!("EhAss6gbDU57Cmwwyeq3RwHBVRvBK4CkzLS8yvddFZ1E");

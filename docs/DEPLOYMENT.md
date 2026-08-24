@@ -35,7 +35,7 @@ Never use the inert OpenBook copy `923gYkFC…` (ADR-0029). Config snapshots Ope
 | Role | Devnet need |
 | --- | --- |
 | Deployer / cold upgrade | SOL for deploy + upgrade-buffer rent. Never loaded by a service. |
-| Operator (keeper / create) | Persistent funded hot key. SOL for venues, crank, settle. |
+| Operator (keeper / create) | Persistent funded hot key. SOL for venues (~1.9 SOL each, recycled by `close_venue` after settlement), crank, settle. |
 | Governance / pause / override | Cold. Same key only for a labeled demo; distinct / multisig otherwise (ADR-0024). |
 | Market-maker | USDC + SOL inventory. Not a protocol authority. |
 

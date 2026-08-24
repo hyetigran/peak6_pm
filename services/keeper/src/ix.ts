@@ -113,3 +113,88 @@ export function makeSend(conn: Connection, op: Keypair, priorityFeeMicroLamports
       { retries: 2, baseMs: 400, onRetry: (a, e) => log(`send retry ${a}: ${(e as Error).message.slice(0, 60)}`) },
     );
 }
+
+// --- Venue closure / rent recycling (ADR-0027) --------------------------
+// Permissionless wrappers; the OutcomeMarket PDA signs as close_market_admin.
+
+/** OutcomeMarket byte offsets (state/market.rs order) the close path reads. */
+export const OUTCOME_MARKET_VENUE_RENT_REFUND = 563;
+export const OUTCOME_MARKET_VENUE_CLOSED_TS = 603;
+/** OpenBook v1.7 Market: deposit totals must be zero before close. */
+export const MARKET_BASE_DEPOSIT_TOTAL = 672;
+export const MARKET_QUOTE_DEPOSIT_TOTAL = 712;
+/** OpenOrdersAccount: `market` pubkey at disc(8)+owner(32). */
+export const OPEN_ORDERS_MARKET_OFFSET = 40;
+
+export function pruneVenueOrdersIx(o: {
+  market: PublicKey; obMarket: PublicKey; ooAccount: PublicKey; bids: PublicKey; asks: PublicKey; limit?: number;
+}): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: MERIDIAN_PID,
+    keys: [
+      { pubkey: configPda(), isSigner: false, isWritable: false },
+      { pubkey: o.market, isSigner: false, isWritable: false },
+      { pubkey: o.obMarket, isSigner: false, isWritable: true },
+      { pubkey: o.ooAccount, isSigner: false, isWritable: true },
+      { pubkey: o.bids, isSigner: false, isWritable: true },
+      { pubkey: o.asks, isSigner: false, isWritable: true },
+      { pubkey: OPENBOOK_PID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([disc("prune_venue_orders"), Buffer.from([o.limit ?? 255])]),
+  });
+}
+
+export function closeVenueIx(o: {
+  market: PublicKey; obMarket: PublicKey; bids: PublicKey; asks: PublicKey; eventHeap: PublicKey; solDestination: PublicKey;
+}): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: MERIDIAN_PID,
+    keys: [
+      { pubkey: configPda(), isSigner: false, isWritable: false },
+      { pubkey: o.market, isSigner: false, isWritable: true },
+      { pubkey: o.obMarket, isSigner: false, isWritable: true },
+      { pubkey: o.bids, isSigner: false, isWritable: true },
+      { pubkey: o.asks, isSigner: false, isWritable: true },
+      { pubkey: o.eventHeap, isSigner: false, isWritable: true },
+      { pubkey: o.solDestination, isSigner: false, isWritable: true },
+      { pubkey: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"), isSigner: false, isWritable: false },
+      { pubkey: OPENBOOK_PID, isSigner: false, isWritable: false },
+    ],
+    data: disc("close_venue"),
+  });
+}
+
+/** Post-settlement rent recycling for one market (ADR-0027): prune every
+ *  OpenOrders account's resting orders, then close the venue if no user
+ *  deposits remain. Idempotent and safe to re-run: each step is re-proven on
+ *  chain. Returns "closed", "already", or the reason it is still blocked
+ *  (owners still hold OpenOrders balances — they withdraw via settle_funds). */
+export async function reclaimVenue(opts: {
+  conn: Connection; send: (ixs: TransactionInstruction[]) => Promise<unknown>;
+  market: PublicKey; obMarket: PublicKey; bids: PublicKey; asks: PublicKey; eventHeap: PublicKey;
+}): Promise<{ status: "closed" | "already" | "blocked"; reason?: string; lamports?: number }> {
+  const { conn, send, market, obMarket, bids, asks, eventHeap } = opts;
+  const mInfo = await conn.getAccountInfo(market);
+  if (!mInfo) return { status: "blocked", reason: "market account missing" };
+  if (mInfo.data.readBigInt64LE(OUTCOME_MARKET_VENUE_CLOSED_TS) !== 0n) return { status: "already" };
+  const refund = new PublicKey(mInfo.data.subarray(OUTCOME_MARKET_VENUE_RENT_REFUND, OUTCOME_MARKET_VENUE_RENT_REFUND + 32));
+
+  // 1) prune: every OpenOrders account bound to this venue (memcmp on market).
+  const oos = await conn.getProgramAccounts(OPENBOOK_PID, {
+    dataSlice: { offset: 0, length: 0 },
+    filters: [{ memcmp: { offset: OPEN_ORDERS_MARKET_OFFSET, bytes: obMarket.toBase58() } }],
+  });
+  for (const oo of oos) await send([pruneVenueOrdersIx({ market, obMarket, ooAccount: oo.pubkey, bids, asks })]);
+
+  // 2) deposits must be zero (the program re-checks; this just gives a reason).
+  const ob = await conn.getAccountInfo(obMarket);
+  if (!ob) return { status: "already" };
+  const base = ob.data.readBigUInt64LE(MARKET_BASE_DEPOSIT_TOTAL), quote = ob.data.readBigUInt64LE(MARKET_QUOTE_DEPOSIT_TOTAL);
+  if (base !== 0n || quote !== 0n) {
+    return { status: "blocked", reason: `venue holds user deposits (base ${base}, quote ${quote}) across ${oos.length} OpenOrders — owners must settle_funds` };
+  }
+  const before = (await conn.getBalance(refund)) ?? 0;
+  await send([closeVenueIx({ market, obMarket, bids, asks, eventHeap, solDestination: refund })]);
+  const after = (await conn.getBalance(refund)) ?? 0;
+  return { status: "closed", lamports: after - before };
+}

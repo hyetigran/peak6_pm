@@ -41,6 +41,8 @@ export interface MarketRow {
   ticker?: string;
   event_heap?: string;
   openbook_market?: string;
+  bids?: string;
+  asks?: string;
   // Pre-open re-validation gate (#21) fields.
   state_name?: string;
   activity_started?: number | boolean;

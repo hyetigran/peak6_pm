@@ -20,11 +20,10 @@ pub fn validate_strike(strike_1e6: u64) -> Result<()> {
 /// mint-to-trade interval, a bounded trading session, and the add-strike lead
 /// time relative to `now`.
 pub fn validate_schedule(mint_open_ts: i64, trade_open_ts: i64, close_ts: i64, now: i64) -> Result<()> {
-    use crate::constants::MIN_ADD_STRIKE_LEAD_SECS;
     require!(mint_open_ts < trade_open_ts && trade_open_ts < close_ts, MeridianError::InvalidSchedule);
     #[cfg(not(feature = "localnet"))]
     {
-        use crate::constants::MAX_SESSION_SECS;
+        use crate::constants::{MAX_SESSION_SECS, MIN_ADD_STRIKE_LEAD_SECS};
         require!(trade_open_ts - mint_open_ts == 1800, MeridianError::InvalidSchedule);
         // Trading opens when the market exists (ADR-0033): the session runs from
         // trade_open to close and may span from ~23.5h overnight up to a

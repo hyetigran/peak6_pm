@@ -35,7 +35,12 @@ event-driven cranking:
 - **Settlement job** — scheduler fires at `close_ts + normal_settlement_delay_secs`,
   gated on the Official Close being published; reschedules with backoff if the
   Pyth delivery (adapter crank) is not yet available. Drains any residual EventHeap, then
-  `finalize_settlement_normal` → `settle_market` per market.
+  `finalize_settlement_normal` → `settle_market` per market, then **rent recycling**
+  (ADR-0027): `prune_venue_orders` per OpenOrders account → `close_venue`, which
+  returns the ~1.9 SOL OpenBook venue rent to the operator once every owner has
+  withdrawn their OpenOrders balance (`settle_funds`). Venues still holding user
+  deposits are logged and re-attempted on the reconcile tick, so the next day's
+  venues are funded from the previous day's reclaimed rent in steady state.
 - **Market-open / `add_strike` job** — fires at **resolution + 5m** (~close+30m),
   off the settlement job's completion, anchored on the just-published Official
   Close (ADR-0032). Runs generate→create→attach (PRD §5, §6) plus an

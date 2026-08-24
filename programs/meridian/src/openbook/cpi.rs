@@ -77,36 +77,22 @@ pub fn ix_data<T: AnchorSerialize>(disc: [u8; 8], args: &T) -> Vec<u8> {
     data
 }
 
-/// Byte offsets into the pinned v1.7 `Market` account (state/market.rs field
-/// order; OracleConfig is 88 bytes per state/oracle.rs:39). Golden-tested
-/// against known creation values in tests/g4.test.ts.
-pub const MARKET_QUOTE_LOT_SIZE_OFFSET: usize = 448;
-pub const MARKET_BASE_LOT_SIZE_OFFSET: usize = 456;
 /// SPL token account `amount` field offset.
 pub const TOKEN_AMOUNT_OFFSET: usize = 64;
+
+/// Byte offsets into the pinned v1.7 `Market` account (IDL field order after
+/// the 8-byte discriminator). Used by the venue-close wrappers to prove the
+/// venue is expired and holds no user deposits before rent is reclaimed.
+pub const MARKET_TIME_EXPIRY_OFFSET: usize = 48;
+pub const MARKET_BASE_DEPOSIT_TOTAL_OFFSET: usize = 672;
+pub const MARKET_QUOTE_DEPOSIT_TOTAL_OFFSET: usize = 712;
+/// Pinned v1.7 `Market` account length (848). A shorter buffer is not a Market.
+pub const MARKET_ACCOUNT_LEN: usize = 848;
 
 pub fn read_i64(data: &[u8], off: usize) -> i64 {
     i64::from_le_bytes(data[off..off + 8].try_into().unwrap())
 }
+
 pub fn read_u64(data: &[u8], off: usize) -> u64 {
     u64::from_le_bytes(data[off..off + 8].try_into().unwrap())
 }
-
-/// Pinned Market byte offsets used by post-create header verification
-/// (state/market.rs field order at 796a470).
-pub const MARKET_TIME_EXPIRY_OFFSET: usize = 48;
-pub const MARKET_COLLECT_FEE_ADMIN_OFFSET: usize = 56;
-pub const MARKET_OPEN_ORDERS_ADMIN_OFFSET: usize = 88;
-pub const MARKET_CONSUME_EVENTS_ADMIN_OFFSET: usize = 120;
-pub const MARKET_CLOSE_MARKET_ADMIN_OFFSET: usize = 152;
-pub const MARKET_MAKER_FEE_OFFSET: usize = 480;
-pub const MARKET_TAKER_FEE_OFFSET: usize = 488;
-
-pub fn read_pubkey(data: &[u8], off: usize) -> anchor_lang::prelude::Pubkey {
-    anchor_lang::prelude::Pubkey::new_from_array(data[off..off + 32].try_into().unwrap())
-}
-
-/// Classic SPL Token instruction tags used by the pair-collateral model.
-pub const SPL_TRANSFER: u8 = 3;
-pub const SPL_MINT_TO: u8 = 7;
-pub const SPL_BURN: u8 = 8;

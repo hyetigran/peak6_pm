@@ -9,8 +9,6 @@ pub const CONFIG_SEED: &[u8] = b"config";
 pub const OUTCOME_MARKET_SEED: &[u8] = b"outcome_market";
 pub const SETTLEMENT_RECORD_SEED: &[u8] = b"settlement_record";
 pub const TRANSPORT_VERSION_SEED: &[u8] = b"transport_version";
-pub const VENUE_MARKET_AUTHORITY_SEED: &[u8] = b"venue_market_authority";
-pub const COLLATERAL_VAULT_SEED: &[u8] = b"collateral_vault";
 pub const YES_MINT_SEED: &[u8] = b"yes_mint";
 pub const NO_MINT_SEED: &[u8] = b"no_mint";
 
@@ -25,7 +23,6 @@ pub const FEE_ADMIN_SENTINEL: Pubkey =
 /// Metaplex Token Metadata program (canonical mainnet/devnet address).
 pub const TOKEN_METADATA_PROGRAM_ID: Pubkey =
     anchor_lang::solana_program::pubkey!("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
-pub const FEE_ADMIN_SENTINEL_SEED: &[u8] = b"meridian_fee_admin_sentinel";
 
 // --- Lot scheme (G10) --------------------------------------------------
 /// One whole 6-decimal outcome token per base lot.
@@ -63,6 +60,3 @@ pub const TAKER_FEE: i64 = 0;
 
 // --- Reserved padding on every long-lived account (ARCH L452) ----------
 pub const RESERVED_PADDING: usize = 64;
-
-/// Inline maker fill cap — G6-measured practical bound (SBF heap OOMs above).
-pub const MAX_INLINE_MAKERS: usize = 11;

@@ -62,7 +62,11 @@ pub struct OutcomeMarket {
     // accounting (ADR-0002): supply-derived USDC-atom obligation
     pub collateral_liability_atoms: u64,
 
-    pub reserved: [u8; RESERVED_PADDING],
+    // venue closure (ADR-0027): unix ts when `close_venue` reclaimed the
+    // OpenBook rent to `venue_rent_refund_address`; 0 while the venue is live.
+    pub venue_closed_ts: i64,
+
+    pub reserved: [u8; RESERVED_PADDING - 8],
 }
 
 impl OutcomeMarket {
@@ -76,9 +80,15 @@ impl OutcomeMarket {
         + 32                                // metadata manifest
         + 32 + 32                           // rent refunds
         + 8                                 // liability
-        + RESERVED_PADDING;
+        + 8                                 // venue_closed_ts
+        + (RESERVED_PADDING - 8);
 
     pub fn has_venue(&self) -> bool {
         self.openbook_market != Pubkey::default()
+    }
+
+    /// Venue attached and its OpenBook accounts not yet closed.
+    pub fn venue_live(&self) -> bool {
+        self.has_venue() && self.venue_closed_ts == 0
     }
 }

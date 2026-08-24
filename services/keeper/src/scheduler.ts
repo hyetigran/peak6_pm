@@ -24,7 +24,7 @@ import fs from "node:fs";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import {
   RECORD_STATE, RECORD_OFFICIAL_CLOSE, SYS,
-  settlementRecordPda, finalizeNormalIx, settleMarketIx, abandonMarketIx, makeSend,
+  settlementRecordPda, finalizeNormalIx, settleMarketIx, abandonMarketIx, makeSend, reclaimVenue,
 } from "./ix.js";
 import {
   drainHeap, heapCountFromData, watchHeap, runReconcile, priorityFeeForBand, EVENT_HEAP_CAPACITY,
@@ -149,6 +149,24 @@ async function main() {
     finally { cranking.delete(heapPk); }
   };
 
+  // One market's venue-close attempt; never throws (the job must not fail on it).
+  // `venueDone` remembers venues proven closed so the reconcile pass does not
+  // re-read every historical settled market each tick.
+  const venueDone = new Set<string>();
+  const reclaimOne = async (m: any): Promise<void> => {
+    if (venueDone.has(m.pubkey)) return;
+    if (!m.openbook_market || m.openbook_market === SYS || !m.bids || !m.asks || !m.event_heap) { venueDone.add(m.pubkey); return; }
+    try {
+      const r = await reclaimVenue({
+        conn, send, market: new PublicKey(m.pubkey), obMarket: new PublicKey(m.openbook_market),
+        bids: new PublicKey(m.bids), asks: new PublicKey(m.asks), eventHeap: new PublicKey(m.event_heap),
+      });
+      if (r.status === "closed") console.log(`[keeper] venue closed ${m.pubkey}: +${((r.lamports ?? 0) / 1e9).toFixed(4)} SOL to refund address`);
+      else if (r.status === "blocked") console.warn(`[keeper] venue ${m.pubkey} not closed: ${r.reason}`);
+      if (r.status !== "blocked") venueDone.add(m.pubkey);
+    } catch (e) { console.warn(`[keeper] venue close ${m.pubkey} failed: ${(e as Error).message.slice(0, 120)}`); }
+  };
+
   const settlement: JobHandler = async (job: ScheduledJob): Promise<JobOutcome> => {
     const markets: MarketRow[] = (await getJson("/markets")).markets
       .filter((m: any) => m.ticker_id === job.tickerId && m.trading_day === job.day && !m.settled_ts);
@@ -185,6 +203,12 @@ async function main() {
     for (const m of markets as any[]) await send([settleMarketIx(op.publicKey, new PublicKey(m.pubkey), record)]);
     const close = (await conn.getAccountInfo(record))!.data.readBigUInt64LE(RECORD_OFFICIAL_CLOSE);
     console.log(`[keeper] settled ticker ${job.tickerId} day ${job.day} @ close $${(Number(close) / 1e6).toFixed(2)} (${markets.length} markets)`);
+
+    // 4) Rent recycling (ADR-0027): prune resting orders, then close each venue
+    //    whose OpenOrders balances are all withdrawn. Best-effort here and
+    //    re-attempted by the venue-reclaim reconcile below — a venue that still
+    //    holds user deposits stays open until its owners settle_funds.
+    for (const m of markets as any[]) await reclaimOne(m);
     return { status: "done" };
   };
 
@@ -286,6 +310,9 @@ async function main() {
       await syncSubscriptions();
       const markets = (await getJson("/markets")).markets as MarketRow[];
       await preOpenRevalidate(markets); // #21 pre-open gate
+      // Venue rent reclaim re-attempt (ADR-0027): settled markets whose venue
+      // was blocked on user deposits at settlement time.
+      for (const m of markets) if (m.settled_ts) await reclaimOne(m);
       const byPk = new Map(markets.map((m) => [m.pubkey!, m]));
       await runReconcile({
         readCounts: async () => {

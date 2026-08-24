@@ -322,3 +322,57 @@ export function redeemNoViaMarketIx(user: PublicKey, o: {
   for (const oo of o.makerOos) keys.push({ pubkey: oo, isSigner: false, isWritable: true });
   return new TransactionInstruction({ programId: MERIDIAN_PID, keys, data });
 }
+
+// --- Venue closure / rent recycling (ADR-0027) --------------------------
+// Both permissionless: the OutcomeMarket PDA signs as OpenBook close_market_admin.
+
+/** OutcomeMarket byte offsets the venue-close path needs (state/market.rs order). */
+export const OUTCOME_MARKET_VENUE_OFFSETS = {
+  OPENBOOK_MARKET: 274, BIDS: 338, ASKS: 370, EVENT_HEAP: 402,
+  VENUE_RENT_REFUND: 563, VENUE_CLOSED_TS: 603,
+} as const;
+export const readVenueRefundAddress = (d: Buffer): PublicKey =>
+  new PublicKey(d.subarray(OUTCOME_MARKET_VENUE_OFFSETS.VENUE_RENT_REFUND, OUTCOME_MARKET_VENUE_OFFSETS.VENUE_RENT_REFUND + 32));
+export const readVenueClosedTs = (d: Buffer): bigint => d.readBigInt64LE(OUTCOME_MARKET_VENUE_OFFSETS.VENUE_CLOSED_TS);
+
+/** prune_venue_orders(limit): cancel one OpenOrders account's resting orders on a
+ *  Settled/Abandoned market (expires the venue first if needed). */
+export function pruneVenueOrdersIx(o: {
+  market: PublicKey; obMarket: PublicKey; ooAccount: PublicKey; bids: PublicKey; asks: PublicKey; limit?: number;
+}): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: MERIDIAN_PID,
+    keys: [
+      { pubkey: configPda(), isSigner: false, isWritable: false },
+      { pubkey: o.market, isSigner: false, isWritable: false },
+      { pubkey: o.obMarket, isSigner: false, isWritable: true },
+      { pubkey: o.ooAccount, isSigner: false, isWritable: true },
+      { pubkey: o.bids, isSigner: false, isWritable: true },
+      { pubkey: o.asks, isSigner: false, isWritable: true },
+      { pubkey: OPENBOOK_PID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([disc("prune_venue_orders"), Buffer.from([o.limit ?? 255])]),
+  });
+}
+
+/** close_venue: reclaim OpenBook market/bids/asks/heap rent to the snapshotted
+ *  venue_rent_refund_address (the program rejects any other destination). */
+export function closeVenueIx(o: {
+  market: PublicKey; obMarket: PublicKey; bids: PublicKey; asks: PublicKey; eventHeap: PublicKey; solDestination: PublicKey;
+}): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: MERIDIAN_PID,
+    keys: [
+      { pubkey: configPda(), isSigner: false, isWritable: false },
+      { pubkey: o.market, isSigner: false, isWritable: true },
+      { pubkey: o.obMarket, isSigner: false, isWritable: true },
+      { pubkey: o.bids, isSigner: false, isWritable: true },
+      { pubkey: o.asks, isSigner: false, isWritable: true },
+      { pubkey: o.eventHeap, isSigner: false, isWritable: true },
+      { pubkey: o.solDestination, isSigner: false, isWritable: true },
+      { pubkey: TOKEN_PID, isSigner: false, isWritable: false },
+      { pubkey: OPENBOOK_PID, isSigner: false, isWritable: false },
+    ],
+    data: disc("close_venue"),
+  });
+}

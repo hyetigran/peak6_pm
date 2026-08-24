@@ -113,6 +113,7 @@ services-install:
 
 meridian-test: build
 	./scripts/run-suite.sh tests/meridian-foundation.test.ts
+	./scripts/run-suite.sh tests/meridian-venue-close.test.ts
 	./scripts/run-suite.sh tests/meridian-trading.test.ts
 	./scripts/run-suite.sh tests/meridian-settlement.test.ts
 

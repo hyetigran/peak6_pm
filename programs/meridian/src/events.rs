@@ -32,3 +32,12 @@ pub struct OutcomeMarketCreated {
     pub strike_1e6: u64,
     pub settlement_record: Pubkey,
 }
+
+/// `close_venue` reclaimed the OpenBook market/book/EventHeap rent (ADR-0027).
+#[event]
+pub struct VenueClosed {
+    pub market: Pubkey,
+    pub openbook_market: Pubkey,
+    pub refund_address: Pubkey,
+    pub lamports_reclaimed: u64,
+}

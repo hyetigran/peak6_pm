@@ -158,6 +158,19 @@ pub mod meridian {
         settle_market::handler(ctx)
     }
 
+    /// Prune a user's resting venue orders after settlement (permissionless;
+    /// the market PDA signs as OpenBook `close_market_admin`). Expires the
+    /// venue first if it is not already expired.
+    pub fn prune_venue_orders(ctx: Context<PruneVenueOrders>, limit: u8) -> Result<()> {
+        close_venue::prune_venue_orders(ctx, limit)
+    }
+
+    /// Close the expired, empty OpenBook venue of a Settled/Abandoned market
+    /// and return its rent ONLY to the snapshotted Venue Rent Refund Address.
+    pub fn close_venue(ctx: Context<CloseVenue>) -> Result<()> {
+        close_venue::close_venue(ctx)
+    }
+
     /// Outcome Redemption: burn winning tokens for \$1 each.
     pub fn redeem_winning(ctx: Context<RedeemWinning>, amount: u64) -> Result<()> {
         redeem_winning::handler(ctx, amount)

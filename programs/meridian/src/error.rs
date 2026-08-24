@@ -50,6 +50,12 @@ pub enum MeridianError {
     CollateralInvariant,
     #[msg("rent may only go to the snapshotted Rent Refund Address")]
     WrongRefundDestination,
+    #[msg("venue accounts already closed")]
+    VenueAlreadyClosed,
+    #[msg("venue still holds user deposits; owners must settle_funds before close")]
+    VenueNotEmpty,
+    #[msg("supplied account is not the venue account pinned on the Outcome Market")]
+    VenueAccountMismatch,
     #[msg("arithmetic overflow")]
     Overflow,
     #[msg("settlement delivery feed is not owned by the pinned oracle program")]
