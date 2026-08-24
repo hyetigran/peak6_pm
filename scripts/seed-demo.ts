@@ -12,6 +12,15 @@ import fs from "node:fs";
 import * as m from "@meridian/sdk/meridian";
 import * as ob from "@meridian/sdk/openbook";
 
+/** Write keys/<role>-<pubkey>.json (mode 600) unless it already exists. */
+function persistKey(role: string, kp: Keypair): void {
+  fs.mkdirSync("keys", { recursive: true });
+  const path = `keys/${role}-${kp.publicKey.toBase58()}.json`;
+  if (fs.existsSync(path)) return;
+  fs.writeFileSync(path, JSON.stringify([...kp.secretKey]), { mode: 0o600 });
+  console.log(`[seed] ${role} key saved: ${path}`);
+}
+
 /** Refuse to run if any key-bearing output file already exists, unless
  *  SEED_ALLOW_OVERWRITE=1 — and even then, back each one up first. */
 function guardKeyFiles(paths: string[]): void {
@@ -25,7 +34,14 @@ function guardKeyFiles(paths: string[]): void {
   }
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   for (const f of existing) {
-    const bak = `${f}.bak-${stamp}`;
+    // backup name carries the governance pubkey so it is identifiable without opening it
+    let tag = "";
+    try {
+      const j = JSON.parse(fs.readFileSync(f, "utf8"));
+      const sk = j.governance ?? j.authority;
+      if (Array.isArray(sk)) tag = `-${Keypair.fromSecretKey(Uint8Array.from(sk)).publicKey.toBase58()}`;
+    } catch { /* unreadable: still back it up */ }
+    const bak = `${f}.bak-${stamp}${tag}`;
     fs.copyFileSync(f, bak);
     fs.chmodSync(bak, 0o600);
     console.warn(`[seed] backed up ${f} -> ${bak} (contains private keys; keep it)`);
@@ -103,6 +119,11 @@ async function main() {
   guardKeyFiles([".demo-config.json", ".demo-faucet.json"]);
   const gov = loadKeypair(process.env.GOVERNANCE_KEYPAIR) ?? Keypair.generate();
   const operator = loadKeypair(process.env.OPERATOR_KEYPAIR_PATH) ?? Keypair.generate();
+  // Every authority the seed uses is persisted as keys/<role>-<pubkey>.json
+  // (gitignored). The pubkey in the name makes the file identifiable without
+  // opening it; an existing file is never touched.
+  persistKey("governance", gov);
+  persistKey("operator", operator);
   if (cfg.mode === "localnet") {
     for (const kp of [gov, operator]) await conn.confirmTransaction(await conn.requestAirdrop(kp.publicKey, 200e9), "confirmed");
   }
