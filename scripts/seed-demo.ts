@@ -11,6 +11,26 @@ import { createMint, createAssociatedTokenAccount, mintTo } from "@solana/spl-to
 import fs from "node:fs";
 import * as m from "@meridian/sdk/meridian";
 import * as ob from "@meridian/sdk/openbook";
+
+/** Refuse to run if any key-bearing output file already exists, unless
+ *  SEED_ALLOW_OVERWRITE=1 — and even then, back each one up first. */
+function guardKeyFiles(paths: string[]): void {
+  const existing = paths.filter((f) => fs.existsSync(f));
+  if (existing.length === 0) return;
+  if (process.env.SEED_ALLOW_OVERWRITE !== "1") {
+    console.error(`[seed] REFUSING to run: ${existing.join(", ")} already exist(s) and hold private keys.`);
+    console.error("[seed] Move them aside (or point GOVERNANCE_KEYPAIR / OPERATOR_KEYPAIR_PATH at keys/ and set");
+    console.error("[seed] SEED_ALLOW_OVERWRITE=1 to proceed after an automatic timestamped backup).");
+    process.exit(2);
+  }
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  for (const f of existing) {
+    const bak = `${f}.bak-${stamp}`;
+    fs.copyFileSync(f, bak);
+    fs.chmodSync(bak, 0o600);
+    console.warn(`[seed] backed up ${f} -> ${bak} (contains private keys; keep it)`);
+  }
+}
 import { resolveSeedConfig, assertStrictSchedule } from "./seed-config.js";
 import { deliveryPda, PYTH_ADAPTER_PID } from "../services/keeper/src/pyth-adapter.js";
 import { decodeOutcomeMarket } from "../services/indexer/src/layout.js";
@@ -74,6 +94,13 @@ async function main() {
   // localnet generates throwaway authorities and airdrops them; devnet loads the
   // real (externally funded) governance/operator keys — devnet has no faucet for
   // 200 SOL, and these authorities must persist across runs.
+  // HARD RULE: never overwrite a file that holds private keys. The seed writes
+  // gov/operator secret keys into .demo-config.json / .demo-faucet.json at the
+  // end; a rerun (e.g. a localnet demo after a devnet seed) would silently
+  // destroy the only copy of the previous authorities. Refuse up front, before
+  // any transaction is sent. SEED_ALLOW_OVERWRITE=1 bypasses, but only after a
+  // timestamped backup has been written next to the file.
+  guardKeyFiles([".demo-config.json", ".demo-faucet.json"]);
   const gov = loadKeypair(process.env.GOVERNANCE_KEYPAIR) ?? Keypair.generate();
   const operator = loadKeypair(process.env.OPERATOR_KEYPAIR_PATH) ?? Keypair.generate();
   if (cfg.mode === "localnet") {

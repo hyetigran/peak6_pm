@@ -67,8 +67,10 @@ scratch/
 services/indexer/.indexer.sqlite*
 services/*/node_modules/
 .demo-config.json
+.demo-config.json.bak-*
 .book-market.txt
 .demo-faucet.json
+.demo-faucet.json.bak-*
 
 design_mockups/
 
