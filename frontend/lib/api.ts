@@ -12,7 +12,7 @@ export interface Market {
   volume_atoms?: string | null;  // traded notional in quote atoms (not served by the indexer yet)
   change_24h?: number | null;    // 24h move of the YES probability, in percentage points
 }
-export interface Health { indexed_slot: number; chain_slot: number; lag: number; complete: boolean; mode?: "subscription" | "poll"; last_ingest_ts?: number; seconds_since_ingest?: number | null; }
+export interface Health { indexed_slot: number; chain_slot: number; lag: number; complete: boolean; mode?: "subscription" | "poll"; last_ingest_ts?: number; seconds_since_ingest?: number | null; paused?: boolean; }
 
 async function j<T>(path: string): Promise<T> {
   const r = await fetch(`${INDEXER}${path}`, { cache: "no-store" });
@@ -39,6 +39,14 @@ export const getFills = (market: string) => j<{ fills: MarketFill[] }>(`/fills/$
 export const faucet = (address: string) =>
   fetch(`${INDEXER}/faucet/${address}`).then((r) => r.json());
 export const getHealth = () => j<Health & { ok: boolean }>("/health");
+/** Event-page snapshot: one request for markets + books + fills + your orders. */
+export interface EventSnapshot { ticker: string; markets: Market[]; book: Book | null; exp_book: Book | null; fills: MarketFill[]; orders: OpenOrder[]; health: Health }
+export const getEvent = (ticker: string, q: { sel?: string | null; exp?: string | null; oo?: string | null }) => {
+  const p = new URLSearchParams();
+  if (q.sel) p.set("sel", q.sel); if (q.exp) p.set("exp", q.exp); if (q.oo) p.set("oo", q.oo);
+  const qs = p.toString();
+  return j<EventSnapshot>(`/event/${encodeURIComponent(ticker.toLowerCase())}${qs ? `?${qs}` : ""}`);
+};
 export const getPortfolio = (wallet: string) =>
   j<{ owner: string; positions: any[] }>(`/portfolio/${wallet}`);
 

@@ -72,7 +72,39 @@ async function completeness(conn: Connection, db: Database.Database) {
 // Short-TTL response memo so N viewers polling the same endpoint cost one RPC
 // read per window instead of N. Keyed by full path (scope included).
 const memo = new Map<string, { at: number; body: string }>();
-const MEMO_MS: Record<string, number> = { "/markets": 2000, "/book": 1000 };
+const MEMO_MS: Record<string, number> = { "/markets": 2000, "/book": 1000, "/event": 1500, "/health": 2000 };
+
+// Global pause flag, refreshed at most every 15s (it changes by admin action only).
+let pausedCache: { at: number; v: boolean } = { at: 0, v: false };
+async function pausedCached(conn: Connection): Promise<boolean> {
+  if (Date.now() - pausedCache.at > 15_000) { try { pausedCache = { at: Date.now(), v: await readPaused(conn) }; } catch { pausedCache.at = Date.now(); } }
+  return pausedCache.v;
+}
+
+/** Live book for a market row (bids/asks/mark). */
+async function bookOf(conn: Connection, row: any) {
+  if (!row?.openbook_market || row.openbook_market === SYS_KEY)
+    return { bids: [], asks: [], best_bid: null, best_ask: null, mark: null, yes_prob: null, no_prob: null, note: "no venue attached" };
+  const [bidsInfo, asksInfo] = await conn.getMultipleAccountsInfo([new PublicKey(row.bids), new PublicKey(row.asks)]);
+  const bidLeaves = bidsInfo ? decodeBookSide(bidsInfo.data as Buffer) : [];
+  const askLeaves = asksInfo ? decodeBookSide(asksInfo.data as Buffer) : [];
+  const bids: BookLevel[] = ladder(bidLeaves, "bid"), asks: BookLevel[] = ladder(askLeaves, "ask");
+  const bestBid = bids[0]?.price ?? null, bestAsk = asks[0]?.price ?? null;
+  const mark = bestBid != null && bestAsk != null ? (bestBid + bestAsk) / 2 : bestBid ?? bestAsk ?? null;
+  const yes_prob = mark != null ? +(mark / 100).toFixed(4) : null;
+  return { bids, asks, best_bid: bestBid, best_ask: bestAsk, mark, yes_prob, no_prob: yes_prob != null ? +(1 - yes_prob).toFixed(4) : null,
+    // resting-order owners (for the keeper's prune pass)
+    bid_owners: [...new Set(bidLeaves.map((l) => l.owner))], ask_owners: [...new Set(askLeaves.map((l) => l.owner))],
+    // raw leaves so /event can derive "your orders" without a second read
+    _bidLeaves: bidLeaves, _askLeaves: askLeaves };
+}
+const ordersFrom = (bidLeaves: any[], askLeaves: any[], oo: string) => {
+  const mine = (leaves: any[], side: "bid" | "ask") => leaves.filter((l) => l.owner === oo).map((l) => ({ side, price: l.price, shares: l.shares }));
+  const agg = new Map<string, { side: string; price: number; shares: number }>();
+  for (const o of [...mine(bidLeaves, "bid"), ...mine(askLeaves, "ask")]) { const k = `${o.side}:${o.price}`; const e = agg.get(k); if (e) e.shares += o.shares; else agg.set(k, { ...o }); }
+  return [...agg.values()].sort((a, b) => b.price - a.price);
+};
+const stripLeaves = ({ _bidLeaves, _askLeaves, ...rest }: any) => rest;
 function memoFor(pathname: string): number { for (const k of Object.keys(MEMO_MS)) if (pathname === k || pathname.startsWith(k + "/")) return MEMO_MS[k]; return 0; }
 
 export function serve(db: Database.Database, conn: Connection, port: number, pollMs = 1500) {
@@ -94,7 +126,37 @@ export function serve(db: Database.Database, conn: Connection, port: number, pol
         };
       }
       if (req.method === "OPTIONS") { res.writeHead(204, { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "content-type" }); return res.end(); }
-      if (url.pathname === "/health") return json(res, 200, { ok: true, ...(await completeness(conn, db)) });
+      if (url.pathname === "/health") return json(res, 200, { ok: true, ...(await completeness(conn, db)), paused: await pausedCached(conn) });
+
+      // One-shot snapshot for the event page: the ticker's markets (all days, so
+      // a bare /event/aapl can resolve the latest day), the order-slip book,
+      // the drill-down book (only if different), recent fills and the caller's
+      // resting orders — replaces five independent pollers with one request.
+      const evMatch = url.pathname.match(/^\/event\/([A-Za-z]{1,8})$/);
+      if (evMatch) {
+        const ticker = evMatch[1].toUpperCase();
+        const sel = url.searchParams.get("sel"), exp = url.searchParams.get("exp"), oo = url.searchParams.get("oo");
+        const isPk = (v: string | null): v is string => !!v && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v);
+        const markets = db.prepare("SELECT * FROM markets WHERE ticker=? ORDER BY trading_day DESC, CAST(strike_1e6 AS INTEGER)").all(ticker) as any[];
+        const rowOf = (pk: string) => markets.find((m) => m.pubkey === pk) ?? db.prepare("SELECT * FROM markets WHERE pubkey=?").get(pk);
+        const selRow = isPk(sel) ? rowOf(sel) : null;
+        const expRow = isPk(exp) ? (exp === sel ? selRow : rowOf(exp)) : null;
+        const [book, expBookRaw] = await Promise.all([
+          selRow ? bookOf(conn, selRow) : Promise.resolve(null),
+          expRow && exp !== sel ? bookOf(conn, expRow) : Promise.resolve(null),
+        ]);
+        const expBook = exp === sel ? book : expBookRaw;
+        const fills = isPk(exp) ? db.prepare("SELECT ts,side,price,qty FROM fills WHERE market=? ORDER BY id DESC LIMIT 25").all(exp) : [];
+        const orders = expBook && isPk(oo) ? ordersFrom(expBook._bidLeaves, expBook._askLeaves, oo) : [];
+        // YES marks for every live row of the ticker (one batched read), so the
+        // strike list renders prices; the two full books above override theirs.
+        await attachMarks(conn, markets.filter((m) => m.state !== 3 && m.state !== 4));
+        for (const m of markets) { const b = m.pubkey === sel ? book : m.pubkey === exp ? expBook : null; if (b) { m.mark = b.mark; m.yes_prob = b.yes_prob; } }
+        return json(res, 200, {
+          ticker, markets, book: book ? stripLeaves(book) : null, exp_book: expBook ? stripLeaves(expBook) : null, fills, orders,
+          health: { ...(await completeness(conn, db)), paused: await pausedCached(conn) },
+        });
+      }
 
       // --- Admin / Ops console (localnet demo: signs with .demo-config.json roles) ---
       if (url.pathname === "/admin/state") {

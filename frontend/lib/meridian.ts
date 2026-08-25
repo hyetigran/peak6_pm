@@ -32,6 +32,20 @@ export const ooAccountPda = (owner: PublicKey, index: number) =>
 export const marketAuthorityPda = (obMarket: PublicKey) =>
   PublicKey.findProgramAddressSync([Buffer.from("Market"), obMarket.toBuffer()], OPENBOOK)[0];
 
+/** CreateIdempotent: a no-op if the ATA exists, so callers need no existence read. */
+export const createAtaIdempotentIx = (payer: PublicKey, owner: PublicKey, mint: PublicKey): TransactionInstruction =>
+  new TransactionInstruction({
+    programId: ATA,
+    keys: [
+      { pubkey: payer, isSigner: true, isWritable: true },
+      { pubkey: ataFor(mint, owner), isSigner: false, isWritable: true },
+      { pubkey: owner, isSigner: false, isWritable: false },
+      { pubkey: mint, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: TOKEN, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from([1]),
+  });
 export const createAtaIx = (payer: PublicKey, owner: PublicKey, mint: PublicKey): TransactionInstruction =>
   new TransactionInstruction({
     programId: ATA,

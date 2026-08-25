@@ -5,7 +5,7 @@ import { PublicKey } from "@solana/web3.js";
 import { useEffect, useState } from "react";
 import { useTokenBalance } from "@/components/useBalances";
 import { useWallet } from "@/lib/wallet";
-import { getHealth, getAdminState, type Health } from "@/lib/api";
+import { getHealth, type Health } from "@/lib/api";
 import { short, usd } from "@/lib/format";
 import * as mx from "@/lib/meridian";
 
@@ -13,34 +13,22 @@ const LINKS = [["/markets", "Markets"], ["/portfolio", "Portfolio"], ["/history"
 
 export function TopNav() {
   const path = usePathname();
-  const { pubkey, conn, connect, connectBurner, disconnect } = useWallet();
+  const { pubkey, connect, connectBurner, disconnect, quoteMint } = useWallet();
   const [health, setHealth] = useState<Health | null>(null);
   const [paused, setPaused] = useState(false);
   const [open, setOpen] = useState(false);
-  const [quoteMint, setQuoteMint] = useState<string | null>(null);
 
+  // /health carries the pause flag; it only needs to be roughly current.
   useEffect(() => {
     const poll = () => {
-      getHealth().then(setHealth).catch(() => setHealth(null));
-      getAdminState().then((s) => setPaused(s.paused)).catch(() => {});
+      if (document.visibilityState !== "visible") return;
+      getHealth().then((h) => { setHealth(h); setPaused(!!h.paused); }).catch(() => setHealth(null));
     };
-    poll(); const t = setInterval(poll, 4000);
+    poll(); const t = setInterval(poll, 15_000);
     return () => clearInterval(t);
   }, []);
 
-  useEffect(() => {
-    if (quoteMint) return;
-    let stop = false;
-    const load = () => conn.getAccountInfo(mx.configPda()).then((info) => {
-      if (stop) return;
-      if (info) setQuoteMint(new PublicKey(info.data.subarray(8 + 2 + 32 * 8, 8 + 2 + 32 * 8 + 32)).toBase58());
-    }).catch(() => {});
-    load();
-    const t = setInterval(load, 3000);
-    return () => { stop = true; clearInterval(t); };
-  }, [conn, quoteMint]);
-
-  const quoteBal = useTokenBalance(quoteMint ?? undefined);
+  const quoteBal = useTokenBalance(quoteMint?.toBase58());
   const recovery = health && !health.complete;
   // The landing page carries its own header.
   if (path === "/") return null;

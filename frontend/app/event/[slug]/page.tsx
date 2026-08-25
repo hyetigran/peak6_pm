@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { getMarkets, getBook, getFills, getOrders, marketPhase, parseEventSlug, eventUrl, type Market, type Book, type MarketFill, type OpenOrder } from "@/lib/api";
+import { getEvent, marketPhase, parseEventSlug, eventUrl, type Market, type Book, type MarketFill, type OpenOrder } from "@/lib/api";
 import { usd, countdown } from "@/lib/format";
 import { useWallet } from "@/lib/wallet";
 import * as mx from "@/lib/meridian";
@@ -104,7 +104,6 @@ export default function EventPage() {
   const [showResolved, setShowResolved] = useState(false);
   const [mobileSlipOpen, setMobileSlipOpen] = useState(false);
   const initializedEventRef = useRef<string | null>(null);
-  const { pubkey } = useWallet();
   const [, force] = useState(0);
 
   const byTicker = useMemo(() => markets.filter((m) => m.ticker.toLowerCase() === parsed.ticker), [markets, parsed.ticker]);
@@ -121,11 +120,35 @@ export default function EventPage() {
   const ticker = mine[0]?.ticker ?? parsed.ticker.toUpperCase();
   const selMarket = mine.find((m) => m.pubkey === sel) ?? null;
 
+  // ONE snapshot request every 2s (markets for the ticker + slip book +
+  // drill-down book/fills/your orders), skipped while a transaction is in
+  // flight or the tab is hidden. The 1s tick only re-renders the countdown.
+  const { pubkey, inFlight } = useWallet();
+  const inFlightRef = useRef(inFlight); inFlightRef.current = inFlight;
+  const selRef = useRef<string | null>(null), expRef = useRef<string | null>(null);
+  const loadRef = useRef<() => void>(() => {});
   useEffect(() => {
-    const load = () => getMarkets().then((d) => { setMarkets(d.markets); setLoaded(true); }).catch(() => {});
-    load(); const t = setInterval(load, 3000); const c = setInterval(() => force((x) => x + 1), 1000);
-    return () => { clearInterval(t); clearInterval(c); };
-  }, []);
+    let cancelled = false;
+    const load = () => {
+      if (inFlightRef.current || document.visibilityState !== "visible") return;
+      const oo = pubkey ? mx.ooAccountPda(pubkey, 1).toBase58() : null;
+      const sel = selRef.current, exp = expRef.current;
+      getEvent(parsed.ticker, { sel, exp, oo }).then((d) => {
+        if (cancelled) return;
+        setMarkets(d.markets); setLoaded(true);
+        // only accept data for the currently selected/expanded rows (a click may have moved on)
+        if (sel === selRef.current) setBook(d.book);
+        if (exp === expRef.current) { setExpBook(d.exp_book); setExpFills(d.fills); setOpenOrders(d.orders); }
+      }).catch(() => {});
+    };
+    loadRef.current = load;
+    load();
+    const t = setInterval(load, 2000);
+    const c = setInterval(() => force((x) => x + 1), 1000);
+    const onVis = () => { if (document.visibilityState === "visible") load(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { cancelled = true; clearInterval(t); clearInterval(c); document.removeEventListener("visibilitychange", onVis); };
+  }, [parsed.ticker, pubkey?.toBase58()]);
 
   // canonicalize shorthand slugs (/event/aapl → /event/aapl-close-above-on-…)
   useEffect(() => {
@@ -147,27 +170,10 @@ export default function EventPage() {
     initializedEventRef.current = eventKey;
   }, [active, eventKey]);
 
-  // book for the order slip's market
-  useEffect(() => {
-    if (!sel) return;
-    setBook(null);
-    const load = () => getBook(sel).then(setBook).catch(() => {});
-    load(); const t = setInterval(load, 1500); return () => clearInterval(t);
-  }, [sel]);
-
-  // book + fills + your orders for the expanded row's drill-down
-  useEffect(() => {
-    if (!expanded) return;
-    setExpBook(null); setExpFills([]);
-    const load = () => { getBook(expanded).then(setExpBook).catch(() => {}); getFills(expanded).then((d) => setExpFills(d.fills)).catch(() => {}); };
-    load(); const t = setInterval(load, 1500); return () => clearInterval(t);
-  }, [expanded]);
-  useEffect(() => {
-    if (!expanded || !pubkey) { setOpenOrders([]); return; }
-    const oo = mx.ooAccountPda(pubkey, 1).toBase58();
-    const load = () => getOrders(expanded, oo).then((d) => setOpenOrders(d.orders)).catch(() => {});
-    load(); const t = setInterval(load, 2000); return () => clearInterval(t);
-  }, [expanded, pubkey?.toBase58()]);
+  // selection changes: clear stale data and let the snapshot poller pick the
+  // new rows up (it reads selRef/expRef on every tick).
+  useEffect(() => { selRef.current = sel; setBook(null); loadRef.current(); }, [sel]);
+  useEffect(() => { expRef.current = expanded; setExpBook(null); setExpFills([]); setOpenOrders([]); loadRef.current(); }, [expanded]);
   useEffect(() => setBookView(outcome), [outcome]);
 
   const toggleRow = (m: Market) => { setSel(m.pubkey); setExpanded((e) => (e === m.pubkey ? null : m.pubkey)); };

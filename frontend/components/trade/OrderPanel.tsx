@@ -19,6 +19,8 @@ import {
 import * as mx from "@/lib/meridian";
 
 export type { Outcome };
+// wallets whose OpenOrders account is known to exist (module-scoped, survives remounts)
+const ooKnown = new Set<string>();
 export type Side = TradeSide;
 
 /**
@@ -33,8 +35,7 @@ export function OrderPanel({ m, book, mobileOpen = false, onMobileClose, outcome
   outcome: Outcome; setOutcome: (o: Outcome) => void;
   side: Side; setSide: (s: Side) => void;
 }) {
-  const { pubkey, connect, send, conn, sol } = useWallet();
-  const [quoteMint, setQuoteMint] = useState<PublicKey | null>(null);
+  const { pubkey, connect, send, conn, sol, quoteMint } = useWallet();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [slip, setSlip] = useState<OrderSlipState>({
@@ -56,21 +57,6 @@ export function OrderPanel({ m, book, mobileOpen = false, onMobileClose, outcome
   const obMarket = new PublicKey(m.openbook_market);
   const yesPx = book?.mark ?? null;
   const orderBook = { bestAsk: book?.best_ask ?? null, bestBid: book?.best_bid ?? null, yesMark: yesPx };
-
-  // Quote (USDC) mint from the on-chain Config. Every trade references it, so a
-  // one-shot fetch that swallows a transient RPC failure would leave the page
-  // permanently unable to buy — poll until it lands, then stop.
-  useEffect(() => {
-    if (quoteMint) return;
-    let stop = false;
-    const load = () => conn.getAccountInfo(mx.configPda()).then((info) => {
-      if (stop) return;
-      if (info) setQuoteMint(new PublicKey(info.data.subarray(8 + 2 + 32 * 8, 8 + 2 + 32 * 8 + 32)));
-    }).catch(() => {});
-    load();
-    const t = setInterval(load, 3000);
-    return () => { stop = true; clearInterval(t); };
-  }, [conn, quoteMint]);
 
   useEffect(() => {
     setSlip((prev) => {
@@ -106,26 +92,37 @@ export function OrderPanel({ m, book, mobileOpen = false, onMobileClose, outcome
   };
   const ensure = useCallback(async (mints: PublicKey[], needOo: boolean, obMarket?: PublicKey) => {
     const ixs: any[] = [];
-    // Always ensure the USDC (quote) ATA — every trade references it, and a
-    // missing one fails with AccountNotInitialized (0xbc4).
+    // ATAs: CreateIdempotent is a no-op when the account exists, so no
+    // existence reads sit in front of the send. The USDC (quote) ATA is always
+    // included — every trade references it (missing => AccountNotInitialized).
     const all = quoteMint ? [quoteMint, ...mints] : mints;
     const seen = new Set<string>();
     for (const mint of all) {
       const key = mint.toBase58();
       if (seen.has(key)) continue;
       seen.add(key);
-      if (!(await conn.getAccountInfo(mx.ataFor(mint, pubkey!)))) ixs.push(mx.createAtaIx(pubkey!, pubkey!, mint));
+      ixs.push(mx.createAtaIdempotentIx(pubkey!, pubkey!, mint));
     }
-    if (needOo && obMarket && !(await conn.getAccountInfo(mx.ooAccountPda(pubkey!, 1)))) ixs.push(...mx.createOoIxs(pubkey!, obMarket));
+    // OpenOrders: created once per wallet; remember it so only the first order
+    // pays the read.
+    if (needOo && obMarket) {
+      const ooKey = pubkey!.toBase58();
+      if (!ooKnown.has(ooKey)) {
+        if (await conn.getAccountInfo(mx.ooAccountPda(pubkey!, 1))) ooKnown.add(ooKey);
+        else ixs.push(...mx.createOoIxs(pubkey!, obMarket));
+      }
+    }
     return ixs;
   }, [conn, pubkey, quoteMint]);
 
   const guard = useCallback(async (fn: () => Promise<void>) => {
     if (!pubkey) return connect();
     setBusy(true);
+    const ooKey = pubkey.toBase58();
     setMsg(null);
     try {
       await fn();
+      ooKnown.add(ooKey); // any confirmed trade implies the OpenOrders account now exists
       setMsg("Confirmed ✓");
     } catch (e: any) {
       console.error(e);
