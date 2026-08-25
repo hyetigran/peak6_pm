@@ -134,22 +134,54 @@ async function main() {
     console.log(`[mm] seeded ${k.ticker} $${Number(k.strike_1e6) / 1e6} — ${LEVELS} bids + ${LEVELS} asks around ${fair}c (${pairs} pairs)`);
   };
 
-  const recycle = async (k: Mkt) => {
-    const st = state.markets[k.pubkey]; if (!st || st.recycled) return;
-    const yesMint = new PublicKey(k.yes_mint), noMint = new PublicKey(k.no_mint);
-    const yesAta = getAssociatedTokenAddressSync(yesMint, mm.publicKey), noAta = getAssociatedTokenAddressSync(noMint, mm.publicKey);
-    const oo = ob.ooAccountPda(mm.publicKey, st.ooIndex);
-    try {
+  // Every OpenOrders account THIS wallet owns on a venue, read from chain — the
+  // remembered ooIndex can drift (a retried seed / lost state file creates a
+  // second account), and close_venue (ADR-0027) needs ALL of them settled.
+  const ownOpenOrders = async (obMarket: string): Promise<PublicKey[]> =>
+    (await conn.getProgramAccounts(ob.OPENBOOK_PID, {
+      dataSlice: { offset: 0, length: 0 },
+      filters: [{ memcmp: { offset: 8, bytes: mm.publicKey.toBase58() } }, { memcmp: { offset: 40, bytes: obMarket } }],
+    })).map((a) => a.pubkey);
+
+  // cancel_all + settle_funds on each of our OpenOrders for this venue.
+  const settleAll = async (k: Mkt): Promise<number> => {
+    const yesAta = getAssociatedTokenAddressSync(new PublicKey(k.yes_mint), mm.publicKey);
+    const oos = await ownOpenOrders(k.openbook_market);
+    for (const oo of oos) {
       await send([ob.cancelAllOrdersIx(mm.publicKey, oo, new PublicKey(k.openbook_market), new PublicKey(k.bids), new PublicKey(k.asks))]);
       await send([ob.settleFundsIx({ owner: mm.publicKey, ooAccount: oo, market: new PublicKey(k.openbook_market),
         marketBaseVault: new PublicKey(k.openbook_base_vault), marketQuoteVault: new PublicKey(k.openbook_quote_vault),
         userBaseAccount: yesAta, userQuoteAccount: usdc })]);
+    }
+    return oos.length;
+  };
+
+  const recycle = async (k: Mkt) => {
+    const st = state.markets[k.pubkey]; if (!st || st.recycled) return;
+    const yesMint = new PublicKey(k.yes_mint), noMint = new PublicKey(k.no_mint);
+    const yesAta = getAssociatedTokenAddressSync(yesMint, mm.publicKey), noAta = getAssociatedTokenAddressSync(noMint, mm.publicKey);
+    try {
+      const n = await settleAll(k);
       const matched = ((y, n) => (y < n ? y : n))(await bal(yesAta), await bal(noAta));
       if (matched >= LOT) await send([m.redeemPairDirectIx(mm.publicKey, new PublicKey(k.pubkey), (matched / LOT) * LOT, { yesMint, noMint, collateralVault: new PublicKey(k.collateral_vault), userQuote: usdc, userYes: yesAta, userNo: noAta })]);
       const dust = ((y, n) => (y > n ? y - n : n - y))(await bal(yesAta), await bal(noAta));
       st.recycled = true; saveState(state);
-      console.log(`[mm] recycled ${k.ticker} $${Number(k.strike_1e6) / 1e6} — redeemed ${(Number(matched) / 1e6).toFixed(0)} pairs to USDC${dust >= LOT ? ` · ${(Number(dust) / 1e6).toFixed(0)} directional shares left (settle via redeem_winning)` : ""}`);
+      console.log(`[mm] recycled ${k.ticker} $${Number(k.strike_1e6) / 1e6} (${n} OpenOrders) — redeemed ${(Number(matched) / 1e6).toFixed(0)} pairs to USDC${dust >= LOT ? ` · ${(Number(dust) / 1e6).toFixed(0)} directional shares left (settle via redeem_winning)` : ""}`);
     } catch (e) { console.warn(`[mm] recycle ${k.ticker} failed: ${(e as Error).message.slice(0, 100)}`); }
+  };
+
+  // Sweep: a Settled market whose venue still exists on-chain may be blocked
+  // from close_venue by an OpenOrders of ours that recycle() never knew about.
+  // Settle every one we own there, once per process per market.
+  const swept = new Set<string>();
+  const sweep = async (k: Mkt) => {
+    if (swept.has(k.pubkey)) return;
+    swept.add(k.pubkey);
+    if (!(await conn.getAccountInfo(new PublicKey(k.openbook_market)))) return; // venue already closed
+    try {
+      const n = await settleAll(k);
+      if (n) console.log(`[mm] swept ${k.ticker} $${Number(k.strike_1e6) / 1e6}: settled ${n} OpenOrders so the venue can close`);
+    } catch (e) { console.warn(`[mm] sweep ${k.ticker} failed: ${(e as Error).message.slice(0, 100)}`); }
   };
 
   const SYS = "11111111111111111111111111111111";
@@ -158,6 +190,7 @@ async function main() {
     const markets = ((await getJson("/markets")).markets as Mkt[]).filter((k) => k.openbook_market && k.openbook_market !== SYS);
     // recycle settled/closed markets we seeded (free capital first)
     for (const k of markets) if (state.markets[k.pubkey]?.seeded && (k.state_name === "Settled" || now >= k.close_ts)) await recycle(k);
+    for (const k of markets) if (k.state_name === "Settled") await sweep(k);
     // seed fresh Active markets we haven't seeded (as capital allows)
     for (const k of markets) if (k.state_name === "Active" && now < k.close_ts && !state.markets[k.pubkey]?.seeded) {
       if ((await bal(usdc)) < BigInt(LEVELS) * SHARES * LOT * 2n) { console.warn("[mm] USDC running low — not seeding more"); break; }
