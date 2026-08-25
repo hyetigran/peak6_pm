@@ -247,7 +247,7 @@ async function main() {
       if (!mInfo) {
         await send([m.createOutcomeMarketIx({
           operator: operator.publicKey, quoteMint, tickerId: tid, tradingDay: DAY, strike,
-          versionId: 1, priorClose: BigInt(prior) * 1_000_000n, mintOpenTs: mo, tradeOpenTs: to, closeTs: close,
+          versionId: 1, priorClose: BigInt(Math.round(prior * 1e6)), mintOpenTs: mo, tradeOpenTs: to, closeTs: close,
           metadataManifest: Buffer.alloc(32, 7), normalDelaySecs: cfg.normalDelaySecs, overrideDelaySecs: cfg.overrideDelaySecs,
         })], [operator]);
       } else {
