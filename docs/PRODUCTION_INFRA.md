@@ -84,9 +84,13 @@ on `OutcomeMarket`, plus slot notifications), and full-scans every **60s**
 (`INDEXER_POLL_MS`, `make indexer-devnet`) only as a reconcile backstop + fill
 detection; `INDEXER_SUBSCRIBE=0` falls back to poll-only. `/health.complete` means
 "a ws event or reconcile landed within 2× the interval" — not slot distance —
-so the frontend's stale banner fires only on a real outage. `/markets` (2s) and
-`/book/:m` (1s) responses are memoized so viewer count does not multiply RPC
-reads (an un-memoized Markets tab polling every 3s was ~57k calls/day *per
+so the frontend's stale banner fires only on a real outage. Order books are **pushed**: the indexer holds
+one `onAccountChange` per live venue side (`books.ts`, `/health.books_subscribed`)
+and fans deltas out to browsers over SSE (`/event/:ticker/stream`); the event
+page opens one `EventSource` and polls only as a fallback. `/markets` (2s),
+`/event` (1.5s) and `/book/:m` (1s) responses are memoized — and served from
+the subscription cache when the venue is live — so viewer count does not
+multiply RPC reads (an un-memoized Markets tab polling every 3s was ~57k calls/day *per
 viewer*). Budget ≈ 3k RPC calls/day indexer, <100/day keeper (the 1.5s localnet
 indexer poll is ~115k/day — never point it at a keyed RPC).
 
