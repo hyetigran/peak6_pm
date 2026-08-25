@@ -6,6 +6,7 @@ import { Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import fs from "node:fs";
 import { decodeBookSide, ladder, ownersFor, type BookLevel } from "./layout.js";
 import { readPaused, setGlobalPause, settleMarket, overrideSettle, type SettleRow } from "./admin.js";
+import { live } from "./ingest.js";
 
 const SYS_KEY = "11111111111111111111111111111111";
 
@@ -46,16 +47,52 @@ function readBody(req: http.IncomingMessage): Promise<any> {
 }
 
 /** History Completeness: report the indexer's last-seen slot vs the chain tip. */
+/** Health = "is the indexer keeping up with its own cadence", NOT slot distance.
+ *  The market list is refreshed by the websocket (event-driven) and reconciled
+ *  every pollMs; books/marks/portfolio are read live per request. So the
+ *  list is stale only if neither a ws event nor a reconcile landed within
+ *  2x the reconcile interval. `lag` is still reported for ops. */
+let pollMsForHealth = 1500;
 async function completeness(conn: Connection, db: Database.Database) {
-  const last = Number((db.prepare("SELECT v FROM meta WHERE k='last_slot'").get() as any)?.v ?? 0);
-  const tip = await conn.getSlot("confirmed");
-  return { indexed_slot: last, chain_slot: tip, lag: tip - last, complete: tip - last <= 8 };
+  const meta = (k: string) => Number((db.prepare("SELECT v FROM meta WHERE k=?").get(k) as any)?.v ?? 0);
+  const dbSlot = meta("last_slot");
+  const lastIngestTs = meta("last_ingest_ts");
+  const now = Math.floor(Date.now() / 1000);
+  const wsFresh = live.subscribed && now - live.lastEventTs <= 30;
+  const indexedSlot = wsFresh ? Math.max(dbSlot, live.lastSlot) : dbSlot;
+  const tip = wsFresh ? Math.max(live.lastSlot, dbSlot) : await conn.getSlot("confirmed");
+  const staleAfter = Math.max(30, Math.ceil((pollMsForHealth * 2) / 1000));
+  const complete = wsFresh || (lastIngestTs > 0 && now - lastIngestTs <= staleAfter);
+  return {
+    indexed_slot: indexedSlot, chain_slot: tip, lag: Math.max(0, tip - indexedSlot), complete,
+    mode: wsFresh ? "subscription" : "poll", last_ingest_ts: lastIngestTs, seconds_since_ingest: lastIngestTs ? now - lastIngestTs : null,
+  };
 }
 
-export function serve(db: Database.Database, conn: Connection, port: number) {
+// Short-TTL response memo so N viewers polling the same endpoint cost one RPC
+// read per window instead of N. Keyed by full path (scope included).
+const memo = new Map<string, { at: number; body: string }>();
+const MEMO_MS: Record<string, number> = { "/markets": 2000, "/book": 1000 };
+function memoFor(pathname: string): number { for (const k of Object.keys(MEMO_MS)) if (pathname === k || pathname.startsWith(k + "/")) return MEMO_MS[k]; return 0; }
+
+export function serve(db: Database.Database, conn: Connection, port: number, pollMs = 1500) {
+  pollMsForHealth = pollMs;
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://x");
+      // memoized GET reads
+      const ttl = req.method === "GET" ? memoFor(url.pathname) : 0;
+      const memoKey = url.pathname + url.search;
+      if (ttl) {
+        const hit = memo.get(memoKey);
+        if (hit && Date.now() - hit.at < ttl) { res.writeHead(200, { "content-type": "application/json", "access-control-allow-origin": "*", "x-memo": "hit" }); return res.end(hit.body); }
+        // capture the fresh 200 body as it is written
+        const end = res.end.bind(res);
+        (res as any).end = (chunk?: any, ...rest: any[]) => {
+          if (res.statusCode === 200 && typeof chunk === "string") memo.set(memoKey, { at: Date.now(), body: chunk });
+          return end(chunk, ...rest);
+        };
+      }
       if (req.method === "OPTIONS") { res.writeHead(204, { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "content-type" }); return res.end(); }
       if (url.pathname === "/health") return json(res, 200, { ok: true, ...(await completeness(conn, db)) });
 

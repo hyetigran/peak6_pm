@@ -94,7 +94,7 @@ export function TopNav() {
       )}
       {recovery && (
         <div className="banner"><div className="wrap">
-          <b>Recovery-only Mode</b> — indexed state is behind the chain (lag {health!.lag} slots). Exits stay open; new orders are held until state is fresh.
+          <b>Market list may be stale</b> — the indexer hasn't updated{health!.seconds_since_ingest != null ? ` in ${Math.round(health!.seconds_since_ingest / 60)} min` : ""}. Books, marks and your positions are read live from chain; trading is unaffected.
         </div></div>
       )}
     </>

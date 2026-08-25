@@ -12,7 +12,7 @@ export interface Market {
   volume_atoms?: string | null;  // traded notional in quote atoms (not served by the indexer yet)
   change_24h?: number | null;    // 24h move of the YES probability, in percentage points
 }
-export interface Health { indexed_slot: number; chain_slot: number; lag: number; complete: boolean; }
+export interface Health { indexed_slot: number; chain_slot: number; lag: number; complete: boolean; mode?: "subscription" | "poll"; last_ingest_ts?: number; seconds_since_ingest?: number | null; }
 
 async function j<T>(path: string): Promise<T> {
   const r = await fetch(`${INDEXER}${path}`, { cache: "no-store" });

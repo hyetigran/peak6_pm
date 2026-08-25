@@ -8,6 +8,41 @@ const SYS = "11111111111111111111111111111111";
 const prevBooks = new Map<string, { asks: Map<number, number>; bids: Map<number, number> }>();
 const toMap = (levels: { price: number; shares: number }[]) => new Map(levels.map((l) => [l.price, l.shares] as const));
 
+export const setMeta = (db: Database.Database, k: string, v: string) =>
+  db.prepare("INSERT INTO meta(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").run(k, v);
+
+/** Live feed status, for /health: the websocket is the primary source of
+ *  market-list freshness; the poll is a reconcile backstop. */
+export const live = { subscribed: false, lastEventTs: 0, lastSlot: 0, events: 0 };
+
+/** Subscribe to every OutcomeMarket account of the program: each change is
+ *  projected the moment it confirms (settlement, creation, pause, venue
+ *  attach), so the market list is as fresh as the chain rather than as fresh
+ *  as the last poll. Slot notifications keep `lastSlot` at the tip so the
+ *  indexed slot is meaningful between account events. Returns an unsubscribe. */
+export function subscribeMarkets(conn: Connection, db: Database.Database, programId: PublicKey): () => Promise<void> {
+  const disc = acctDisc("OutcomeMarket");
+  const accountSub = conn.onProgramAccountChange(programId, (info, ctx) => {
+    try {
+      const m = decodeOutcomeMarket(info.accountId.toBase58(), info.accountInfo.data as Buffer);
+      upsertMarket(db, m, ctx.slot);
+      live.lastEventTs = Math.floor(Date.now() / 1000); live.events++;
+      if (ctx.slot > live.lastSlot) { live.lastSlot = ctx.slot; setMeta(db, "last_slot", String(ctx.slot)); }
+      setMeta(db, "last_ingest_ts", String(live.lastEventTs));
+    } catch (e) { console.error("[indexer] ws decode failed", info.accountId.toBase58(), (e as Error).message); }
+  }, { commitment: "confirmed", filters: [{ memcmp: { offset: 0, bytes: Buffer.from(disc).toString("base64"), encoding: "base64" } as any }] });
+  const slotSub = conn.onSlotChange((s) => {
+    live.lastEventTs = Math.floor(Date.now() / 1000);
+    if (s.slot > live.lastSlot) live.lastSlot = s.slot;
+  });
+  live.subscribed = true;
+  return async () => {
+    live.subscribed = false;
+    await conn.removeProgramAccountChangeListener(accountSub).catch(() => {});
+    await conn.removeSlotChangeListener(slotSub).catch(() => {});
+  };
+}
+
 /** Poll all OutcomeMarket accounts owned by the program and project them. */
 export async function ingestOnce(conn: Connection, db: Database.Database, programId: PublicKey) {
   const disc = acctDisc("OutcomeMarket");
@@ -21,7 +56,8 @@ export async function ingestOnce(conn: Connection, db: Database.Database, progra
       try { const m = decodeOutcomeMarket(a.pubkey.toBase58(), a.account.data as Buffer); upsertMarket(db, m, slot); markets.push(m); }
       catch (e) { console.error("decode failed", a.pubkey.toBase58(), (e as Error).message); }
     }
-    db.prepare("INSERT INTO meta(k,v) VALUES('last_slot',?) ON CONFLICT(k) DO UPDATE SET v=?").run(String(slot), String(slot));
+    setMeta(db, "last_slot", String(slot));
+    setMeta(db, "last_ingest_ts", String(Math.floor(Date.now() / 1000)));
   });
   tx();
   await recordFills(conn, db, markets).catch((e) => console.error("[indexer] fills:", (e as Error).message));
