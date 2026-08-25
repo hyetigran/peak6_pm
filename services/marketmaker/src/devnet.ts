@@ -65,7 +65,11 @@ const loadState = (): State => {
   if (process.env.MM_STATE_JSON) { try { return JSON.parse(process.env.MM_STATE_JSON); } catch { /* fall through */ } }
   return { nextOoIndex: 1, markets: {} };
 };
-const saveState = (s: State) => { try { fs.writeFileSync(STATE, JSON.stringify(s, null, 2)); } catch {} };
+let saveWarned = false;
+const saveState = (s: State) => {
+  try { fs.writeFileSync(STATE, JSON.stringify(s, null, 2)); }
+  catch (e) { if (!saveWarned) { saveWarned = true; console.warn(`[mm] STATE NOT PERSISTED to ${STATE}: ${(e as Error).message} — every restart will re-seed/re-recycle from scratch`); } }
+};
 
 async function main() {
   // Keypair from MM_KEYPAIR_JSON (a cloud secret) in preference to the file, so
@@ -74,8 +78,16 @@ async function main() {
   const mm = Keypair.fromSecretKey(Uint8Array.from(mmSecret));
   const usdc = getAssociatedTokenAddressSync(QUOTE_MINT, mm.publicKey);
   const state = loadState();
-  const send = (ixs: TransactionInstruction[]) =>
-    sendAndConfirmTransaction(conn, new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }), ...ixs), [mm], { commitment: "confirmed" });
+  // Devnet RPCs drop/expire blockhashes under load; retry a few times before
+  // giving up so a transient "Simulation failed" doesn't strand a recycle.
+  const send = async (ixs: TransactionInstruction[]) => {
+    let last: unknown;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try { return await sendAndConfirmTransaction(conn, new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }), ...ixs), [mm], { commitment: "confirmed" }); }
+      catch (e) { last = e; if (attempt < 3) await new Promise((r) => setTimeout(r, 1500 * attempt)); }
+    }
+    throw last;
+  };
   const bal = async (ata: PublicKey): Promise<bigint> => { try { return (await getAccount(conn, ata)).amount; } catch { return 0n; } };
 
   const sol = await conn.getBalance(mm.publicKey);
@@ -158,6 +170,7 @@ async function main() {
 
   const recycle = async (k: Mkt) => {
     const st = state.markets[k.pubkey]; if (!st || st.recycled) return;
+    if (!(await conn.getAccountInfo(new PublicKey(k.openbook_market)))) { st.recycled = true; saveState(state); return; } // venue already closed
     const yesMint = new PublicKey(k.yes_mint), noMint = new PublicKey(k.no_mint);
     const yesAta = getAssociatedTokenAddressSync(yesMint, mm.publicKey), noAta = getAssociatedTokenAddressSync(noMint, mm.publicKey);
     try {
@@ -176,12 +189,12 @@ async function main() {
   const swept = new Set<string>();
   const sweep = async (k: Mkt) => {
     if (swept.has(k.pubkey)) return;
-    swept.add(k.pubkey);
-    if (!(await conn.getAccountInfo(new PublicKey(k.openbook_market)))) return; // venue already closed
+    if (!(await conn.getAccountInfo(new PublicKey(k.openbook_market)))) { swept.add(k.pubkey); return; } // venue already closed
     try {
       const n = await settleAll(k);
+      swept.add(k.pubkey); // only on success — a failed sweep is retried next tick
       if (n) console.log(`[mm] swept ${k.ticker} $${Number(k.strike_1e6) / 1e6}: settled ${n} OpenOrders so the venue can close`);
-    } catch (e) { console.warn(`[mm] sweep ${k.ticker} failed: ${(e as Error).message.slice(0, 100)}`); }
+    } catch (e) { console.warn(`[mm] sweep ${k.ticker} failed (will retry): ${(e as Error).message.split("\n")[0].slice(0, 160)}`); }
   };
 
   const SYS = "11111111111111111111111111111111";
