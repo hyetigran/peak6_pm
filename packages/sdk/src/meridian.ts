@@ -425,3 +425,24 @@ export const CONFIG_PENDING_GOVERNANCE_OFFSET = 42;
 export const CONFIG_OPERATOR_OFFSET = 74;
 export const CONFIG_PAUSE_AUTHORITY_OFFSET = 138;
 export const CONFIG_OVERRIDE_AUTHORITY_OFFSET = 202;
+
+/** finalize_settlement_manual: Override Authority records two equal evidenced values. */
+export function finalizeSettlementManualIx(opts: {
+  overrideAuthority: PublicKey; record: PublicKey; sourceA1e6: bigint; sourceB1e6: bigint; reasonCode: number; manifestSha256: Buffer;
+}): TransactionInstruction {
+  const data = Buffer.concat([disc("finalize_settlement_manual"), u64(opts.sourceA1e6), u64(opts.sourceB1e6), u16(opts.reasonCode), opts.manifestSha256]);
+  const keys: AccountMeta[] = [
+    { pubkey: opts.overrideAuthority, isSigner: true, isWritable: false },
+    { pubkey: configPda(), isSigner: false, isWritable: false },
+    { pubkey: opts.record, isSigner: false, isWritable: true },
+  ];
+  return new TransactionInstruction({ programId: MERIDIAN_PID, keys, data });
+}
+export function settleMarketIx(opts: { cranker: PublicKey; market: PublicKey; record: PublicKey }): TransactionInstruction {
+  const keys: AccountMeta[] = [
+    { pubkey: opts.cranker, isSigner: true, isWritable: true },
+    { pubkey: opts.market, isSigner: false, isWritable: true },
+    { pubkey: opts.record, isSigner: false, isWritable: false },
+  ];
+  return new TransactionInstruction({ programId: MERIDIAN_PID, keys, data: disc("settle_market") });
+}

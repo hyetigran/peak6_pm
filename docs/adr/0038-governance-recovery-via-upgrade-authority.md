@@ -90,3 +90,8 @@ new_governance, upgrade_authority }`), and auditable.
   operator `A6uh…` → `856VkxFUHL2RpAnbFpcAU87bYLGjuHskXaU2e41yGnVh` (`keys/operator-…`),
   pause `3UMRb…` → governance `5PtCL7…`, override `3UMRb…` → `FXo9DwPaLXXWmh1BZ4EhW7MQZQBWX5TurgmmQy9p89qC` (`keys/override-…`).
   Railway keeper `DEMO_CONFIG_JSON` updated to the new governance/operator secrets.
+- Step 6 done 2026-08-25: the 34 Saturday-close seed markets were **voided** — each of the 7 Settlement Records
+  finalized manually at the sentinel `official_close_1e6 = 1`, `reason_code = 65535`, manifest sha256
+  `1adde3b108ddcadff10a8648a09de5ac0c41b1cf73e9c82d260dcf3207a83790` = `docs/settlement-evidence/2026-08-22-void-synthetic-seed.json`
+  (`scripts/void-markets.ts`, override `FXo9Dw…`), then `settle_market` ×34 → all `Settled/No`. Venue rent recycling
+  (`prune_venue_orders` / `close_venue`) is left to the keeper's reconcile tick.

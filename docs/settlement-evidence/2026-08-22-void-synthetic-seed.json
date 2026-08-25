@@ -1,0 +1,21 @@
+{
+  "kind": "VOID",
+  "cluster": "devnet",
+  "program": "HiREMEBWNojy6KJNbMbww2YkRJEYLGMgndaKwXndK6ZD",
+  "trading_day_label": 20260825,
+  "close_ts": 1787424303,
+  "reason_code": 65535,
+  "official_close_1e6": 1,
+  "rationale": "34 synthetic seed markets (ADR-0028, seeded 2026-08-22) were created with a Saturday close_ts, outside Pyth equity RTH, so finalize_settlement_normal can never satisfy the Settlement Quality Predicate. Their original override authority was lost and recovered per ADR-0038. These markets are VOIDED: the Settlement Record is finalized manually at the sentinel value 0.000001 USD (1e-6) with reason_code 65535, which is not a market price and must not be read as one. Every market therefore settles No; total collateral across all 34 markets is a few USDC of devnet test tokens held by the seed/market-maker accounts.",
+  "signed_by_role": "override_authority",
+  "override_authority": "FXo9DwPaLXXWmh1BZ4EhW7MQZQBWX5TurgmmQy9p89qC",
+  "records": {
+    "AAPL": "FWLzP4fLnrqnN2KYBWDSLCut5MYWJLRnHNyLCvFamwhJ",
+    "AMZN": "Ec6mWT3dHwxwqpCHpV1y7eeoa434yx1qGpE1iji5qXXK",
+    "GOOGL": "Bn2gfm8YPe7zkUBHw21SstG6mkWRqrnxwg2yAUybhLeY",
+    "META": "BGenm9kEvXzMsmCaW9XhLeWFRjRNiyPRBYttdwmZk6tu",
+    "MSFT": "BJbUmp9mye6c3usy1tuzTJz6DQbAYGQh3Ke7eVPymfDU",
+    "NVDA": "7iUhvmUTiffhYrgEMqYmvYG9a2Y9QbwpByadcHYgHLgf",
+    "TSLA": "FmSeFkZ79jDEYGFVaTQPCm7GdGfTK57yF8h4pDcLP1zH"
+  }
+}
