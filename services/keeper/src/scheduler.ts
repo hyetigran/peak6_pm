@@ -46,6 +46,11 @@ const LOCK = process.env.KEEPER_LOCK ?? ".keeper.lock";
 // Poll cadence between scheduler ticks. MINUTES in prod (the job fire times, not
 // the tick, drive work) — the default is far coarser than the demo's 5s poll.
 const TICK_MS = Number(process.env.KEEPER_SCHED_TICK_SECS ?? "60") * 1000;
+// KEEPER_ONCE=1: cron one-shot (ADR-0035). Run every job that is due NOW once,
+// persist the ledger, and exit — a job that returned `retry` is left to the
+// next cron fire (its backoff is in the ledger), so a waiting Official Close
+// never keeps a process alive between the two daily fire times.
+const ONCE = process.env.KEEPER_ONCE === "1";
 const PRIORITY_FEE = Number(process.env.KEEPER_PRIORITY_FEE_MICROLAMPORTS ?? "1000");
 const ORACLE_MODE = process.env.KEEPER_ORACLE ?? "harness";
 // Minutes-scale reconcile backstop for a missed subscription event (NOT a
@@ -127,7 +132,7 @@ async function main() {
   };
   const gateAlert = (msg: string) => console.warn(`[keeper][gate] ${msg}`);
   const ledger = loadLedger();
-  console.log(`[keeper] scheduler up · operator ${op.publicKey.toBase58()} · tick ${TICK_MS / 1000}s · oracle ${ORACLE_MODE}`);
+  console.log(`[keeper] scheduler up · operator ${op.publicKey.toBase58()} · ${ONCE ? "one-shot" : `tick ${TICK_MS / 1000}s`} · reconcile ${RECONCILE_MS / 1000}s · oracle ${ORACLE_MODE}`);
 
   // Refresh the per-ticker delivery account before finalize — shared with the
   // demo loop. Harness mock on localnet; the Pyth adapter on devnet.
@@ -346,12 +351,15 @@ async function main() {
     handlers: { settlement, "market-open": marketOpen },
     ledger, now: Date.now, sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     tickMs: TICK_MS, persist: saveLedger, signal: ac.signal,
+    maxTicks: ONCE ? 1 : undefined,
   });
 
   clearInterval(reconcileTimer);
   for (const un of watched.values()) un();
   releaseLock();
-  console.log("[keeper] scheduler stopped");
+  console.log(ONCE ? "[keeper] one-shot pass complete — exiting (cron re-fires)" : "[keeper] scheduler stopped");
+  // Open websocket subscriptions would otherwise keep the event loop alive.
+  if (ONCE) process.exit(0);
 }
 
 // On a fatal error, release the lock ONLY if we own it — never delete the

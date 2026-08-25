@@ -65,6 +65,17 @@ wiring change. Settlement backs off (30s→15m cap), does not spin, when the
 Official Close is not yet published; SIGTERM drains the in-flight job. The
 localnet demo keeps the per-second poll (`make keeper`).
 
+**RPC budget [decided].** Devnet runs against a keyed RPC, so cadences are
+bounded: the keeper is a **cron one-shot** (`KEEPER_ONCE=1`, `make keeper-once`)
+fired twice per trading day — close + `normal_settlement_delay` (~16:20 ET) and
+resolution + 5m (~16:35 ET); it runs every due job once, persists the ledger,
+and exits (a `retry` waits for the next fire, never a resident process). While
+it runs: 20m tick, 15m heap reconcile, websocket heap subscription. The indexer
+full-scans every **60s** (`INDEXER_POLL_MS`, `make indexer-devnet`) — the
+book/portfolio endpoints read live per request, so this only bounds market-list
+and settlement-state freshness. Budget ≈ 3k RPC calls/day indexer, <100/day
+keeper (the 1.5s localnet indexer poll is ~115k/day — never point it at a keyed RPC).
+
 ## 3. Redundancy and idempotency  [proposed]
 
 On-chain idempotency (ADR-0031, ADR-0023) means the keeper can run redundantly

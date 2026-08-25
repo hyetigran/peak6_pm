@@ -1,4 +1,4 @@
-.PHONY: build build-devnet build-adapter fixture-verify localnet keeper marketmaker services-install g2 g3 g4 g5 g6 g7 g8 g9 g10 g12 m0 meridian-test demo demo-devnet indexer seed-config-test
+.PHONY: indexer-devnet keeper-once build build-devnet build-adapter fixture-verify localnet keeper marketmaker services-install g2 g3 g4 g5 g6 g7 g8 g9 g10 g12 m0 meridian-test demo demo-devnet indexer seed-config-test
 
 fixture-verify:
 	@echo "a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8  fixtures/openbook_v2-v1.7.so" | shasum -a 256 -c -
@@ -96,6 +96,18 @@ keeper: services-install
 # runs this; the lock file prevents overlap. See PRODUCTION_INFRA §2.
 keeper-prod: services-install
 	cd services/keeper && DEMO_CONFIG=$(CURDIR)/.demo-config.json KEEPER_LEDGER=$(CURDIR)/.keeper-ledger.json KEEPER_LOCK=$(CURDIR)/.keeper.lock pnpm prod
+
+# Devnet cadences (keyed RPC budget): indexer full-scan every 60s; keeper as a
+# cron ONE-SHOT (KEEPER_ONCE=1) fired at close+delay and resolution+5m, with a
+# 15m reconcile while it runs. Requires RPC_URL and DEMO_CONFIG (operator key)
+# in the environment. See PRODUCTION_INFRA §2/§6.
+indexer-devnet: services-install
+	@[ "$$RPC_URL" ] || { echo "indexer-devnet: set RPC_URL"; exit 1; }
+	cd services/indexer && PORT=8787 INDEXER_POLL_MS=$${INDEXER_POLL_MS:-60000} pnpm start
+
+keeper-once: services-install
+	@[ "$$RPC_URL" ] && [ "$$DEMO_CONFIG" ] || { echo "keeper-once: set RPC_URL and DEMO_CONFIG"; exit 1; }
+	cd services/keeper && KEEPER_ONCE=1 KEEPER_ORACLE=$${KEEPER_ORACLE:-pyth} KEEPER_SCHED_TICK_SECS=$${KEEPER_SCHED_TICK_SECS:-1200} KEEPER_RECONCILE_SECS=$${KEEPER_RECONCILE_SECS:-900} KEEPER_LEDGER=$${KEEPER_LEDGER:-$(CURDIR)/.keeper-ledger.json} KEEPER_LOCK=$${KEEPER_LOCK:-$(CURDIR)/.keeper.lock} pnpm prod
 
 # Identity-drift monitor (#25, ADR-0030): independently re-derives the pinned
 # OpenBook + oracle-adapter executable identity and alerts on drift (webhook
