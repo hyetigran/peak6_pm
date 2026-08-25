@@ -124,7 +124,14 @@ export function serve(db: Database.Database, conn: Connection, port: number) {
       }
 
       if (url.pathname === "/markets") {
-        const rows = db.prepare("SELECT * FROM markets ORDER BY ticker, CAST(strike_1e6 AS INTEGER)").all() as any[];
+        // ?scope=live -> only markets that are not Settled/Abandoned (the current
+        // session); default (all) keeps the keeper/market-maker/portfolio/history
+        // views, which need settled rows too. Live rows also skip the per-market
+        // book reads for dead venues.
+        const scope = url.searchParams.get("scope") ?? "all";
+        const rows = (scope === "live"
+          ? db.prepare("SELECT * FROM markets WHERE state NOT IN (3,4) AND (settled_ts IS NULL OR settled_ts=0) ORDER BY ticker, CAST(strike_1e6 AS INTEGER)")
+          : db.prepare("SELECT * FROM markets ORDER BY ticker, CAST(strike_1e6 AS INTEGER)")).all() as any[];
         await attachMarks(conn, rows); // live YES mark per market for the market cards
         return json(res, 200, { markets: rows, meta: await completeness(conn, db) });
       }

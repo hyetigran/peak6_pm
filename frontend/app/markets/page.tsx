@@ -244,7 +244,7 @@ export default function Markets() {
   const [, tick] = useState(0);
 
   useEffect(() => {
-    const load = () => getMarkets()
+    const load = () => getMarkets("live")
       .then((d) => { setMarkets(d.markets); setErr(null); })
       .catch((e) => { console.error(e); setErr("Something went wrong"); })
       .finally(() => setLoaded(true));

@@ -19,7 +19,10 @@ async function j<T>(path: string): Promise<T> {
   if (!r.ok) throw new Error(`${path} -> ${r.status}`);
   return r.json();
 }
-export const getMarkets = () => j<{ markets: Market[]; meta: Health }>("/markets");
+/** scope "live" = the current session only (not Settled/Abandoned) — the Markets
+ *  page; "all" (default) includes settled/abandoned rows for portfolio/history/admin/event. */
+export const getMarkets = (scope: "live" | "all" = "all") =>
+  j<{ markets: Market[]; meta: Health }>(scope === "live" ? "/markets?scope=live" : "/markets");
 export const getMarket = (pk: string) => j<Market>(`/markets/${pk}`);
 export interface Book {
   bids: { price: number; shares: number }[]; asks: { price: number; shares: number }[];
