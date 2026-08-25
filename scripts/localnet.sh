@@ -10,11 +10,19 @@ if [ -z "${FIXTURE:-}" ]; then
 fi
 OPENBOOK_ID="${OPENBOOK_ID:-opnb2LAfJYbRMAHHvqjCwQxanZn7ReEHp1k81EohpZb}"
 FIXTURE="${FIXTURE:-fixtures/openbook_v2-v1.7.so}"
+# MERIDIAN_UPGRADE_AUTHORITY=<pubkey|keypair>: load Meridian through the
+# upgradeable loader (real ProgramData) instead of --bpf-program. Needed by
+# tests that exercise the upgrade authority (ADR-0038 governance recovery).
+if [ -n "${MERIDIAN_UPGRADE_AUTHORITY:-}" ]; then
+  MERIDIAN_LOAD=(--upgradeable-program HiREMEBWNojy6KJNbMbww2YkRJEYLGMgndaKwXndK6ZD target/deploy/meridian.so "$MERIDIAN_UPGRADE_AUTHORITY")
+else
+  MERIDIAN_LOAD=(--bpf-program HiREMEBWNojy6KJNbMbww2YkRJEYLGMgndaKwXndK6ZD target/deploy/meridian.so)
+fi
 exec solana-test-validator --reset --quiet \
   --gossip-port 8010 --dynamic-port-range 8010-8120 \
   --bpf-program "$OPENBOOK_ID" "$FIXTURE" \
   --bpf-program 3MmdMxRUF4NWPNdwoQcLhoqfmiKReoaSQR9GwSeQEpRr target/deploy/m0_harness.so \
-  --bpf-program HiREMEBWNojy6KJNbMbww2YkRJEYLGMgndaKwXndK6ZD target/deploy/meridian.so \
+  "${MERIDIAN_LOAD[@]}" \
   --bpf-program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf fixtures/squads_v4.so \
   --bpf-program metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s fixtures/mpl_token_metadata.so \
   --account BSTq9w3kZwNwpBXJEvTZz2G9ZTNyKBvoSeXMvwb4cNZr fixtures/squads_program_config.json \

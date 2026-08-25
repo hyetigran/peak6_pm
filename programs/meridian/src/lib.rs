@@ -55,6 +55,15 @@ pub mod meridian {
         rotate_role::accept(ctx, role)
     }
 
+    /// ADR-0038 governance recovery: the program UPGRADE AUTHORITY (proven via
+    /// this program's ProgramData) overwrites `config.governance`. One-shot;
+    /// present only in a `--features governance-recovery` build and removed by
+    /// the following upgrade.
+    #[cfg(feature = "governance-recovery")]
+    pub fn reset_governance(ctx: Context<ResetGovernance>, new_governance: Pubkey) -> Result<()> {
+        reset_governance::handler(ctx, new_governance)
+    }
+
     /// Pause Authority toggles the global pause.
     pub fn set_global_pause(ctx: Context<SetGlobalPause>, paused: bool) -> Result<()> {
         set_global_pause::handler(ctx, paused)

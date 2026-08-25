@@ -376,3 +376,52 @@ export function closeVenueIx(o: {
     data: disc("close_venue"),
   });
 }
+
+// --- roles (ADR-0024) + governance recovery (ADR-0038) ---
+export const BPF_UPGRADEABLE_LOADER = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
+/** ProgramData address of the Meridian program (upgradeable loader). */
+export const meridianProgramData = () =>
+  PublicKey.findProgramAddressSync([MERIDIAN_PID.toBuffer()], BPF_UPGRADEABLE_LOADER)[0];
+
+export const Role = { Governance: 0, Operator: 1, PauseAuthority: 2, OverrideAuthority: 3 } as const;
+export type RoleCode = (typeof Role)[keyof typeof Role];
+
+export function proposeRoleIx(opts: { governance: PublicKey; role: RoleCode; pending: PublicKey }): TransactionInstruction {
+  const data = Buffer.concat([disc("propose_role"), u8(opts.role), opts.pending.toBuffer()]);
+  const keys: AccountMeta[] = [
+    { pubkey: opts.governance, isSigner: true, isWritable: false },
+    { pubkey: configPda(), isSigner: false, isWritable: true },
+  ];
+  return new TransactionInstruction({ programId: MERIDIAN_PID, keys, data });
+}
+
+export function acceptRoleIx(opts: { incoming: PublicKey; role: RoleCode }): TransactionInstruction {
+  const data = Buffer.concat([disc("accept_role"), u8(opts.role)]);
+  const keys: AccountMeta[] = [
+    { pubkey: opts.incoming, isSigner: true, isWritable: false },
+    { pubkey: configPda(), isSigner: false, isWritable: true },
+  ];
+  return new TransactionInstruction({ programId: MERIDIAN_PID, keys, data });
+}
+
+/**
+ * ADR-0038 one-shot: the program UPGRADE AUTHORITY overwrites config.governance.
+ * Only exists in a `--features governance-recovery` build.
+ */
+export function resetGovernanceIx(opts: { upgradeAuthority: PublicKey; newGovernance: PublicKey }): TransactionInstruction {
+  const data = Buffer.concat([disc("reset_governance"), opts.newGovernance.toBuffer()]);
+  const keys: AccountMeta[] = [
+    { pubkey: opts.upgradeAuthority, isSigner: true, isWritable: false },
+    { pubkey: MERIDIAN_PID, isSigner: false, isWritable: false },
+    { pubkey: meridianProgramData(), isSigner: false, isWritable: false },
+    { pubkey: configPda(), isSigner: false, isWritable: true },
+  ];
+  return new TransactionInstruction({ programId: MERIDIAN_PID, keys, data });
+}
+
+/** Config layout: 8 disc, schema u8, bump u8, then the 8 role pubkeys. */
+export const CONFIG_GOVERNANCE_OFFSET = 10;
+export const CONFIG_PENDING_GOVERNANCE_OFFSET = 42;
+export const CONFIG_OPERATOR_OFFSET = 74;
+export const CONFIG_PAUSE_AUTHORITY_OFFSET = 138;
+export const CONFIG_OVERRIDE_AUTHORITY_OFFSET = 202;

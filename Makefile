@@ -1,4 +1,4 @@
-.PHONY: indexer-devnet keeper-once build build-devnet build-adapter fixture-verify localnet keeper marketmaker services-install g2 g3 g4 g5 g6 g7 g8 g9 g10 g12 m0 meridian-test demo demo-devnet indexer seed-config-test
+.PHONY: governance-recovery-test build-devnet-recovery indexer-devnet keeper-once build build-devnet build-adapter fixture-verify localnet keeper marketmaker services-install g2 g3 g4 g5 g6 g7 g8 g9 g10 g12 m0 meridian-test demo demo-devnet indexer seed-config-test
 
 fixture-verify:
 	@echo "a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8  fixtures/openbook_v2-v1.7.so" | shasum -a 256 -c -
@@ -51,6 +51,23 @@ g7: build
 
 g12: build
 	./scripts/run-suite.sh tests/g12.test.ts
+
+# ADR-0038: reset_governance under the upgradeable loader. Runs the recovery
+# build (feature on: R1-R4) and then the strict localnet build (feature off: R5).
+governance-recovery-test: fixture-verify
+	cargo build-sbf --manifest-path programs/m0-harness/Cargo.toml
+	cargo build-sbf --manifest-path programs/meridian/Cargo.toml --features localnet,governance-recovery
+	MERIDIAN_UPGRADE_AUTHORITY=$(HOME)/.config/solana/id.json RECOVERY_BUILD=1 ./scripts/run-suite.sh tests/governance-recovery.test.ts
+	cargo build-sbf --manifest-path programs/meridian/Cargo.toml --features localnet
+	MERIDIAN_UPGRADE_AUTHORITY=$(HOME)/.config/solana/id.json RECOVERY_BUILD=0 ./scripts/run-suite.sh tests/governance-recovery.test.ts
+
+# ADR-0038 recovery build for devnet: strict (no localnet) PLUS reset_governance.
+# Deploy, call reset_governance once, then `make build-devnet` and redeploy.
+build-devnet-recovery: fixture-verify
+	rm -f target/deploy/meridian.so
+	cargo build-sbf --manifest-path programs/meridian/Cargo.toml --features governance-recovery
+	cp wallets/meridian-program.json target/deploy/meridian-keypair.json
+	@sha=$$(shasum -a 256 target/deploy/meridian.so | awk '{print $$1}'); printf 'RECOVERY BUILD (governance-recovery feature ON)\ncommit  %s\nsha256  %s\n' "$$(git rev-parse HEAD)" "$$sha" | tee target/deploy/meridian-devnet-recovery.manifest
 
 demo: build
 	./scripts/demo.sh

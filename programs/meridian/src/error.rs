@@ -36,6 +36,10 @@ pub enum MeridianError {
     AlreadyFinalized,
     #[msg("settlement not yet permitted (delay not elapsed)")]
     SettlementTooEarly,
+    #[msg("signer is not this program's upgrade authority (governance recovery, ADR-0038)")]
+    NotUpgradeAuthority,
+    #[msg("new governance key must be non-default")]
+    InvalidGovernanceKey,
     #[msg("manual override requires two equal evidenced values")]
     OverrideValuesUnequal,
     #[msg("order rejected: market not in its trading window or paused")]

@@ -19,6 +19,14 @@ pub struct RoleRotationAccepted {
     pub new_key: Pubkey,
 }
 
+/// ADR-0038 one-shot governance recovery by the program upgrade authority.
+#[event]
+pub struct GovernanceReset {
+    pub previous: Pubkey,
+    pub new_governance: Pubkey,
+    pub upgrade_authority: Pubkey,
+}
+
 #[event]
 pub struct GlobalPauseSet {
     pub paused: bool,
