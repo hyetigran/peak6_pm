@@ -37,6 +37,8 @@ import { runScheduler, type JobHandler, type JobOutcome } from "./runner.js";
 import { loadNyseCalendar, nextNyseTradingDay } from "./calendar.js";
 import { fixtureSource, type CorporateAction, type CorporateActionSource } from "./blackout.js";
 import { evaluateEligibility, revalidationPlan, type GateMarket } from "./eligibility.js";
+import { decodeRecordForOpen, planOpen, createMarketsForPlan } from "./market-open.js";
+import { configPda } from "@meridian/sdk/meridian";
 import { newLedger, planJobs, marketOpenJobsFromLedger, type Ledger, type MarketRow, type ScheduledJob } from "./schedule.js";
 
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
@@ -55,6 +57,10 @@ const PRIORITY_FEE = Number(process.env.KEEPER_PRIORITY_FEE_MICROLAMPORTS ?? "10
 const ORACLE_MODE = process.env.KEEPER_ORACLE ?? "harness";
 // Minutes-scale reconcile backstop for a missed subscription event (NOT a
 // per-second poll — cranking is subscription-driven, this only catches drops).
+// Market-open (ADR-0032): create the next session off each settled ticker.
+// KEEPER_MARKET_OPEN=0 disables; KEEPER_MARKET_OPEN_DRY_RUN=1 plans + logs only.
+const MARKET_OPEN_ENABLED = process.env.KEEPER_MARKET_OPEN !== "0";
+const MARKET_OPEN_DRY_RUN = process.env.KEEPER_MARKET_OPEN_DRY_RUN === "1";
 const RECONCILE_MS = Number(process.env.KEEPER_RECONCILE_SECS ?? "120") * 1000;
 // One or two (comma-separated) Corporate Action Blackout feed files (ADR-0022
 // wants TWO independent sources). One path => both sources read it (demo); two
@@ -234,9 +240,32 @@ async function main() {
       console.log(`[keeper] market-open REFUSED ticker ${job.tickerId} day ${target}: ${elig.reason}`);
       return { status: "done" };
     }
-    // Eligible: creation itself (generate→create→attach) is the PRD §6 strike engine.
-    console.log(`[keeper] market-open OK ticker ${job.tickerId} day ${target} — strike engine is PRD §6`);
-    return { status: "done" };
+    if (!MARKET_OPEN_ENABLED) { console.log(`[keeper] market-open ticker ${job.tickerId} day ${target}: KEEPER_MARKET_OPEN=0, skipping`); return { status: "done" }; }
+    // Prior = the Official Close just finalized for (ticker, settled day).
+    const recInfo = await conn.getAccountInfo(settlementRecordPda(job.tickerId, job.day));
+    if (!recInfo) return { status: "retry", reason: "settled record missing" };
+    const rec = decodeRecordForOpen(recInfo.data);
+    if (!rec.isFinal) return { status: "retry", reason: "record not final" };
+    let plan;
+    try { plan = planOpen({ tickerId: job.tickerId, targetDay: target, officialClose1e6: rec.officialClose1e6, nowSec: Math.floor(Date.now() / 1000), cal: nyseCal }); }
+    catch (e) { gateAlert(`market-open ticker ${job.tickerId} day ${target}: ${(e as Error).message}`); return { status: "done" }; }
+    // Quote mint is whatever Config pins (never trust a config file for it).
+    const cfgInfo = await conn.getAccountInfo(configPda());
+    if (!cfgInfo) return { status: "retry", reason: "config missing" };
+    const quoteMint = new PublicKey(cfgInfo.data.subarray(266, 298));
+    try {
+      const r = await createMarketsForPlan({
+        conn, operator: op, quoteMint, plan, dryRun: MARKET_OPEN_DRY_RUN,
+        send: (ixs, extra) => send(ixs, extra),
+        normalDelaySecs: Number(process.env.NORMAL_DELAY_SECS ?? 0), overrideDelaySecs: Number(process.env.OVERRIDE_DELAY_SECS ?? 0),
+        metadataUri: process.env.METADATA_URI, log: (s) => console.log(`[keeper][open] ${s}`),
+      });
+      console.log(`[keeper] market-open ${plan.name} day ${target}: prior $${plan.prior.toFixed(2)} strikes ${plan.strikes.join("/")} — created ${r.created}, existing ${r.skipped}${MARKET_OPEN_DRY_RUN ? " (DRY RUN)" : ""}`);
+      return { status: "done" };
+    } catch (e) {
+      gateAlert(`market-open ${plan.name} day ${target} failed: ${(e as Error).message.slice(0, 160)}`);
+      return { status: "retry", reason: "create failed" };
+    }
   };
 
   // Pre-open re-validation gate (#21 AC2/3): abandon a Created, pre-mint, empty

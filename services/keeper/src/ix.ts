@@ -103,12 +103,12 @@ export function consumeEventsIx(market: PublicKey, heap: PublicKey, limit: bigin
  *  backoff. Safe to retry because every keeper action is idempotent on-chain
  *  (ADR-0031/0023): finalize/settle re-check state, consume is bounded. */
 export function makeSend(conn: Connection, op: Keypair, priorityFeeMicroLamports: number, log: (m: string) => void = () => {}) {
-  return (ixs: TransactionInstruction[]) =>
+  return (ixs: TransactionInstruction[], extraSigners: Keypair[] = []) =>
     withRetry(
       () => sendAndConfirmTransaction(
         conn,
         new Transaction().add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFeeMicroLamports }), ...ixs),
-        [op], { commitment: "confirmed" },
+        [op, ...extraSigners], { commitment: "confirmed" },
       ),
       { retries: 2, baseMs: 400, onRetry: (a, e) => log(`send retry ${a}: ${(e as Error).message.slice(0, 60)}`) },
     );

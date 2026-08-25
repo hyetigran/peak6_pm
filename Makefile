@@ -1,4 +1,4 @@
-.PHONY: governance-recovery-test build-devnet-recovery indexer-devnet keeper-once build build-devnet build-adapter fixture-verify localnet keeper marketmaker services-install g2 g3 g4 g5 g6 g7 g8 g9 g10 g12 m0 meridian-test demo demo-devnet indexer seed-config-test
+.PHONY: keeper-market-open-test governance-recovery-test build-devnet-recovery indexer-devnet keeper-once build build-devnet build-adapter fixture-verify localnet keeper marketmaker services-install g2 g3 g4 g5 g6 g7 g8 g9 g10 g12 m0 meridian-test demo demo-devnet indexer seed-config-test
 
 fixture-verify:
 	@echo "a3eb0fad20778b31a20c6b98e4e61b8e9425ccbfb27a96f8165f70c0381bafa8  fixtures/openbook_v2-v1.7.so" | shasum -a 256 -c -
@@ -99,6 +99,9 @@ demo-devnet: build-devnet
 	DEMO_MODE=devnet pnpm exec tsx scripts/seed-demo.ts
 
 # Fast unit check for the seed resolver — no validator.
+keeper-market-open-test:
+	pnpm exec tsx --test tests/keeper-market-open.test.ts
+
 seed-config-test:
 	pnpm exec tsx --test tests/seed-config.test.ts
 

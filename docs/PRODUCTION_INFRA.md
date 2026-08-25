@@ -46,6 +46,14 @@ event-driven cranking:
   Close (ADR-0032). Runs generate→create→attach (PRD §5, §6) plus an
   eligibility/Corporate-Action-Blackout re-validation gate that `abandon_market`s
   a market that stops qualifying before its mint window (ADR-0014/0022).
+  **Implemented (2026-08-25):** `services/keeper/src/market-open.ts` — prior =
+  the finalized Official Close, ladder = ±3/6/9 % snapped to $10, session =
+  mint now / trade +30m / close 16:00 ET (13:00 early close) of the next NYSE
+  Trading Day; create → venue → metadata per strike, idempotent. Refuses a void
+  sentinel close (< $1). Operator pays venue rent (~2 SOL/strike) and is the
+  refund address, so rent recycles day to day. `KEEPER_MARKET_OPEN=0` disables,
+  `KEEPER_MARKET_OPEN_DRY_RUN=1` plans/logs only; `METADATA_URI`,
+  `NORMAL_DELAY_SECS`/`OVERRIDE_DELAY_SECS` (floors 1200/3600) optional.
 - **EventHeap cranking** — `onAccountChange` subscription per active heap; cranks
   only on growth. Inline-first settlement (ID-007) keeps heaps near-empty, so
   this is idle in the common path. A minutes-scale reconcile poll backstops a
