@@ -51,8 +51,14 @@ export interface MarketRow {
   no_mint?: string;
 }
 
-export const settlementFireAtMs = (m: MarketRow): number =>
-  (m.close_ts + m.normal_settlement_delay_secs) * 1000;
+/** Strict-build floor (constants.rs DEVNET_NORMAL_SETTLEMENT_DELAY_SECS); used when
+ *  the indexer row does not carry the market's delay — a NaN here would make
+ *  every settlement job "due" immediately. */
+export const DEFAULT_SETTLEMENT_DELAY_SECS = 1200;
+export const settlementFireAtMs = (m: MarketRow): number => {
+  const delay = Number.isFinite(m.normal_settlement_delay_secs) ? m.normal_settlement_delay_secs : DEFAULT_SETTLEMENT_DELAY_SECS;
+  return (m.close_ts + delay) * 1000;
+};
 
 export const marketOpenFireAtMs = (resolutionMs: number): number =>
   resolutionMs + MARKET_OPEN_AFTER_RESOLUTION_SECS * 1000;

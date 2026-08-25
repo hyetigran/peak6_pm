@@ -39,3 +39,10 @@ test("record decode offsets", () => {
   b[RECORD.STATE] = 2; b.writeBigInt64LE(1787424303n, RECORD.CLOSE_TS); b.writeBigUInt64LE(1n, RECORD.OFFICIAL_CLOSE); b[RECORD.IS_FINAL] = 1;
   assert.deepEqual(decodeRecordForOpen(b), { state: 2, closeTs: 1787424303n, officialClose1e6: 1n, isFinal: true });
 });
+
+import { settlementFireAtMs, DEFAULT_SETTLEMENT_DELAY_SECS } from "../services/keeper/src/schedule.js";
+test("settlement fire time falls back to the delay floor when the indexer row lacks the delay (never NaN)", () => {
+  const row: any = { pubkey: "x", ticker_id: 1, trading_day: 20260826, close_ts: 1787774400, settled_ts: 0 };
+  assert.equal(settlementFireAtMs(row), (1787774400 + DEFAULT_SETTLEMENT_DELAY_SECS) * 1000);
+  assert.equal(settlementFireAtMs({ ...row, normal_settlement_delay_secs: 1500 }), (1787774400 + 1500) * 1000);
+});
