@@ -39,6 +39,24 @@ export const getFills = (market: string) => j<{ fills: MarketFill[] }>(`/fills/$
 export const faucet = (address: string) =>
   fetch(`${INDEXER}/faucet/${address}`).then((r) => r.json());
 export const getHealth = () => j<Health & { ok: boolean }>("/health");
+/** SSE stream for the event page. `snapshot` first (markets, every live
+ *  book, fills, your orders), then `book` deltas / `market` rows. Returns a
+ *  stop function. `onError` fires when the browser gives up reconnecting. */
+export interface EventStreamSnapshot { ticker: string; markets: Market[]; books: Record<string, Book>; fills: Record<string, MarketFill[]>; orders: Record<string, OpenOrder[]>; health: Health }
+export interface EventBookDelta { market: string; book: Book; fills: MarketFill[]; orders?: OpenOrder[] }
+export function openEventStream(ticker: string, oo: string | null, h: {
+  onSnapshot: (s: EventStreamSnapshot) => void; onBook: (d: EventBookDelta) => void; onMarket: (m: Market) => void; onError: () => void;
+}): () => void {
+  const qs = oo ? `?oo=${encodeURIComponent(oo)}` : "";
+  const es = new EventSource(`${INDEXER}/event/${encodeURIComponent(ticker.toLowerCase())}/stream${qs}`);
+  let failures = 0;
+  es.addEventListener("snapshot", (e) => { failures = 0; h.onSnapshot(JSON.parse((e as MessageEvent).data)); });
+  es.addEventListener("book", (e) => h.onBook(JSON.parse((e as MessageEvent).data)));
+  es.addEventListener("market", (e) => h.onMarket(JSON.parse((e as MessageEvent).data)));
+  es.onerror = () => { if (es.readyState === EventSource.CLOSED || ++failures >= 3) { es.close(); h.onError(); } };
+  return () => es.close();
+}
+
 /** Event-page snapshot: one request for markets + books + fills + your orders. */
 export interface EventSnapshot { ticker: string; markets: Market[]; book: Book | null; exp_book: Book | null; fills: MarketFill[]; orders: OpenOrder[]; health: Health }
 export const getEvent = (ticker: string, q: { sel?: string | null; exp?: string | null; oo?: string | null }) => {

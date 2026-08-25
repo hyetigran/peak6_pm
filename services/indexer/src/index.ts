@@ -1,6 +1,7 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import { openDb } from "./db.js";
-import { ingestOnce, subscribeMarkets, live } from "./ingest.js";
+import { ingestOnce, subscribeMarkets, live, hooks } from "./ingest.js";
+import { BookHub } from "./books.js";
 import { serve } from "./api.js";
 
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
@@ -20,7 +21,13 @@ if (!Number.isFinite(POLL_MS) || POLL_MS < 250) throw new Error(`INDEXER_POLL_MS
 async function main() {
   const conn = new Connection(RPC, "confirmed");
   const db = openDb(DB);
-  serve(db, conn, PORT, POLL_MS);
+  const hub = SUBSCRIBE ? new BookHub(conn, db) : null;
+  serve(db, conn, PORT, POLL_MS, hub);
+  if (hub) {
+    const rowsFor = () => db.prepare("SELECT pubkey,ticker,state,bids,asks FROM markets").all() as any[];
+    hooks.onReconcile = () => { hub.syncVenues(rowsFor()).catch((e) => console.error("[books] sync:", (e as Error).message)); };
+    hooks.onMarket = (m) => { hub.syncVenues(rowsFor()).catch((e) => console.error("[books] sync:", (e as Error).message)); hub.emit("market", m); };
+  }
   if (SUBSCRIBE) {
     try { subscribeMarkets(conn, db, PROGRAM); console.log(`[indexer] subscribed to ${PROGRAM.toBase58()} account changes (ws)`); }
     catch (e) { console.error(`[indexer] ws subscribe failed, poll-only: ${(e as Error).message}`); }

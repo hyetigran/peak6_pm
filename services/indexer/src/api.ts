@@ -7,12 +7,18 @@ import fs from "node:fs";
 import { decodeBookSide, ladder, ownersFor, type BookLevel } from "./layout.js";
 import { readPaused, setGlobalPause, settleMarket, overrideSettle, type SettleRow } from "./admin.js";
 import { live } from "./ingest.js";
+import { type BookHub, type BookSnapshot } from "./books.js";
 
 const SYS_KEY = "11111111111111111111111111111111";
 
 /** Attach a live YES mark (cents) + yes_prob to each venued market row. */
+let hubRef: BookHub | null = null;
 async function attachMarks(conn: Connection, rows: any[]) {
-  const venued = rows.filter((r) => r.bids && r.bids !== SYS_KEY && r.asks && r.asks !== SYS_KEY);
+  const venued = rows.filter((r) => r.bids && r.bids !== SYS_KEY && r.asks && r.asks !== SYS_KEY).filter((r) => {
+    const snap = hubRef?.snapshot(r.pubkey);
+    if (!snap) return true;
+    r.mark = snap.mark; r.yes_prob = snap.yes_prob; return false; // served from the subscription cache
+  });
   if (!venued.length) return;
   const keys = venued.flatMap((r) => [new PublicKey(r.bids), new PublicKey(r.asks)]);
   const infos: (Awaited<ReturnType<Connection["getMultipleAccountsInfo"]>>[number])[] = [];
@@ -105,10 +111,17 @@ const ordersFrom = (bidLeaves: any[], askLeaves: any[], oo: string) => {
   return [...agg.values()].sort((a, b) => b.price - a.price);
 };
 const stripLeaves = ({ _bidLeaves, _askLeaves, ...rest }: any) => rest;
-function memoFor(pathname: string): number { for (const k of Object.keys(MEMO_MS)) if (pathname === k || pathname.startsWith(k + "/")) return MEMO_MS[k]; return 0; }
+function memoFor(pathname: string): number { if (pathname.endsWith("/stream")) return 0; for (const k of Object.keys(MEMO_MS)) if (pathname === k || pathname.startsWith(k + "/")) return MEMO_MS[k]; return 0; }
 
-export function serve(db: Database.Database, conn: Connection, port: number, pollMs = 1500) {
-  pollMsForHealth = pollMs;
+export function serve(db: Database.Database, conn: Connection, port: number, pollMs = 1500, hub: BookHub | null = null) {
+  pollMsForHealth = pollMs; hubRef = hub;
+  // Live books from the hub when it has the venue; RPC otherwise.
+  const bookFor = async (row: any) => {
+    const snap = hub?.snapshot(row.pubkey);
+    if (snap) return { ...snap, _bidLeaves: [] as any[], _askLeaves: [] as any[], _hub: true };
+    return bookOf(conn, row);
+  };
+  const ordersFor = (row: any, book: any, oo: string) => hub?.has(row.pubkey) ? hub.orders(row.pubkey, oo) : ordersFrom(book._bidLeaves, book._askLeaves, oo);
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://x");
@@ -126,7 +139,7 @@ export function serve(db: Database.Database, conn: Connection, port: number, pol
         };
       }
       if (req.method === "OPTIONS") { res.writeHead(204, { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "content-type" }); return res.end(); }
-      if (url.pathname === "/health") return json(res, 200, { ok: true, ...(await completeness(conn, db)), paused: await pausedCached(conn) });
+      if (url.pathname === "/health") return json(res, 200, { ok: true, ...(await completeness(conn, db)), paused: await pausedCached(conn), books_subscribed: hub?.size ?? 0 });
 
       // One-shot snapshot for the event page: the ticker's markets (all days, so
       // a bare /event/aapl can resolve the latest day), the order-slip book,
@@ -142,12 +155,12 @@ export function serve(db: Database.Database, conn: Connection, port: number, pol
         const selRow = isPk(sel) ? rowOf(sel) : null;
         const expRow = isPk(exp) ? (exp === sel ? selRow : rowOf(exp)) : null;
         const [book, expBookRaw] = await Promise.all([
-          selRow ? bookOf(conn, selRow) : Promise.resolve(null),
-          expRow && exp !== sel ? bookOf(conn, expRow) : Promise.resolve(null),
+          selRow ? bookFor(selRow) : Promise.resolve(null),
+          expRow && exp !== sel ? bookFor(expRow) : Promise.resolve(null),
         ]);
         const expBook = exp === sel ? book : expBookRaw;
         const fills = isPk(exp) ? db.prepare("SELECT ts,side,price,qty FROM fills WHERE market=? ORDER BY id DESC LIMIT 25").all(exp) : [];
-        const orders = expBook && isPk(oo) ? ordersFrom(expBook._bidLeaves, expBook._askLeaves, oo) : [];
+        const orders = expBook && expRow && isPk(oo) ? ordersFor(expRow, expBook, oo) : [];
         // YES marks for every live row of the ticker (one batched read), so the
         // strike list renders prices; the two full books above override theirs.
         await attachMarks(conn, markets.filter((m) => m.state !== 3 && m.state !== 4));
@@ -156,6 +169,47 @@ export function serve(db: Database.Database, conn: Connection, port: number, pol
           ticker, markets, book: book ? stripLeaves(book) : null, exp_book: expBook ? stripLeaves(expBook) : null, fills, orders,
           health: { ...(await completeness(conn, db)), paused: await pausedCached(conn) },
         });
+      }
+
+      // Server-sent events for the event page: initial snapshot (markets of the
+      // ticker, every live book, recent fills, caller's orders), then `book`
+      // deltas as the venue subscriptions fire and `market` rows as they change.
+      // One websocket per venue on the indexer; zero polling in the browser.
+      const esMatch = url.pathname.match(/^\/event\/([A-Za-z]{1,8})\/stream$/);
+      if (esMatch) {
+        if (!hub) return json(res, 503, { error: "streaming disabled (INDEXER_SUBSCRIBE=0)" });
+        const ticker = esMatch[1].toUpperCase();
+        const oo = url.searchParams.get("oo");
+        const ooOk = !!oo && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(oo);
+        res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache, no-transform", "connection": "keep-alive",
+          "access-control-allow-origin": "*", "x-accel-buffering": "no" });
+        res.flushHeaders?.();
+        const sendEv = (event: string, data: unknown) => { if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
+        const rows = db.prepare("SELECT * FROM markets WHERE ticker=? ORDER BY trading_day DESC, CAST(strike_1e6 AS INTEGER)").all(ticker) as any[];
+        const books: Record<string, BookSnapshot> = {}, fills: Record<string, any[]> = {}, orders: Record<string, any[]> = {};
+        for (const r of rows) {
+          const snap = hub.snapshot(r.pubkey);
+          if (snap) { books[r.pubkey] = snap; r.mark = snap.mark; r.yes_prob = snap.yes_prob; }
+          if (r.state !== 3 && r.state !== 4) {
+            fills[r.pubkey] = db.prepare("SELECT ts,side,price,qty FROM fills WHERE market=? ORDER BY id DESC LIMIT 25").all(r.pubkey);
+            if (ooOk) orders[r.pubkey] = hub.orders(r.pubkey, oo!);
+          }
+        }
+        sendEv("snapshot", { ticker, markets: rows, books, fills, orders, health: { ...(await completeness(conn, db)), paused: await pausedCached(conn) } });
+        const onBook = (e: any) => {
+          if (e.ticker !== ticker) return;
+          sendEv("book", { market: e.market, book: e.book, fills: e.fills, orders: ooOk ? hub.orders(e.market, oo!) : undefined });
+        };
+        const onMarket = (m: any) => {
+          const row = db.prepare("SELECT * FROM markets WHERE pubkey=?").get(m.pubkey) as any;
+          if (!row || row.ticker !== ticker) return;
+          const snap = hub.snapshot(row.pubkey); if (snap) { row.mark = snap.mark; row.yes_prob = snap.yes_prob; }
+          sendEv("market", row);
+        };
+        hub.on("book", onBook); hub.on("market", onMarket);
+        const hb = setInterval(() => { if (!res.writableEnded) res.write(`: hb ${Date.now()}\n\n`); }, 15_000);
+        req.on("close", () => { clearInterval(hb); hub.off("book", onBook); hub.off("market", onMarket); });
+        return;
       }
 
       // --- Admin / Ops console (localnet demo: signs with .demo-config.json roles) ---
@@ -258,10 +312,12 @@ export function serve(db: Database.Database, conn: Connection, port: number, pol
       }
       const bMatch = url.pathname.match(/^\/book\/([1-9A-HJ-NP-Za-km-z]{32,44})$/);
       if (bMatch) {
-        const row = db.prepare("SELECT bids,asks,openbook_market,state_name FROM markets WHERE pubkey=?").get(bMatch[1]) as any;
+        const row = db.prepare("SELECT pubkey,bids,asks,openbook_market,state_name FROM markets WHERE pubkey=?").get(bMatch[1]) as any;
         if (!row) return json(res, 404, { error: "not found" });
         if (!row.openbook_market || row.openbook_market === "11111111111111111111111111111111")
           return json(res, 200, { bids: [], asks: [], best_bid: null, best_ask: null, mark: null, yes_prob: null, no_prob: null, note: "no venue attached" });
+        const cached = hub?.snapshot(row.pubkey);
+        if (cached) return json(res, 200, { ...cached, note: undefined });
         const [bidsInfo, asksInfo] = await conn.getMultipleAccountsInfo([new PublicKey(row.bids), new PublicKey(row.asks)]);
         const bidLeaves = bidsInfo ? decodeBookSide(bidsInfo.data as Buffer) : [];
         const askLeaves = asksInfo ? decodeBookSide(asksInfo.data as Buffer) : [];

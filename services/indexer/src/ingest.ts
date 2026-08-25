@@ -14,6 +14,8 @@ export const setMeta = (db: Database.Database, k: string, v: string) =>
 /** Live feed status, for /health: the websocket is the primary source of
  *  market-list freshness; the poll is a reconcile backstop. */
 export const live = { subscribed: false, lastEventTs: 0, lastSlot: 0, events: 0 };
+/** Hooks for the SSE layer: called with the decoded market row on every change / reconcile. */
+export const hooks: { onMarket?: (m: OutcomeMarketRow) => void; onReconcile?: (rows: OutcomeMarketRow[]) => void } = {};
 
 /** Subscribe to every OutcomeMarket account of the program: each change is
  *  projected the moment it confirms (settlement, creation, pause, venue
@@ -26,6 +28,7 @@ export function subscribeMarkets(conn: Connection, db: Database.Database, progra
     try {
       const m = decodeOutcomeMarket(info.accountId.toBase58(), info.accountInfo.data as Buffer);
       upsertMarket(db, m, ctx.slot);
+      hooks.onMarket?.(m);
       live.lastEventTs = Math.floor(Date.now() / 1000); live.events++;
       if (ctx.slot > live.lastSlot) { live.lastSlot = ctx.slot; setMeta(db, "last_slot", String(ctx.slot)); }
       setMeta(db, "last_ingest_ts", String(live.lastEventTs));
@@ -60,7 +63,10 @@ export async function ingestOnce(conn: Connection, db: Database.Database, progra
     setMeta(db, "last_ingest_ts", String(Math.floor(Date.now() / 1000)));
   });
   tx();
-  await recordFills(conn, db, markets).catch((e) => console.error("[indexer] fills:", (e as Error).message));
+  hooks.onReconcile?.(markets);
+  // Fill detection lives in the book subscription (BookHub) when it is on;
+  // the poll-diff stays as the fallback for INDEXER_SUBSCRIBE=0.
+  if (!live.subscribed) await recordFills(conn, db, markets).catch((e) => console.error("[indexer] fills:", (e as Error).message));
   return accts.length;
 }
 

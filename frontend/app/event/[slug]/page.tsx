@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { getEvent, marketPhase, parseEventSlug, eventUrl, type Market, type Book, type MarketFill, type OpenOrder } from "@/lib/api";
+import { getEvent, openEventStream, marketPhase, parseEventSlug, eventUrl, type Market, type Book, type MarketFill, type OpenOrder } from "@/lib/api";
 import { usd, countdown } from "@/lib/format";
 import { useWallet } from "@/lib/wallet";
 import * as mx from "@/lib/meridian";
@@ -120,34 +120,60 @@ export default function EventPage() {
   const ticker = mine[0]?.ticker ?? parsed.ticker.toUpperCase();
   const selMarket = mine.find((m) => m.pubkey === sel) ?? null;
 
-  // ONE snapshot request every 2s (markets for the ticker + slip book +
-  // drill-down book/fills/your orders), skipped while a transaction is in
-  // flight or the tab is hidden. The 1s tick only re-renders the countdown.
+  // Live data: ONE server-sent-events stream per page (the indexer holds the
+  // venue subscriptions and pushes book deltas). Books/fills/orders for every
+  // market of the ticker are cached client-side, so switching rows is local.
+  // If the stream can't be established, fall back to the 2s /event snapshot
+  // poll (skipped while a tx is in flight or the tab is hidden).
   const { pubkey, inFlight } = useWallet();
   const inFlightRef = useRef(inFlight); inFlightRef.current = inFlight;
   const selRef = useRef<string | null>(null), expRef = useRef<string | null>(null);
-  const loadRef = useRef<() => void>(() => {});
+  const cache = useRef<{ books: Record<string, Book>; fills: Record<string, MarketFill[]>; orders: Record<string, OpenOrder[]> }>({ books: {}, fills: {}, orders: {} });
+  const applySel = () => { const c = cache.current; const sel = selRef.current, exp = expRef.current;
+    setBook(sel ? c.books[sel] ?? null : null);
+    setExpBook(exp ? c.books[exp] ?? null : null); setExpFills(exp ? c.fills[exp] ?? [] : []); setOpenOrders(exp ? c.orders[exp] ?? [] : []); };
+  const applyRef = useRef(applySel); applyRef.current = applySel;
   useEffect(() => {
+    const oo = pubkey ? mx.ooAccountPda(pubkey, 1).toBase58() : null;
     let cancelled = false;
-    const load = () => {
-      if (inFlightRef.current || document.visibilityState !== "visible") return;
-      const oo = pubkey ? mx.ooAccountPda(pubkey, 1).toBase58() : null;
-      const sel = selRef.current, exp = expRef.current;
-      getEvent(parsed.ticker, { sel, exp, oo }).then((d) => {
-        if (cancelled) return;
-        setMarkets(d.markets); setLoaded(true);
-        // only accept data for the currently selected/expanded rows (a click may have moved on)
-        if (sel === selRef.current) setBook(d.book);
-        if (exp === expRef.current) { setExpBook(d.exp_book); setExpFills(d.fills); setOpenOrders(d.orders); }
-      }).catch(() => {});
+    let stopPoll: (() => void) | null = null;
+    const startPoll = () => {
+      const load = () => {
+        if (inFlightRef.current || document.visibilityState !== "visible") return;
+        const sel = selRef.current, exp = expRef.current;
+        getEvent(parsed.ticker, { sel, exp, oo }).then((d) => {
+          if (cancelled) return;
+          setMarkets(d.markets); setLoaded(true);
+          const c = cache.current;
+          if (sel && d.book) c.books[sel] = d.book;
+          if (exp) { if (d.exp_book) c.books[exp] = d.exp_book; c.fills[exp] = d.fills; c.orders[exp] = d.orders; }
+          applyRef.current();
+        }).catch(() => {});
+      };
+      load();
+      const t = setInterval(load, 2000);
+      stopPoll = () => clearInterval(t);
     };
-    loadRef.current = load;
-    load();
-    const t = setInterval(load, 2000);
+    const stopStream = openEventStream(parsed.ticker, oo, {
+      onSnapshot: (snap) => {
+        if (cancelled) return;
+        cache.current = { books: snap.books, fills: snap.fills, orders: snap.orders };
+        setMarkets(snap.markets); setLoaded(true); applyRef.current();
+      },
+      onBook: (d) => {
+        if (cancelled) return;
+        const c = cache.current;
+        c.books[d.market] = d.book;
+        if (d.fills.length) c.fills[d.market] = [...d.fills.slice().reverse(), ...(c.fills[d.market] ?? [])].slice(0, 25);
+        if (d.orders) c.orders[d.market] = d.orders;
+        setMarkets((ms) => ms.map((m) => m.pubkey === d.market ? { ...m, mark: d.book.mark, yes_prob: d.book.yes_prob } : m));
+        applyRef.current();
+      },
+      onMarket: (m) => { if (!cancelled) setMarkets((ms) => ms.some((x) => x.pubkey === m.pubkey) ? ms.map((x) => x.pubkey === m.pubkey ? m : x) : [...ms, m]); },
+      onError: () => { if (cancelled) return; startPoll(); },
+    });
     const c = setInterval(() => force((x) => x + 1), 1000);
-    const onVis = () => { if (document.visibilityState === "visible") load(); };
-    document.addEventListener("visibilitychange", onVis);
-    return () => { cancelled = true; clearInterval(t); clearInterval(c); document.removeEventListener("visibilitychange", onVis); };
+    return () => { cancelled = true; stopStream(); stopPoll?.(); clearInterval(c); };
   }, [parsed.ticker, pubkey?.toBase58()]);
 
   // canonicalize shorthand slugs (/event/aapl → /event/aapl-close-above-on-…)
@@ -170,10 +196,9 @@ export default function EventPage() {
     initializedEventRef.current = eventKey;
   }, [active, eventKey]);
 
-  // selection changes: clear stale data and let the snapshot poller pick the
-  // new rows up (it reads selRef/expRef on every tick).
-  useEffect(() => { selRef.current = sel; setBook(null); loadRef.current(); }, [sel]);
-  useEffect(() => { expRef.current = expanded; setExpBook(null); setExpFills([]); setOpenOrders([]); loadRef.current(); }, [expanded]);
+  // selection changes are served from the client-side cache
+  useEffect(() => { selRef.current = sel; applyRef.current(); }, [sel]);
+  useEffect(() => { expRef.current = expanded; applyRef.current(); }, [expanded]);
   useEffect(() => setBookView(outcome), [outcome]);
 
   const toggleRow = (m: Market) => { setSel(m.pubkey); setExpanded((e) => (e === m.pubkey ? null : m.pubkey)); };
