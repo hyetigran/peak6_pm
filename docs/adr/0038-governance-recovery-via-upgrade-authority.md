@@ -86,3 +86,7 @@ new_governance, upgrade_authority }`), and auditable.
   `config.governance` `3UMRbMfx…` → `5PtCL76WaoBRtBzJnqjE7zgQ9GCeRsmRQNQoh8TxieRJ` (`keys/governance-5PtCL7….json`, backed up off-repo).
 - Strict build `d202536` sha256 `674de836…` deployed slot 487670270; `reset_governance` now fails with `InstructionFallbackNotFound` (0x65).
 - Still pending: operator / pause / override rotation by the new governance (step 4) and override settlement of the Saturday-close markets (step 6).
+- Step 4 done 2026-08-25 (`scripts/rotate-roles.ts`, governance `5PtCL7…` proposed, each key accepted):
+  operator `A6uh…` → `856VkxFUHL2RpAnbFpcAU87bYLGjuHskXaU2e41yGnVh` (`keys/operator-…`),
+  pause `3UMRb…` → governance `5PtCL7…`, override `3UMRb…` → `FXo9DwPaLXXWmh1BZ4EhW7MQZQBWX5TurgmmQy9p89qC` (`keys/override-…`).
+  Railway keeper `DEMO_CONFIG_JSON` updated to the new governance/operator secrets.
