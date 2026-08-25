@@ -79,3 +79,10 @@ new_governance, upgrade_authority }`), and auditable.
 - Follow-ups: seed script must refuse to run unless every generated
   authority is on disk (done, `f4b0e84`); record the recovery in
   `DEPLOYMENT.md` and the deployment manifest.
+
+**Execution record (devnet, 2026-08-25, all signed by `4XT7…`).**
+- Recovery build `d202536` sha256 `21d375fd…` deployed slot 487668883 (`solana program extend` +80000 bytes first).
+- `reset_governance` → `4iC5D9JdiX832bqs8J42QmWsKS3Pf4gnkRrGXMyBn1fJQn85M8goa2KZaxxxeiLRMrQgEDoWCsmgtfPkrvbohvVW`:
+  `config.governance` `3UMRbMfx…` → `5PtCL76WaoBRtBzJnqjE7zgQ9GCeRsmRQNQoh8TxieRJ` (`keys/governance-5PtCL7….json`, backed up off-repo).
+- Strict build `d202536` sha256 `674de836…` deployed slot 487670270; `reset_governance` now fails with `InstructionFallbackNotFound` (0x65).
+- Still pending: operator / pause / override rotation by the new governance (step 4) and override settlement of the Saturday-close markets (step 6).
