@@ -48,7 +48,7 @@ function guardKeyFiles(paths: string[]): void {
   }
 }
 import { resolveSeedConfig, assertStrictSchedule } from "./seed-config.js";
-import { deliveryPda, PYTH_ADAPTER_PID } from "../services/keeper/src/pyth-adapter.js";
+import { deliveryPda, PYTH_ADAPTER_PID, PYTH_FEED_IDS } from "../services/keeper/src/pyth-adapter.js";
 import { decodeOutcomeMarket } from "../services/indexer/src/layout.js";
 
 /** Load a keypair from a JSON secret-key file path, or null if unset. */
@@ -76,7 +76,33 @@ const SET: [number, string, number][] = [
 const STRIKE_BANDS_PCT = [-9, -6, -3, 3, 6, 9];
 const strikesFor = (prior: number): number[] =>
   [...new Set(STRIKE_BANDS_PCT.map((b) => Math.round((prior * (1 + b / 100)) / 10) * 10))].sort((a, b) => a - b);
-const DAY = 20260825;
+// DEMO_DAY=YYYYMMDD overrides the Trading Day label (default: the seeded batch's day).
+const DAY = Number(process.env.DEMO_DAY ?? 20260825);
+
+// DEMO_PRIORS=hermes replaces the hard-coded prior closes with the live Pyth
+// price of each ticker (so strikes sit around spot); DEMO_PRIORS="1=231,7=349"
+// sets them explicitly. Otherwise the table above is used.
+async function resolvePriors(set: [number, string, number][]): Promise<[number, string, number][]> {
+  const spec = process.env.DEMO_PRIORS;
+  if (!spec) return set;
+  if (spec !== "hermes") {
+    const map = new Map(spec.split(",").map((kv) => { const [k, v] = kv.split("="); return [Number(k), Number(v)] as const; }));
+    return set.map(([t, n, p]) => [t, n, map.get(t) ?? p]);
+  }
+  const ids = set.map(([t]) => PYTH_FEED_IDS[t]).filter(Boolean);
+  const url = `https://hermes.pyth.network/v2/updates/price/latest?${ids.map((i) => `ids[]=${i}`).join("&")}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`hermes ${res.status}`);
+  const parsed = (await res.json()).parsed as Array<{ id: string; price: { price: string; expo: number; publish_time: number } }>;
+  const byId = new Map(parsed.map((x) => [x.id, x]));
+  return set.map(([t, n, p]) => {
+    const x = byId.get(PYTH_FEED_IDS[t]);
+    if (!x) { console.warn(`[seed] no Hermes price for ${n}, keeping ${p}`); return [t, n, p]; }
+    const px = Number(x.price.price) * 10 ** x.price.expo;
+    console.log(`[seed] ${n} prior from Hermes: ${px.toFixed(2)} (published ${new Date(x.price.publish_time * 1000).toISOString()})`);
+    return [t, n, px];
+  });
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function send(ixs: TransactionInstruction[], signers: Keypair[]) {
@@ -158,7 +184,10 @@ async function main() {
   }
 
   const now = BigInt(Math.floor(Date.now() / 1000));
-  const to = now - 30n, mo = to - 1800n, cl = to + 6n * 3600n; // trading open, closes in ~6h
+  // DEMO_CLOSE_TS=<unix> pins the close (e.g. 16:00 ET so the Pyth capture lands
+  // inside RTH); default is open + 6h, which is only right when seeding pre-market.
+  const to = now - 30n, mo = to - 1800n, cl = process.env.DEMO_CLOSE_TS ? BigInt(process.env.DEMO_CLOSE_TS) : to + 6n * 3600n;
+  if (cl <= to + 1800n) throw new Error(`DEMO_CLOSE_TS ${cl} must be > trade_open + 30m (${to + 1800n})`);
   let created = 0, skipped = 0;
   const transports: Record<number, string> = {}; // tickerId -> delivery feed (needed to settle)
 
@@ -170,8 +199,9 @@ async function main() {
   const soonTickers = new Set(process.env.DEMO_SETTLE ? [3, 7] : []);
   // DEMO_TICKERS="3,7" restricts the seed to those ticker ids (fast e2e runs).
   const onlyTickers = process.env.DEMO_TICKERS ? new Set(process.env.DEMO_TICKERS.split(",").map(Number)) : null;
+  const PRIORS = await resolvePriors(SET);
   const FULL: [number, string, number, number[], bigint][] =
-    SET.filter(([t]) => !onlyTickers || onlyTickers.has(t))
+    PRIORS.filter(([t]) => !onlyTickers || onlyTickers.has(t))
       .map(([t, n, p]) => [t, n, p, strikesFor(p), soonTickers.has(t) ? soonClose : cl]);
 
   // Transport: localnet reads the harness mock feed by default. DEMO_ORACLE=pyth
