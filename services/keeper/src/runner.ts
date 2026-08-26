@@ -8,7 +8,9 @@
  *   - done          → mark completed (never runs again this trading day)
  *   - retry(reason) → back off and re-attempt later (e.g. Official Close not yet
  *                     published) — this is the "reschedule with backoff, don't
- *                     spin" requirement
+ *                     spin" requirement. The reason goes to `onRetry` so a
+ *                     stuck dependency is visible; unreported, a permanently
+ *                     failing job is indistinguishable from an idle keeper.
  *   - skip          → nothing to do now, no ledger change
  * A throw is treated as a retry (transient RPC/submit failure) so one bad tick
  * can't kill the runner. Abort (SIGTERM) drains the in-flight handler, then stops.
@@ -38,6 +40,11 @@ export interface RunSchedulerOpts {
   tickMs: number;
   /** Called after every ledger mutation so it can be flushed to durable storage. */
   persist?: (ledger: Ledger) => void;
+  /** Called whenever a job reports (or throws) a retry, with the now-current
+   *  consecutive attempt count from the ledger. Wire this to a log/alert sink:
+   *  a retry is otherwise invisible, and a permanently-failing dependency (a
+   *  dead oracle feed) looks exactly like a healthy idle keeper. */
+  onRetry?: (job: ScheduledJob, reason: string, attempt: number) => void;
   /** SIGTERM/shutdown. Drains the in-flight job, then resolves. */
   signal?: AbortSignal;
   /** Test affordance: stop once there is no outstanding (due or backing-off) work. */
@@ -47,7 +54,7 @@ export interface RunSchedulerOpts {
 }
 
 export async function runScheduler(opts: RunSchedulerOpts): Promise<void> {
-  const { listJobs, handlers, ledger, now, sleep, tickMs, persist, signal } = opts;
+  const { listJobs, handlers, ledger, now, sleep, tickMs, persist, signal, onRetry } = opts;
   const flush = () => persist?.(ledger);
   let ticks = 0;
 
@@ -71,7 +78,10 @@ export async function runScheduler(opts: RunSchedulerOpts): Promise<void> {
         outcome = { status: "retry", reason: (e as Error).message };
       }
       if (outcome.status === "done") markCompleted(ledger, job, now());
-      else if (outcome.status === "retry") recordRetry(ledger, job, now());
+      else if (outcome.status === "retry") {
+        recordRetry(ledger, job, now());
+        onRetry?.(job, outcome.reason ?? "no reason given", ledger.attempts[jobId(job)]?.count ?? 1);
+      }
       // skip: no ledger change
       if (outcome.status !== "skip") flush();
     }

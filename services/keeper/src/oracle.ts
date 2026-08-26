@@ -8,6 +8,8 @@
  *   pyth    (KEEPER_ORACLE=pyth, devnet): Hermes pull -> post PriceUpdateV2 ->
  *     crank the adapter that OWNS the delivery account. Deps are dynamically
  *     imported so localnet never loads them. Capture-at-close policy per #26.
+ *     Hermes price-update reads need auth: set PYTH_HERMES_TOKEN (Bearer) and
+ *     optionally PYTH_HERMES_URL. Without a token every settlement retries.
  *
  * Returns the Official Close actually delivered on-chain (in pyth mode the real
  * Pyth price, not the advisory `mockClose1e6`).
@@ -40,11 +42,28 @@ export async function buildOracleRefresh(opts: {
   const maxAge = process.env.KEEPER_PYTH_MAX_AGE_SECS ? BigInt(process.env.KEEPER_PYTH_MAX_AGE_SECS) : undefined;
   const wallet: any = { publicKey: op.publicKey, payer: op, signTransaction: async (t: any) => { t.sign([op]); return t; }, signAllTransactions: async (t: any[]) => { t.forEach((x) => x.sign([op])); return t; } };
   const receiver = new PythSolanaReceiver({ connection: conn, wallet });
-  const hermes = new HermesClient("https://hermes.pyth.network");
-  log(`oracle = pyth (Hermes pull -> post -> adapter crank; capture=${capture})`);
+  // Hermes requires an access token for /v2/updates/price/* (a bare public read
+  // 401s). PYTH_HERMES_TOKEN is sent as a Bearer header by the client;
+  // PYTH_HERMES_URL points at a self-hosted or provider Hermes instead.
+  const hermesUrl = process.env.PYTH_HERMES_URL?.trim() || "https://hermes.pyth.network";
+  const hermesToken = process.env.PYTH_HERMES_TOKEN?.trim() || undefined;
+  const hermes = new HermesClient(hermesUrl, hermesToken ? { accessToken: hermesToken } : {});
+  if (!hermesToken) log(`WARNING: PYTH_HERMES_TOKEN is unset — ${hermesUrl} will 401 on price updates and every settlement will retry`);
+  log(`oracle = pyth (Hermes pull -> post -> adapter crank; capture=${capture}; hermes=${hermesUrl} ${hermesToken ? "with token" : "NO TOKEN"})`);
   return async (tickerId, feed, closeTs) => {
     const w = captureWindow({ closeTs, now: Math.floor(Date.now() / 1000), mode: capture, latestMaxAgeSecs: maxAge });
-    const txs = await buildPythCrankTxs({ receiver, hermes, cranker: op.publicKey, tickerId, maxAgeSecs: w.maxAgeSecs, publishTime: w.publishTime });
+    let txs;
+    try {
+      txs = await buildPythCrankTxs({ receiver, hermes, cranker: op.publicKey, tickerId, maxAgeSecs: w.maxAgeSecs, publishTime: w.publishTime });
+    } catch (e) {
+      // Annotate the auth failure — otherwise it surfaces as an opaque fetch error
+      // inside a retry reason and looks like a transient blip forever.
+      const msg = (e as Error).message ?? String(e);
+      if (/\b401\b|unauthorized|\b403\b|forbidden/i.test(msg)) {
+        throw new Error(`Hermes rejected the request as unauthorized (${hermesUrl}); ${hermesToken ? "PYTH_HERMES_TOKEN is set but not accepted" : "PYTH_HERMES_TOKEN is unset"}: ${msg.slice(0, 120)}`);
+      }
+      throw e;
+    }
     for (const { tx, signers } of txs) { tx.sign([op, ...signers]); await conn.confirmTransaction(await conn.sendTransaction(tx), "confirmed"); }
     const info = await conn.getAccountInfo(feed);
     if (!info) throw new Error("pyth: delivery account not written");
