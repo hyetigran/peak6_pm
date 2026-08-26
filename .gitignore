@@ -91,3 +91,9 @@ services/indexer/.indexer-devnet.sqlite*
 
 .mm-devnet-state.json
 mm-devnet.json
+
+# Vercel CLI link metadata (contains project/org ids). `vercel link` also
+# appends a bare `.env*` here — do NOT keep it: it sorts after the
+# `!.env.example` negations at the top of this file and silently re-ignores
+# every .env.example. `.env` / `.env.*` above already cover .env.local.
+.vercel

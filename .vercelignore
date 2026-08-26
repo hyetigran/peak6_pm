@@ -1,0 +1,59 @@
+# What the Vercel CLI may NOT upload from the repo root.
+#
+# The project's Root Directory is `frontend`, but `vercel` uploads the whole
+# working directory before building — so without this file a deploy both fails
+# and over-shares:
+#
+#   - .validator/admin.rpc is a live Solana test-validator socket; the uploader
+#     cannot read a FIFO and the deploy dies with "Unknown system error -102".
+#   - keys/, wallets/, .demo-config.json and .demo-faucet.json hold SECRET KEYS.
+#     Nothing in the browser bundle needs them and they must never leave the box.
+#
+# The frontend has no workspace dependencies (all deps are npm), so everything
+# outside frontend/ can go.
+
+# --- secrets: never upload ---
+.env
+.env.*
+!.env.example
+keys/
+wallets/
+.demo-config.json
+.demo-config.json.bak-*
+.demo-faucet.json
+.demo-faucet.json.bak-*
+*.keypair.json
+.keeper*.json
+.mm-status.json
+
+# --- local validator state (contains sockets/FIFOs the uploader cannot read) ---
+.validator*/
+.pyth-validator/
+
+# --- build output and local state ---
+target/
+node_modules/
+**/node_modules/
+**/*.sqlite
+**/*.sqlite-*
+logs/
+*.log
+
+# --- backend + tooling the browser bundle never imports ---
+services/
+programs/
+packages/
+scripts/
+tests/
+fixtures/
+docs/
+design_mockups/
+.claude/
+.cursor/
+memory-bank/
+Cargo.lock
+Cargo.toml
+Anchor.toml
+Dockerfile
+Makefile
+*.md
