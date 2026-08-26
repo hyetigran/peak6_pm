@@ -51,7 +51,9 @@ export async function selectCloseUpdate<U>(
       const r = await fetchAt(t);
       if (isWithinCloseWindow(r.publishTime, closeTs)) return r;
       seen.push(`@${t}->${r.publishTime}`);
-    } catch (e) { seen.push(`@${t}->${(e as Error).message.slice(0, 40)}`); }
+    // Keep enough of the probe error to name the cause (an auth rejection reads
+    // "... 401 unauthorized" — truncating to 40 chars hid exactly that).
+    } catch (e) { seen.push(`@${t}->${(e as Error).message.slice(0, 90)}`); }
   }
   throw new Error(`no Pyth update within the close window [${closeTs - OBSERVED_BEFORE_CLOSE_MAX_SECS}, ${closeTs + OBSERVED_AFTER_CLOSE_MAX_SECS}]: ${seen.join(" ")}`);
 }

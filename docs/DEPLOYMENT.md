@@ -164,6 +164,7 @@ Volume each at `/data`: indexer `INDEXER_DB=/data/indexer.sqlite`; keeper `KEEPE
 | `KEEPER_LEDGER` / `KEEPER_LOCK` | — | `/data/…` |
 | `KEEPER_STATUS` | — | `/tmp/keeper-status.json` |
 | `KEEPER_PYTH_CAPTURE` | — | `at-close` |
+| `PYTH_HERMES_TOKEN` | — | **required** — Hermes Bearer token (secret); without it every settlement retries forever |
 | `KEEPER_SCHED_TICK_SECS` | — | `60` |
 
 ```bash
@@ -174,6 +175,8 @@ railway up
 ```
 
 Indexer binds `::` (Railway IPv6 DNS). Keep the keeper private. A public indexer domain exposes `/admin/*` and `/faucet/*` unless you gate them.
+
+Hermes `/v2/updates/price/*` returns 401 without a token, and a failed oracle pull surfaces only as a job `retry` — the keeper stays "Online" and silent while nothing settles and no new session is created. Set `PYTH_HERMES_TOKEN` before expecting a settlement, and watch for `[keeper][slo:escalate] settlement … retry #n` lines.
 
 Verify: indexer `GET /health` `ok: true`, small `lag`; `GET /markets` lists seeded Outcome Markets. Keeper logs `oracle = pyth` and ticks; at `close_ts` it finalizes + settles. Confirm `DEMO_CONFIG_JSON` / `RPC_URL` are secrets.
 

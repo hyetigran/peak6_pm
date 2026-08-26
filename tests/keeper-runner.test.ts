@@ -106,3 +106,38 @@ test("persist callback is invoked after each ledger change so the ledger survive
   });
   assert.ok(persists >= 1, "the completed job was persisted");
 });
+
+test("onRetry reports every retry with its reason and a rising attempt count", async () => {
+  const clock = fakeClock(10_000);
+  const ledger = newLedger();
+  const seen: { reason: string; attempt: number; kind: string }[] = [];
+  let attempts = 0;
+  await runScheduler({
+    listJobs: async () => [job({ fireAtMs: 0 })],
+    handlers: {
+      settlement: async () => { attempts++; return attempts < 3 ? { status: "retry", reason: "hermes 401" } : { status: "done" }; },
+      "market-open": async () => ({ status: "done" }),
+    },
+    ledger, now: clock.now, sleep: clock.sleep, tickMs: 1000, stopWhenIdle: true, maxTicks: 100,
+    onRetry: (j, reason, attempt) => seen.push({ reason, attempt, kind: j.kind }),
+  });
+  assert.deepEqual(seen.map((s) => s.attempt), [1, 2], "one report per retry, counting up");
+  assert.ok(seen.every((s) => s.reason === "hermes 401" && s.kind === "settlement"));
+});
+
+test("a throwing handler still reports the throw message through onRetry", async () => {
+  const clock = fakeClock(10_000);
+  const ledger = newLedger();
+  const seen: string[] = [];
+  let attempts = 0;
+  await runScheduler({
+    listJobs: async () => [job({ fireAtMs: 0 })],
+    handlers: {
+      settlement: async () => { attempts++; if (attempts === 1) throw new Error("hermes unauthorized"); return { status: "done" }; },
+      "market-open": async () => ({ status: "done" }),
+    },
+    ledger, now: clock.now, sleep: clock.sleep, tickMs: 1000, stopWhenIdle: true, maxTicks: 100,
+    onRetry: (_j, reason) => seen.push(reason),
+  });
+  assert.deepEqual(seen, ["hermes unauthorized"], "a thrown dependency failure is surfaced, not swallowed");
+});

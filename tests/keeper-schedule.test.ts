@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import {
   jobId, settlementFireAtMs, marketOpenFireAtMs, planJobs, dueJobs, backoffMs,
   MARKET_OPEN_AFTER_RESOLUTION_SECS, newLedger, markCompleted, recordRetry, isCompleted, marketOpenJobsFromLedger,
+  marketOpenJobsFromMarkets, mergeJobs, type MarketRow, type ScheduledJob,
 } from "../services/keeper/src/schedule.js";
 
 const S = 1000;
@@ -111,4 +112,50 @@ test("marketOpenJobsFromLedger: not re-emitted once the market-open itself compl
 
 test("marketOpenJobsFromLedger: nothing before any settlement completes", () => {
   assert.equal(marketOpenJobsFromLedger(newLedger()).length, 0);
+});
+
+test("market-open is emitted for a day settled OUT-OF-BAND (override path), not just ledger-chained", () => {
+  const ledger = newLedger();
+  // TSLA (7) settled by this keeper; AAPL (1) settled by the Override Authority,
+  // so it never reached the ledger. Both days are fully settled on-chain.
+  markCompleted(ledger, { kind: "settlement", day: 20260826, tickerId: 7 }, 1_000);
+  const markets: MarketRow[] = [
+    { ticker_id: 7, trading_day: 20260826, close_ts: 100, normal_settlement_delay_secs: 1200, settled_ts: 900 },
+    { ticker_id: 1, trading_day: 20260826, close_ts: 100, normal_settlement_delay_secs: 1200, settled_ts: 950 },
+    { ticker_id: 1, trading_day: 20260826, close_ts: 100, normal_settlement_delay_secs: 1200, settled_ts: 960 },
+  ];
+  const ids = marketOpenJobsFromMarkets(markets, ledger).map(jobId).sort();
+  assert.deepEqual(ids, ["market-open:20260826:1", "market-open:20260826:7"],
+    "the override-settled ticker gets a market-open job too");
+  const aapl = marketOpenJobsFromMarkets(markets, ledger).find((j) => j.tickerId === 1)!;
+  assert.equal(aapl.fireAtMs, 960 * 1000 + MARKET_OPEN_AFTER_RESOLUTION_SECS * 1000,
+    "fires off the LAST settlement in the group");
+});
+
+test("a partially settled (ticker, day) yields no market-open job", () => {
+  const markets: MarketRow[] = [
+    { ticker_id: 1, trading_day: 20260826, close_ts: 100, normal_settlement_delay_secs: 1200, settled_ts: 950 },
+    { ticker_id: 1, trading_day: 20260826, close_ts: 100, normal_settlement_delay_secs: 1200, settled_ts: null },
+  ];
+  assert.deepEqual(marketOpenJobsFromMarkets(markets, newLedger()), [], "waits until every market in the group is settled");
+});
+
+test("an already-completed market-open is not re-emitted from observed state", () => {
+  const ledger = newLedger();
+  markCompleted(ledger, { kind: "market-open", day: 20260826, tickerId: 1 }, 1_000);
+  const markets: MarketRow[] = [
+    { ticker_id: 1, trading_day: 20260826, close_ts: 100, normal_settlement_delay_secs: 1200, settled_ts: 950 },
+  ];
+  assert.deepEqual(marketOpenJobsFromMarkets(markets, ledger), [], "ledger still de-dupes");
+});
+
+test("mergeJobs unions by id and keeps the earliest fire time", () => {
+  const a: ScheduledJob[] = [{ kind: "market-open", day: 20260826, tickerId: 1, fireAtMs: 5_000 }];
+  const b: ScheduledJob[] = [
+    { kind: "market-open", day: 20260826, tickerId: 1, fireAtMs: 2_000 },
+    { kind: "settlement", day: 20260826, tickerId: 2, fireAtMs: 9_000 },
+  ];
+  const out = mergeJobs(a, b).sort((x, y) => jobId(x).localeCompare(jobId(y)));
+  assert.equal(out.length, 2, "duplicate ids collapse");
+  assert.equal(out[0].fireAtMs, 2_000, "earliest fire time wins");
 });

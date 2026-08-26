@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { getEvent, openEventStream, marketPhase, parseEventSlug, eventUrl, type Market, type Book, type MarketFill, type OpenOrder } from "@/lib/api";
-import { usd, countdown } from "@/lib/format";
+import { usd, countdown, tradingDayLabel, isTodayET } from "@/lib/format";
 import { useWallet } from "@/lib/wallet";
 import * as mx from "@/lib/meridian";
 import { OrderPanel, type Outcome, type Side } from "@/components/trade/OrderPanel";
@@ -224,7 +224,12 @@ export default function EventPage() {
         <div className="hd event-header" style={{ alignItems: "flex-start", gap: 20 }}>
           <div style={{ minWidth: 0 }}>
             <div className="sub" style={{ fontSize: 14 }}>Equities · {NAMES[ticker] ?? "MAG7"} · 0DTE</div>
-            <h1 style={{ fontSize: 28, marginTop: 4 }}>{ticker} closes above __ today?</h1>
+            {/* Never hardcode "today": market-open creates the NEXT session
+                minutes after the current one settles, so an event opened after
+                4pm ET is asking about tomorrow. Say which session it is. */}
+            <h1 style={{ fontSize: 28, marginTop: 4 }}>
+              {ticker} closes above __ {eventDay ? (isTodayET(eventDay) ? "today" : `on ${tradingDayLabel(eventDay)}`) : ""}?
+            </h1>
           </div>
           <div className="statpill" style={{ textAlign: "right" }}>
             <div className="k">{settledEvent ? "Status" : "Time to close"}</div>

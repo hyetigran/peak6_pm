@@ -25,7 +25,13 @@ async function main() {
     signAllTransactions: async (txs: any[]) => { txs.forEach((t) => t.sign([payer])); return txs; },
   };
   const receiver = new PythSolanaReceiver({ connection: conn, wallet });
-  const hermes = new HermesClient("https://hermes.pyth.network");
+  // Same auth as the keeper's oracle path: Hermes price-update reads 401 keyless.
+  const hermesToken = process.env.PYTH_HERMES_TOKEN?.trim() || undefined;
+  if (!hermesToken) console.warn("[e2e] PYTH_HERMES_TOKEN unset — Hermes will reject the pull with 401");
+  const hermes = new HermesClient(
+    process.env.PYTH_HERMES_URL?.trim() || "https://hermes.pyth.network",
+    hermesToken ? { accessToken: hermesToken } : {},
+  );
 
   const tickerId = Number(process.argv[2] ?? 1); // 1=AAPL
   console.log(`[e2e] pull Hermes -> post PriceUpdateV2 -> adapter crank (ticker ${tickerId})`);

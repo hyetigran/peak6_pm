@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getMarkets, marketPhase, type Market } from "@/lib/api";
-import { strikeUsd, usd, countdown } from "@/lib/format";
+import { strikeUsd, usd, countdown, tradingDayLabel } from "@/lib/format";
 
 type RailKey = "all" | "daily";
 
@@ -54,12 +54,6 @@ const RAIL_ITEMS: RailItem[] = [
 
 const FILTERS = ["All", "AAPL", "AMZN", "GOOGL", "META", "MSFT", "NVDA", "TSLA"];
 
-function tradingDayLabel(day: number) {
-  const year = Math.floor(day / 10000);
-  const month = Math.floor(day / 100) % 100;
-  const date = day % 100;
-  return new Date(Date.UTC(year, month - 1, date)).toLocaleDateString("en-US", { month: "long", day: "numeric" });
-}
 
 function filterMarket(m: Market, filter: string) {
   if (filter !== "All") return m.ticker === filter;

@@ -1,0 +1,51 @@
+{
+  "kind": "MANUAL_CLOSE",
+  "cluster": "devnet",
+  "program": "HiREMEBWNojy6KJNbMbww2YkRJEYLGMgndaKwXndK6ZD",
+  "trading_day_label": 20260826,
+  "close_ts": 1787774400,
+  "reason_code": 1,
+  "rationale": "The Settlement Records for this trading day pin the Pyth adapter as their immutable oracle transport. On 2026-08-26 16:00 UTC Pyth made Hermes authentication mandatory and placed US equity spot feeds behind a paid Pro entitlement, so the pinned feed returns 403 Not entitled and finalize_settlement_normal can never satisfy the Settlement Quality Predicate for these records. The Official Close below is therefore attested by the Override Authority from TWO independent public sources that agreed to the cent. These are REAL corroborated closing prices, not sentinels — but they carry operator attestation, NOT a Pyth publisher signature, and must be read that way.",
+  "signed_by_role": "override_authority",
+  "override_authority": "FXo9DwPaLXXWmh1BZ4EhW7MQZQBWX5TurgmmQy9p89qC",
+  "sources": {
+    "a": "Yahoo Finance v8 chart API (daily bar, last close)",
+    "b": "CNBC quote-html-webservice restQuote (last)"
+  },
+  "captured_at": "2026-08-26T23:11:50.703Z",
+  "closes": {
+    "META": {
+      "record": "5ALd57Bt4X4kmQjbRn7UzreGLqZ1ZsbBzQEmSwTxj1SX",
+      "markets": 1,
+      "source_a_raw": "576.1400146484375",
+      "source_b_raw": "576.14",
+      "source_a_1e6": 576140000,
+      "source_b_1e6": 576140000,
+      "source_a_day": "2026-08-26",
+      "source_b_day": "2026-08-26",
+      "agreed": true
+    },
+    "MSFT": {
+      "record": "9g8kPhca874DunVkxczwQbGHFGo17nyFzqU6mNXPR1YJ",
+      "markets": 6,
+      "source_a_raw": "496.3699951171875",
+      "source_b_raw": "496.37",
+      "source_a_1e6": 496370000,
+      "source_b_1e6": 496370000,
+      "source_a_day": "2026-08-26",
+      "source_b_day": "2026-08-26",
+      "agreed": true
+    },
+    "NVDA": {
+      "record": "G6yJTvwevyF1zkgGUSW15x5aPPyUB2bjgQChLBqVMXCq",
+      "markets": 4,
+      "source_a_raw": "209.66000366210938",
+      "source_b_raw": "209.66",
+      "source_a_1e6": 209660000,
+      "source_b_1e6": 209660000,
+      "source_a_day": "2026-08-26",
+      "source_b_day": "2026-08-26",
+      "agreed": true
+    }
+  }
+}
