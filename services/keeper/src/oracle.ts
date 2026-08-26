@@ -56,10 +56,16 @@ export async function buildOracleRefresh(opts: {
     try {
       txs = await buildPythCrankTxs({ receiver, hermes, cranker: op.publicKey, tickerId, maxAgeSecs: w.maxAgeSecs, publishTime: w.publishTime });
     } catch (e) {
-      // Annotate the auth failure — otherwise it surfaces as an opaque fetch error
-      // inside a retry reason and looks like a transient blip forever.
+      // Annotate the failure — otherwise it surfaces as an opaque fetch error
+      // inside a retry reason and looks like a transient blip forever. 401 and
+      // 403 need OPPOSITE fixes, so never collapse them: a missing token is a
+      // config error, an entitlement gap is a billing one, and reading the
+      // second as the first sends you chasing a perfectly good key.
       const msg = (e as Error).message ?? String(e);
-      if (/\b401\b|unauthorized|\b403\b|forbidden/i.test(msg)) {
+      if (/not entitled|no grant accepts|\b403\b|forbidden/i.test(msg)) {
+        throw new Error(`Hermes accepted the token but the plan is NOT ENTITLED to ticker ${tickerId}'s feed — US equity spot needs a Pyth Pro equities grant (Free/Starter are crypto-only): ${msg.slice(0, 160)}`);
+      }
+      if (/\b401\b|unauthorized/i.test(msg)) {
         throw new Error(`Hermes rejected the request as unauthorized (${hermesUrl}); ${hermesToken ? "PYTH_HERMES_TOKEN is set but not accepted" : "PYTH_HERMES_TOKEN is unset"}: ${msg.slice(0, 120)}`);
       }
       throw e;
