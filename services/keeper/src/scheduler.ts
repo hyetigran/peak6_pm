@@ -39,7 +39,7 @@ import { fixtureSource, type CorporateAction, type CorporateActionSource } from 
 import { evaluateEligibility, revalidationPlan, type GateMarket } from "./eligibility.js";
 import { decodeRecordForOpen, planOpen, createMarketsForPlan } from "./market-open.js";
 import { configPda } from "@meridian/sdk/meridian";
-import { newLedger, planJobs, marketOpenJobsFromLedger, type Ledger, type MarketRow, type ScheduledJob } from "./schedule.js";
+import { newLedger, planJobs, marketOpenJobsFromLedger, marketOpenJobsFromMarkets, mergeJobs, type Ledger, type MarketRow, type ScheduledJob } from "./schedule.js";
 
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8899";
 const INDEXER = process.env.KEEPER_INDEXER ?? "http://127.0.0.1:8787";
@@ -380,7 +380,10 @@ async function main() {
       const markets = (await getJson("/markets")).markets as MarketRow[];
       // settlement jobs from unsettled markets; market-open jobs chained off
       // each completed settlement (resolution+5m) — both genuinely scheduled.
-      return [...planJobs(markets), ...marketOpenJobsFromLedger(ledger)];
+      // Market-open from BOTH sources: this keeper's own completed settlements,
+      // and any (ticker, day) the indexer already shows fully settled — the
+      // latter catches a day finalized out-of-band via the Override Authority.
+      return mergeJobs(planJobs(markets), marketOpenJobsFromLedger(ledger), marketOpenJobsFromMarkets(markets, ledger));
     },
     handlers: { settlement, "market-open": marketOpen },
     ledger, now: Date.now, sleep: (ms) => new Promise((r) => setTimeout(r, ms)),

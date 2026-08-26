@@ -124,6 +124,49 @@ export function marketOpenJobsFromLedger(l: Ledger): ScheduledJob[] {
   return jobs;
 }
 
+/** Market-open jobs derived from OBSERVED settlement rather than from this
+ *  keeper's own ledger.
+ *
+ *  marketOpenJobsFromLedger only chains off a settlement THIS keeper completed.
+ *  A day finalized out-of-band — most importantly through the Override Authority
+ *  path (finalize_settlement_manual), which exists precisely for when the pinned
+ *  oracle transport cannot deliver — never lands in the ledger, so its next
+ *  session would never be created. That is exactly what happened on 2026-08-26:
+ *  TSLA settled through Pyth and rolled forward, while the six tickers settled
+ *  via override silently did not.
+ *
+ *  A (ticker, day) qualifies once EVERY market in it is settled; the fire time
+ *  is the last settlement + the ADR-0032 offset. The ledger still de-dupes, so
+ *  this is additive and a day chained the normal way is not re-emitted. */
+export function marketOpenJobsFromMarkets(markets: MarketRow[], l: Ledger): ScheduledJob[] {
+  const groups = new Map<string, { key: JobKey; lastSettledTs: number; complete: boolean }>();
+  for (const m of markets) {
+    const key: JobKey = { kind: "market-open", day: m.trading_day, tickerId: m.ticker_id };
+    const id = jobId(key);
+    const g = groups.get(id) ?? { key, lastSettledTs: 0, complete: true };
+    if (!m.settled_ts) g.complete = false;
+    else g.lastSettledTs = Math.max(g.lastSettledTs, Number(m.settled_ts));
+    groups.set(id, g);
+  }
+  const jobs: ScheduledJob[] = [];
+  for (const g of groups.values()) {
+    if (!g.complete || g.lastSettledTs <= 0) continue;
+    if (isCompleted(l, g.key)) continue;
+    jobs.push({ ...g.key, fireAtMs: marketOpenFireAtMs(g.lastSettledTs * 1000) });
+  }
+  return jobs;
+}
+
+/** Union two job lists, keeping the EARLIEST fire time per job id. */
+export function mergeJobs(...lists: ScheduledJob[][]): ScheduledJob[] {
+  const byId = new Map<string, ScheduledJob>();
+  for (const j of lists.flat()) {
+    const prev = byId.get(jobId(j));
+    if (!prev || j.fireAtMs < prev.fireAtMs) byId.set(jobId(j), j);
+  }
+  return [...byId.values()];
+}
+
 /** Jobs whose fire time has arrived, not completed, and not currently backing off. */
 export function dueJobs(jobs: ScheduledJob[], nowMs: number, l: Ledger): ScheduledJob[] {
   return jobs.filter((j) => {
