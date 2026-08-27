@@ -125,7 +125,7 @@ export default function EventPage() {
   // market of the ticker are cached client-side, so switching rows is local.
   // If the stream can't be established, fall back to the 2s /event snapshot
   // poll (skipped while a tx is in flight or the tab is hidden).
-  const { pubkey, inFlight } = useWallet();
+  const { pubkey, inFlight, prefetchMints } = useWallet();
   const inFlightRef = useRef(inFlight); inFlightRef.current = inFlight;
   const selRef = useRef<string | null>(null), expRef = useRef<string | null>(null);
   const cache = useRef<{ books: Record<string, Book>; fills: Record<string, MarketFill[]>; orders: Record<string, OpenOrder[]> }>({ books: {}, fills: {}, orders: {} });
@@ -200,6 +200,14 @@ export default function EventPage() {
   useEffect(() => { selRef.current = sel; applyRef.current(); }, [sel]);
   useEffect(() => { expRef.current = expanded; applyRef.current(); }, [expanded]);
   useEffect(() => setBookView(outcome), [outcome]);
+
+  // Warm every YES/NO ATA for this event in one (or, above 100 accounts, a few)
+  // batched reads. Selecting a strike then needs no account lookup just to show
+  // its balance or build the order ticket.
+  useEffect(() => {
+    if (!pubkey || mine.length === 0) return;
+    void prefetchMints(mine.flatMap((m) => [m.yes_mint, m.no_mint]));
+  }, [pubkey?.toBase58(), mine, prefetchMints]);
 
   const toggleRow = (m: Market) => { setSel(m.pubkey); setExpanded((e) => (e === m.pubkey ? null : m.pubkey)); };
   const pickBuy = (m: Market, o: Outcome) => {

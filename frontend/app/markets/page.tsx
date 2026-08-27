@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getMarkets, marketPhase, type Market } from "@/lib/api";
 import { strikeUsd, usd, countdown, tradingDayLabel } from "@/lib/format";
+import { useWallet } from "@/lib/wallet";
 
 type RailKey = "all" | "daily";
 
@@ -114,6 +115,7 @@ function RailButton({ item, active, liveCount, onClick }: { item: RailItem; acti
 }
 
 function MarketCard({ group }: { group: MarketGroup }) {
+  const { prefetchMints } = useWallet();
   const ref = REF[group.ticker] ?? { name: "Market" };
   const primaryMark = group.primary.mark != null ? Math.round(group.primary.mark) : null;
   const volume = group.allMarkets.reduce((a, m) => a + BigInt(m.volume_atoms ?? m.collateral_liability_atoms), 0n);
@@ -121,9 +123,13 @@ function MarketCard({ group }: { group: MarketGroup }) {
   const phase = marketPhase(group.primary);
   const tone = primaryMark == null ? "neutral" : primaryMark >= 50 ? "yes" : "no";
   const href = `/trade/${group.primary.pubkey}`;
+  const prefetchEventBalances = () => {
+    void prefetchMints(group.allMarkets.flatMap((m) => [m.yes_mint, m.no_mint]));
+  };
 
   return (
-    <Link href={href} className="market-card" aria-label={`Trade ${ref.name} ${group.ticker} daily close markets`}>
+    <Link href={href} className="market-card" aria-label={`Trade ${ref.name} ${group.ticker} daily close markets`}
+      onMouseEnter={prefetchEventBalances} onFocus={prefetchEventBalances}>
       <div className="market-card-head">
         <div className="market-card-avatar" data-tone={tone}>{group.ticker.slice(0, 3)}</div>
         <div className="market-card-title-wrap">

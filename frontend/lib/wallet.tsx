@@ -33,6 +33,8 @@ interface WalletCtx {
   quoteMint: PublicKey | null;
   /** token balance of the wallet's ATA for `mint` (registers it with the shared poller) */
   watchMint: (mint: string) => void;
+  /** Warm token-account balances in one batched RPC request without registering a poller. */
+  prefetchMints: (mints: string[]) => Promise<void>;
   balances: Record<string, bigint>;
 }
 const Ctx = createContext<WalletCtx | null>(null);
@@ -58,12 +60,21 @@ function Bridge({ children }: { children: React.ReactNode }) {
   const [quoteMint, setQuoteMint] = useState<PublicKey | null>(null);
   const [balances, setBalances] = useState<Record<string, bigint>>({});
   const watched = useRef<Set<string>>(new Set());
+  const prefetched = useRef<Set<string>>(new Set());
   const [watchedVersion, bumpWatched] = useState(0);
 
   useEffect(() => { if (!adapter.connected) setBurner(loadBurner()); }, [adapter.connected]);
 
   const external = adapter.connected && !!adapter.publicKey;
   const pubkey = external ? adapter.publicKey! : burner?.publicKey ?? null;
+
+  // A prefetched balance belongs to one wallet only. Do not show a prior
+  // wallet's cached token balances while the new wallet's RPC reads land.
+  useEffect(() => {
+    watched.current.clear();
+    prefetched.current.clear();
+    setBalances({});
+  }, [pubkey?.toBase58()]);
 
   // Quote mint from Config: one read, shared by every component (retried until it lands).
   useEffect(() => {
@@ -89,7 +100,7 @@ function Bridge({ children }: { children: React.ReactNode }) {
       setSol((infos[0]?.lamports ?? 0) / 1e9);
       const next: Record<string, bigint> = {};
       mints.forEach((m, i) => { const info = infos[i + 1]; next[m] = info ? info.data.readBigUInt64LE(64) : 0n; });
-      setBalances(next);
+      setBalances((prev) => ({ ...prev, ...next }));
     } catch {}
   }, [pubkey?.toBase58(), connection, watchedVersion]);
   useEffect(() => {
@@ -103,6 +114,28 @@ function Bridge({ children }: { children: React.ReactNode }) {
     if (watched.current.has(mint)) return;
     watched.current.add(mint); bumpWatched((v) => v + 1);
   }, []);
+  const prefetchMints = useCallback(async (mints: string[]) => {
+    if (!pubkey) return;
+    const missing = [...new Set(mints)].filter((mint) => !prefetched.current.has(mint));
+    if (missing.length === 0) return;
+    // Mark before the request so repeated hover/fetch effects coalesce while it is in flight.
+    missing.forEach((mint) => prefetched.current.add(mint));
+    const owner = pubkey.toBase58();
+    try {
+      const next: Record<string, bigint> = {};
+      // Solana limits getMultipleAccounts to 100 accounts per request.
+      for (let i = 0; i < missing.length; i += 100) {
+        const batch = missing.slice(i, i + 100);
+        const infos = await connection.getMultipleAccountsInfo(batch.map((mint) => ataFor(new PublicKey(mint), pubkey)));
+        batch.forEach((mint, j) => { next[mint] = infos[j] ? infos[j]!.data.readBigUInt64LE(64) : 0n; });
+      }
+      if (owner === (external ? adapter.publicKey?.toBase58() : burner?.publicKey.toBase58()))
+        setBalances((prev) => ({ ...prev, ...next }));
+    } catch {
+      // Permit a later event-load or hover to retry a transient rate-limit error.
+      missing.forEach((mint) => prefetched.current.delete(mint));
+    }
+  }, [pubkey?.toBase58(), connection, external, adapter.publicKey?.toBase58(), burner?.publicKey.toBase58()]);
 
   const connect = useCallback(() => { setBurner(null); setVisible(true); }, [setVisible]);
   const connectBurner = useCallback(async () => {
@@ -163,9 +196,9 @@ function Bridge({ children }: { children: React.ReactNode }) {
   }, [pubkey?.toBase58(), external, adapter, connection, burner, refresh]);
 
   const value = useMemo<WalletCtx>(() => ({
-    pubkey, sol, external, connect, connectBurner, disconnect, send, conn: connection, refresh,
+    pubkey, sol, external, connect, connectBurner, disconnect, send, conn: connection, refresh, prefetchMints,
     inFlight, quoteMint, watchMint, balances,
-  }), [pubkey?.toBase58(), sol, external, connect, connectBurner, disconnect, send, connection, refresh, inFlight, quoteMint?.toBase58(), watchMint, balances]);
+  }), [pubkey?.toBase58(), sol, external, connect, connectBurner, disconnect, send, connection, refresh, prefetchMints, inFlight, quoteMint?.toBase58(), watchMint, balances]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
